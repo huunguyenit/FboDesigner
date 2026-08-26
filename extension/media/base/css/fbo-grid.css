@@ -1,0 +1,296 @@
+/* fbo-grid.css — CSS lưới, NHẬP TỪ RUNTIME.
+ *
+ * Trích từ CSS thật của FBO đang chạy (`.temp/Hóa đơn bán hàng_files/WebResource(2).axd`).
+ *
+ * Bản trước mở đầu bằng «Adapt từ …», và chữ *adapt* đó đúng theo nghĩa xấu: nó gộp thêm hai
+ * selector KHÔNG có ở runtime — `.GridTable th` và `.GridTable td` — rồi treo vào đấy một tá
+ * thuộc tính tự nghĩ ra. Vì `.GridTable td` (class + type, đặc hiệu 0-1-1) thắng
+ * `.HeaderCellDefault` và `.FooterCellDefault` (class trần, 0-1-0), nó đè lên cả hai và kéo theo
+ * ba lỗi cùng lúc:
+ *
+ *   · hàng tổng mọc viền `#d2d6d9` hai bên → một BĂNG XÁM CÓ VẠCH CHIA CỘT dưới đáy lưới, thứ
+ *     runtime không hề có (runtime để viền `transparent`)
+ *   · hàng tiêu đề cao 22px thay vì 30px của runtime
+ *   · ô tổng rộng 109px trong khi ô dữ liệu cùng cột rộng 101 — lệch vì `box-sizing` và
+ *     `padding` tự thêm chỉ áp cho một bên
+ *
+ * Luật của file này từ nay: mỗi rule hoặc là bản CHÉP từ runtime, hoặc nằm trong khối «keo dán
+ * của designer» ở cuối và nói rõ vì sao. Không có vùng xám ở giữa.
+ *
+ * Runtime KHÔNG đặt padding lên ô; nó đặt lên div container bên trong
+ * (`.HeaderCellContainer`, `.RowCellContainer`, `.FooterCellContainer`). Chuyển nhầm chỗ là hộp
+ * cộng thêm 8px mỗi cột.
+ */
+.GridTable { border-collapse: collapse; }
+.GridHeader { background-color: #fff; }
+
+.HeaderCellDefault,
+.IndexCellHeader {
+  border-bottom: 1px solid #d2d6d9;
+  border-left: 1px solid #d2d6d9;
+  border-right: 1px solid #d2d6d9;
+  height: 30px;
+}
+.HeaderCellContainer {
+  color: #444;
+  padding: 4px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  height: 13px;
+}
+.HeaderCellContainer a { color: #696969; text-decoration: none; outline: 0; }
+.HeaderCellContainer a:hover { text-decoration: underline; }
+
+/* ── Dải lọc nhanh dưới tiêu đề cột: NHẬP TỪ RUNTIME, nguyên văn ───────────
+   Trích từ CSS thật của FBO đang chạy (`.temp/…/WebResource(2).axd`), cùng nguồn với phần còn
+   lại của file này. Cả 18 rule đều tự sống được: mọi icon là `data:` URI, không rule nào trỏ ra
+   `WebResource.axd` — nên không có gì phải nội hoá thêm.
+
+   `.FilterPanel` là dải cao 30px runtime gắn vào TRONG ô tiêu đề (`<td class="HeaderCellDefault">`),
+   không phải một hàng `<tr>` riêng. Đó là lý do hàng tiêu đề của lưới có lọc cao 60px chứ không
+   phải 30 — xem `HEADER_ROW_FILTER_PX` ở `core/src/grid.mjs`.
+
+   `.FilterPanelBackground1`…`15` là icon toán tử, đọc từ menu của runtime:
+     1 Bằng · 2 Không bằng · 3 Nhỏ hơn · 4 Lớn hơn · 5 Nhỏ hơn hoặc bằng · 6 Lớn hơn hoặc bằng
+     7 Bắt đầu bằng… · 8 Thuộc… · 9 Không thuộc… · 10 Lọc…
+   Menu đo được chỉ có 10 mục, nên 11…15 chưa biết thuộc menu nào (nhiều khả năng là cột số /
+   ngày). Chép đủ cả 15 vì chúng nằm liền khối trong CSS runtime; `renderGridHtml` hiện chỉ dùng
+   số 8 — mặc định của mọi cột trên trang đã lưu. */
+
+.FilterPanel {
+  position: relative;
+  white-space: nowrap;
+  background-color: #fff;
+  border-top: 1px solid #ddd;
+  height: 30px;
+  width: 100%;
+  vertical-align: middle;
+  overflow: hidden;
+}
+.FilterPanelButton {
+  width: 22px;
+  height: 22px;
+  background-color: #fff;
+  border: 0;
+  background-repeat: no-repeat;
+  background-position: center -1px;
+  display: inline-block;
+}
+.FilterPanelText {
+  line-height: 22px;
+  padding: 4px;
+  font-family: Verdana;
+  font-size: 11px;
+  font-style: italic;
+  background-color: #fff;
+  border: 0;
+  width: calc(100% - 30px);
+  color: #444;
+  outline: 0;
+}
+.FilterPanelBackground1 {
+  background-image: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQBAMAAADt3eJSAAAAElBMVEX///89UHY1UIY8T3Q1T4U/WY3VSy3oAAAABXRSTlMAsb/J2DuXoIIAAAAXSURBVHheYyAXuIaGGuCQUg0NFSDXWACTnwH/02LwqAAAAABJRU5ErkJggg==');
+}
+.FilterPanelBackground2 {
+  background-image: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQBAMAAADt3eJSAAAAFVBMVEX///9BXJJugqyBk7eUo8GmsszQ1+S98BKpAAAAAXRSTlMAQObYZgAAACVJREFUeF5jIBYkwhgmECpQUFABwmJxgMowMqBLCUBlWAwYiAQAreICRbu/j74AAAAASUVORK5CYII=');
+}
+.FilterPanelBackground3 {
+  background-image: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQBAMAAADt3eJSAAAAD1BMVEX///9BXJJugqyBk7eUo8EYDwZtAAAAAXRSTlMAQObYZgAAAB5JREFUeF5jIBmwKEBpESgtDJVwgtJQEbgauC5iAAA9ygDpLxw42wAAAABJRU5ErkJggg==');
+}
+.FilterPanelBackground4 {
+  background-image: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQBAMAAADt3eJSAAAAD1BMVEX///9BXJKmssy4wtbQ1+THM9V0AAAAAXRSTlMAQObYZgAAAB5JREFUeF5jIA4YwlmCMAYLnMUkAKGZBWEycF0kAwA7GgDEIwi6jAAAAABJRU5ErkJggg==');
+}
+.FilterPanelBackground5 {
+  background-image: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQBAMAAADt3eJSAAAAG1BMVEX///9BXJJXb59ugqyBk7eUo8Gmssy4wtbQ1+SOR0LNAAAAAXRSTlMAQObYZgAAAChJREFUeF5jIAQaoLShA4QWLIDQiTAFrMIwFhuCpYBqSKKgIESEIAAA5iICzlPh/qQAAAAASUVORK5CYII=');
+}
+.FilterPanelBackground6 {
+  background-image: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQBAMAAADt3eJSAAAAGFBMVEX///9BXJJXb59ugqyBk7emssy4wtbQ1+QhlnxAAAAAAXRSTlMAQObYZgAAACxJREFUeF5jwAsSYIxCMRiLWQTGYlWA0GyCEJpdiAECghhgAAYCBQUhigkCAK9/AjmZiJtxAAAAAElFTkSuQmCC');
+}
+.FilterPanelBackground7 {
+  background-image: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAAVFBMVEUAAAD///9VVVWqVVWIVUQ/X49DXZN/WT8/WYw9V4xSWnQ/WYxGVoFRWnhIWIA/WI1AWIo/WIxAWYo+WY0/WIxFWYVGWYQ/WYxDWIdFWIU/WIw/WI3Q4tGQAAAAHHRSTlMAAAMDDxATFCg6RFBTVV+qqrC9v8TFyM3N0vH09sTxewAAAFNJREFUeF6dzkcOwDAIRcFPeu+V3P+ekY0QdpZ5G9AsECAffLKR9gVj2xTAoxwxaLlwU4FODMsVA9L+mLMQkmbfygC66SYJDrl+qjyCVZ5XsP7BC4BoAt0YsbxmAAAAAElFTkSuQmCC');
+}
+.FilterPanelBackground8 {
+  background-image: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQBAMAAADt3eJSAAAAElBMVEX///9BXJJugqyBk7eUo8G4wtYkmlbrAAAAAXRSTlMAQObYZgAAABpJREFUeF5jIBUwBUBpJUcoK9AAIQJXQy4AAMMFApCxE7cXAAAAAElFTkSuQmCC');
+}
+.FilterPanelBackground9 {
+  background-image: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQAgMAAABinRfyAAAADFBMVEX///88T3Q1T4U/WY1bx7FQAAAAA3RSTlMAydhoRvI/AAAAEElEQVR4XmMgBuz/wkAsAABIbQG02TCMXgAAAABJRU5ErkJggg==');
+}
+.FilterPanelBackground10 {
+  background-image: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAANlBMVEX////W1uHExNR2dZrj4+qqqcDr6/DBwdLDw9OXlrLPz9yenbeJiKj29vi5uMv9/f3p7u5WVXR5/bd7AAAAAXRSTlMAQObYZgAAAEtJREFUeF6tzUcKgEAQRNGuThOD3v+yLgZpwZ34lh+Kok8YADNP67KDF6wxdHYB3cVXzU2Ubmqj5gQKbmjpoIcy9yDCfghFznf4zwUDagGfpdZ67AAAAABJRU5ErkJggg==');
+}
+.FilterPanelBackground11 {
+  background-image: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAAM1BMVEUAAAD///87Yok9VZI6XYs9V48/WY8+WI0/WI4+WoxBWY5AWItBWI0/WY4+WY0/WY2XlrI2o+BtAAAAEHRSTlMAAA0VFjI5Oj0+P0BDTXuha5OspwAAAFJJREFUeF5lz0kOgDAQA8E2O2Hz/1+LlAATlD6WfJhBIpKEhCn5AUcZ3H+LwRmIClQVQLlYqJSuAIDDo/SCE7tXAhaf3qiAyTM/oCOgOb35lj/crAQEzsCChekAAAAASUVORK5CYII=');
+}
+.FilterPanelBackground12 {
+  background-image: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQBAMAAADt3eJSAAAAElBMVEX///8AAAA9VZI6XYtDXpSXlrIbZeJDAAAABXRSTlMAABUWE0CgkyMAAAA0SURBVHheYxAEAwEGBgY4IxQEAhgYWFVFgcBUgIE1FAwEGFjBQJQshqsAwmQGTEsFwUAAAF9UCulMq1ZzAAAAAElFTkSuQmCC');
+}
+.FilterPanelBackground13 {
+  background-image: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQBAMAAADt3eJSAAAAElBMVEUAAAD///85VY49VZI6XYuXlrKZRiJuAAAABXRSTlMAABIVFh6oIuoAAABFSURBVHheTY2hFYBQDANTkQEivmcJRmAARPdfhZRW9EzunQmGgOhhWLJ4A+eu8lhQ0JI/u4DFLlwldLq0XFPmQlCfe0Y+moYIv10qSLwAAAAASUVORK5CYII=');
+}
+.FilterPanelBackground14 {
+  background-image: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQAgMAAABinRfyAAAACVBMVEUAAAD///+XlrKJ7tI4AAAAAnRSTlMAAHaTzTgAAAAvSURBVHheY2BgYGBkEGBgcGQQW7VqIoNkaGgihJBatWohg2TazET8BFgb2BQwAQDzGRLxyL4+MwAAAABJRU5ErkJggg==');
+}
+.FilterPanelBackground15 {
+  background-image: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQAgMAAABinRfyAAAADFBMVEUAAAD///85VY6XlrLs8/GUAAAAA3RSTlMAABIJz7WWAAAANklEQVR4XmMIYGAQhRDx//9fZSgNDS1kqP///yNDaYGBIZRlWgoVK4CzKoAsiA4GkN5QIAATANnpHyg0NzXcAAAAAElFTkSuQmCC');
+}
+
+.CellDefault {
+  border-left: 1px solid #d2d6d9;
+  border-right: 1px solid #d2d6d9;
+  height: 22px;
+}
+.IndexCellBody { border-left: 1px solid #d2d6d9; border-right: 1px solid #d2d6d9; }
+.RowCellContainer { color: #444; padding: 4px; height: 13px; }
+.RowCellDefault { background-color: #f3f3f3; }
+.RowCellAlternating { background-color: #fff; }
+
+.DwfDetailGrid { margin-top: 8px; }
+.DwfDetailGrid .GridTable { margin: 0; }
+
+/* ── Keo dán của designer ──────────────────────────────────────────────────
+   Bốn rule dưới đây KHÔNG có ở runtime. Chúng ở lại vì lưới của ta bị nhúng trong một trang
+   khác hẳn trang runtime, và mỗi cái phải tự nêu lý do:
+
+     `.FormCellGrid`     ô chứa lưới bỏ padding 4px của `.FormCell`; không bỏ thì lưới thụt vào
+                         trong ô một vành không có ở runtime
+     `.GridTabPanel`     lưới nhúng lấp đầy bề ngang ô chứa nó
+     `.HeaderStyle`      nền trắng cho dải tiêu đề — runtime chỉ khai `font-family`, phần nền
+                         đến từ chrome bao ngoài mà ta không dựng
+     `.GridTabPanel`     hai nét biên trái/phải, cũng vì thiếu chrome ấy
+
+   Hai nét biên ĐẶT Ở KHUNG NGOÀI, không ở `.divGrid`. Lưới gồm ba div anh em cuộn cùng nhau
+   (`divHeader` · `divGrid` · `divFooter`), mỗi div một bảng riêng; treo viền lên MỘT trong ba
+   thì bảng của div ấy bị đẩy vào 1px còn hai bảng kia thì không — hàng tổng và hàng tiêu đề
+   lệch khỏi hàng dữ liệu đúng 1px, đo được. Khung ngoài bao cả ba nên không ai lệch với ai. */
+.FormCellGrid { padding: 0 !important; }
+.GridTabPanel {
+  /* runtime */
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: auto;
+  /* keo dán */
+  width: 100%;
+  border-left: 1px solid #d2d6d9;
+  border-right: 1px solid #d2d6d9;
+  box-sizing: border-box;
+}
+.HeaderStyle { font-family: Verdana; background: #fff; }
+.GridStyle.divGrid { background: #fff; }
+
+/* Cột STT: runtime đặt bề rộng bằng style inline trên từng ô, `renderGridHtml` cũng vậy. Ở đây
+   chỉ còn phần canh giữa và màu chữ — không đụng tới hình học. */
+.GridIndexCell,
+.IndexCellHeader,
+.IndexCellBody { text-align: center; color: #666; }
+
+/* ── Dải tổng + dải chia: NHẬP TỪ RUNTIME, nguyên văn ──────────────────────
+   Trích từ CSS thật của FBO đang chạy (`.temp/…/WebResource(2).axd`). Bản viết tay trước đó tự
+   chế cả năm rule, và cái nhìn ra ngay là hàng tổng hiện thành một BĂNG XÁM CÓ VẠCH CHIA CỘT —
+   runtime không có vạch nào ở đó cả:
+
+     tự thêm                                     runtime thật
+     `.FooterCellDefault` viền trái/phải #d2d6d9 → viền `transparent` (giữ chỗ, không vẽ)
+     `.FooterStyle` nền #f7f9fb + gạch dưới      → `border:0`, không nền
+     `.GridFooter td` gạch trên #d2d6d9          → `border:0; background:transparent`
+     `.SplitStyle` nền #e8eaed + viền hai bên    → `border:0` + một ảnh tay nắm nhỏ
+
+   Viền `transparent` chứ không `border:0` là có chủ ý của runtime: ô tổng vẫn chiếm đúng bề
+   rộng như ô dữ liệu phía trên, chỉ không vẽ nét. Đổi thành `border:0` là hàng tổng hụt 2px mỗi
+   cột và lệch dần khỏi cột nó đang tổng.
+
+   `.SplitStyle` của runtime còn có một ảnh tay nắm đặt tại `25px 0`; ảnh đó chưa trích ra được
+   nên ở đây chỉ có phần hình học. Thiếu một cái tay nắm thì nhìn ra ngay; tự vẽ một băng xám
+   thay vào chỗ nó thì không. */
+.SplitStyle { border: 0; }
+.FooterStyle { border: 0; }
+.GridFooter { border: 0; background-color: transparent; }
+.FooterCellDefault,
+.IndexCellFooter {
+  border-top: 0;
+  border-bottom: 0;
+  border-left: 1px solid transparent;
+  border-right: 1px solid transparent;
+}
+.FooterCellContainer { color: #444; height: 0; padding: 0 4px; }
+.HeaderCellDefault.Required { background-position: left top; }
+
+/* ── Còn thiếu so với runtime, nhập nốt ────────────────────────────────────
+   Đối chiếu bằng máy (`WebResource(2).axd` so với cả base pack, theo từng selector).
+   Phần lớn là các class runtime gắn theo TRẠNG THÁI hoặc theo KIỂU CỘT, thứ designer chưa sinh
+   ra nhưng sẽ cần khi dựng tiếp — chép sẵn thì lần sau không phải đoán. */
+
+
+/* Cột canh phải (số tiền, số lượng): runtime đệm thêm 1px bên trái để chữ không dính vạch. */
+.CellAlignRight { padding: 4px 4px 4px 5px; }
+.FooterAlignRight { padding: 0 4px 0 5px; }
+
+/* Hàng cuối cùng của lưới mới có nét đáy; các hàng khác chỉ có nét hai bên. */
+.RowBottom { border-bottom: 1px solid #d2d6d9; }
+.HeaderBottom { border-bottom: 1px solid #9ac6ff; }
+.HiddenBottom { border-bottom: 1px solid transparent !important; }
+
+/* Ô nhập TRONG LƯỚI. Khác hẳn `.FormInput` của form: nền trong suốt, không viền, cao 13px.
+   GIỚI HẠN CÒN LẠI: `renderGridHtml` đang dựng ô lưới bằng `renderControl` của FORM, nên nó
+   sinh ra `.FormInput` chứ chưa sinh `.CellInput`. Rule chép sẵn ở đây để lần sửa đó không phải
+   đi đo lại. */
+.CellInput {
+  background-color: transparent;
+  border: 0;
+  color: #444;
+  font-family: Verdana;
+  font-size: 11px;
+  outline: 0;
+  height: 13px;
+}
+.TextInput { width: 100%; padding: 0 1px 0 0; }
+.CheckInput { background-color: inherit; height: 13px; width: 13px; margin: 0; padding: 0; outline: 0; }
+.CheckPadding { background-color: inherit; height: 13px; width: 13px; margin: 0; outline: 0; }
+
+/* Trạng thái chọn / tô sáng của một ô. */
+.Highlight { background-color: #eaf5f9; }
+.SelectCellContainer { background-color: #d7edf4; }
+.TextHighlight { color: navy; }
+.Cover { display: inline-block; overflow: hidden; text-overflow: ellipsis; padding-right: 4px; }
+
+/* Tiêu đề cột khi lưới tự dựng header (khác `.HeaderCellContainer`). */
+.GridHeaderStyle { font-family: Verdana; font-size: 11px; padding: 4px; border-width: 1px; }
+.GridHeaderText { white-space: nowrap; }
+
+/* Hàng tổng có số liệu: nền gradient + đệm trên 6px. Designer chưa sinh ra `AggregationBackground`
+   (hàng tổng của ta luôn rỗng), nhưng runtime khai chúng ngay cạnh `.FooterCell*` nên chép cùng. */
+.AggregationBackground {
+  background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAWCAMAAAA2GAaYAAAAPFBMVEXx9Pj2+Pvv8/bv8/fw9Pjw9Pfy9Pjy9vjz9fny9vni5ur09/n09vr19/r09/rz9vn2+Pr3+fv3+fr3+vuyyxCDAAAAJ0lEQVR4XgXAhRGAMAwAwE9VUNl/V86SJVUBTTdMl83ucAq38Hh9Pwx7AMB+9ky9AAAAAElFTkSuQmCC');
+}
+.AggregationLayout { padding-top: 6px; text-overflow: ellipsis; white-space: nowrap; }
+.AggregationParentCell { display: inline-block !important; }
+
+/* Dải phân trang ở cuối thanh nút của màn hình danh sách («Xem 1-5/5 bản ghi | Làm mới»).
+   Designer KHÔNG dựng nó: số bản ghi là dữ liệu thật, và bịa ra "1-5/5" là nói dối về một thứ
+   người đọc sẽ tin. Rule chép sẵn cho ngày có nguồn dữ liệu thật. */
+.GridPager { padding: 1px 0 0; height: 18px; color: #666; white-space: nowrap; font-family: Verdana; }
+.GridPager span.Disabled { color: gray; }
+.GridPager span.Selected { font-weight: 700; }
+.GridPager .PaddedLink { padding: 2px 3px; }
+.GridPager a { color: #4682b4; text-decoration: none; }
+.GridPager a:hover { color: #000; text-decoration: underline; }
+.GridPager .Comment { color: #4682b4; text-decoration: none; padding: 2px 4px 2px 3px; }
+
+/* CỐ Ý LỆCH RUNTIME — chỗ duy nhất trong file này.
+   Runtime khai `.FooterStyle{overflow:scroll}` và đặt `overflow-y:hidden` inline, tức hàng tổng
+   LUÔN có một thanh cuộn ngang riêng. Đó chính là thanh cuộn thứ hai đã bị báo là dư, và nó dư
+   thật trong một designer: hàng tổng của ta rỗng, không có gì để cuộn tới, mà thanh ấy vẫn ăn
+   15px chiều cao và nằm chồng ngay dưới thanh của thân lưới.
+   `renderGridHtml` đặt `overflow:hidden` inline cho cả hai trục; footer vẫn trượt theo thân bằng
+   `scrollLeft`. Ghi ra đây để lần sau không ai "sửa lại cho giống runtime" mà không biết vì sao. */
+
+/* ── NĂM rule của runtime CỐ Ý không chép ──────────────────────────────────
+   Ghi ra để lần sau ai chạy lại phép đối chiếu cũng biết đây là lựa chọn, không phải bỏ sót:
+
+     `.HeaderSortUp` · `.HeaderSortDown` · `.HeaderArrowImage`
+        Ba mũi tên sắp xếp. Ảnh của chúng là `WebResource.axd?d=…` mà trang đã lưu KHÔNG tải về
+        (chỉ có mấy GIF 1×1 trong thư mục `_files`). Chép rule vào là ba URL hỏng.
+
+     `.AggregationIndexCell` · `.AggregationDefaultCell`
+        `position: fixed !important` — mẹo ghim hàng tổng của runtime, do JS của nó điều khiển.
+        Designer không chạy JS ấy; `position:fixed` khi đó gỡ ô ra khỏi mạch layout và thả nó
+        lơ lửng giữa trang. Ghim một hàng tổng rỗng thì không được gì, mà hỏng thì hỏng to. */

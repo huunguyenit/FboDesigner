@@ -1,0 +1,19 @@
+{
+  "name": "fbo-core",
+  "version": "0.0.0",
+  "description": "Lõi thuần của FBO Designer: encoding, offset/splice, đại số item value, render model → HTML. Không phụ thuộc vscode, không chạm DOM.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.mjs",
+    "./encoding": "./src/encoding.mjs",
+    "./spans": "./src/spans.mjs",
+    "./item-value": "./src/item-value.mjs",
+    "./render": "./src/render.mjs"
+  },
+  "scripts": {
+    "test": "node test/run.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

@@ -1,0 +1,48 @@
+<!-- shell.html — phần thân của webview designer.
+     Dùng chung bởi `extension/src/render-host.js` (webview thật) và `tools/probe-layout.mjs`
+     (bàn đo chạy trong trình duyệt thường). Trước đây mỗi bên giữ một bản, và bản của bàn đo
+     trôi ngay ở lần đổi đầu tiên — đo một cái shell khác cái đang chạy thì đo để làm gì. -->
+<header class="fbo-bar">
+  <span class="fbo-bar-left"><span id="fbo-file">—</span><span class="fbo-mode" id="fbo-mode" hidden></span></span>
+  <span class="fbo-bar-right">
+    <label class="fbo-toggle" title="Vẽ đè thước, vạch cột theo list px ở item dòng 1, và khung slot của từng ô"><input type="checkbox" id="fbo-blueprint-toggle"> Blueprint</label>
+    <label class="fbo-toggle" title="Chỉ phóng to để nhìn. Không đổi một px nào của form — thước blueprint vẫn ghi px khai trong XML.">Tỉ lệ
+      <select id="fbo-zoom-select">
+        <option value="1">100%</option>
+        <option value="1.25">125%</option>
+        <option value="1.5">150%</option>
+        <option value="2">200%</option>
+        <option value="3">300%</option>
+      </select>
+    </label>
+    <!-- Debug ẩn khỏi thanh trên: nó là công cụ chẩn đoán tài nguyên (stylesheet/ảnh), không
+         phải thứ dùng hằng ngày, và một ô check luôn hiện làm thanh trên rối thêm.
+         Phần máy móc GIỮ NGUYÊN — ô check vẫn tồn tại trong DOM, chỉ không hiện ra. Bật lại khi
+         cần chẩn đoán bằng cách gỡ `hidden` ở dòng dưới, hoặc gõ trong Developer Tools của
+         webview: `fbo-debug-toggle`.click() -->
+    <label class="fbo-toggle" hidden title="Liệt kê từng stylesheet và từng ảnh thật sự đang được dùng, kèm URL, kích thước thật và trạng thái nạp"><input type="checkbox" id="fbo-debug-toggle"> Debug</label>
+    <span id="fbo-meta"></span>
+  </span>
+</header>
+<main id="fbo-surface">
+  <div id="fbo-zoom">
+    <style id="fbo-controller-css" data-fbo-css="controller"></style>
+  <div id="fbo-stage">
+      <div id="fbo-form"><p class="fbo-hint">Đang dựng…</p></div>
+      <div id="fbo-blueprint" aria-hidden="true"></div>
+    </div>
+  </div>
+</main>
+<footer class="fbo-status">
+  <div id="fbo-nav-hint" class="fbo-ok">Bấm = chọn ô · <b>Ctrl+bấm</b> hoặc <b>bấm đúp</b> = nhảy tới khai báo trong XML (thêm <b>Alt</b> để ở lại file đang mở) · kéo mép phải ô = gộp/tách</div>
+  <div id="fbo-entities"></div>
+  <div id="fbo-assets"></div>
+  <div id="fbo-scale"></div>
+  <section id="fbo-debug" hidden>
+    <div class="fbo-debug-head">
+      <strong>Debug</strong>
+      <button type="button" id="fbo-reload-assets" title="Dựng lại shell với dấu phiên bản mới trên mọi URL — dùng khi nghi webview còn giữ bản cũ trong cache">Nạp lại tài nguyên</button>
+    </div>
+    <div id="fbo-debug-body"></div>
+  </section>
+</footer>

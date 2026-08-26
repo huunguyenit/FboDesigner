@@ -1,0 +1,192 @@
+/* fbo-form.css — TRÍCH NGUYÊN VĂN từ CSS runtime của FBO.
+ *
+ * Nguồn: `DevWorkFlow/.temp/Danh mục khách hàng_files/WebResource(2).axd` — bản CSS thật mà
+ * trình duyệt tải về khi mở màn hình `Dir/Customer` trên FSD_Dev. Mỗi rule dưới đây là bản
+ * chép lại, chỉ đổi `url(WebResource.axd?d=…)` thành file tương ứng trong `../image/`.
+ *
+ * LUẬT CỦA FILE NÀY: **không thêm rule không có trong runtime**. Mỗi lần thêm một rule "cho
+ * đẹp" là một lần preview nói dối, và cái giá phải trả không phải lúc phát hiện mà lúc ai đó
+ * tin preview rồi sửa XML theo. Chỗ nào buộc phải thêm thì đánh dấu THÊM và nói rõ vì sao.
+ *
+ * Số đo runtime để đối chiếu (đo trên chính trang đã lưu, CSS thật đã nạp):
+ *
+ *   panel        575 ngoài (573 nội dung + 2 viền)
+ *   chuỗi bọc    573 → 570  (Border: viền trái+phải 2px · Floor: viền trái 1px)
+ *   Content      570 ngoài · padding 8 · viền trái 1 → 553 lọt lòng, bảng 550
+ *   MỌI hàng     24px — kể cả hàng Lookup, kể cả hàng checkbox
+ *   ô nhập       13px · container 16px (13 + padding 1×2 + viền dưới 1)
+ *   ô Lookup     input 77px cho ô rộng 100px · icon 15×11
+ *
+ * Ba thứ từng tự thêm rồi phải gỡ, ghi lại để đừng thêm lần nữa:
+ *   - `.FormContainer { display: inline-block }` → hàng Lookup cao 25,8 thay vì 24.
+ *   - `line-height: 0` ở ô và ở container → bù cho chính cái inline-block ở trên, không cần.
+ *   - `.FormCell:first-child { text-align: right }` → runtime canh TRÁI (`textAlign: start`).
+ */
+
+.FormTable { border-collapse: collapse; }
+.FormRow { background-color: transparent; vertical-align: top; }
+.FormCell { border: 0; vertical-align: middle; }
+
+.FormContainer { color: #000; padding: 1px; }
+.FormAlignRight { padding: 1px 1px 1px 2px; }
+
+/* Chỉ `.FormContainerInput` và `.FormContainerTextArea` có viền. `.FormContainerInputDisabled`
+   CÓ trong HTML runtime nhưng KHÔNG có rule nào — ô readOnly không có gạch chân. */
+.FormContainerInput { border-bottom: 1px solid #c0cfdc; }
+.FormContainerTextArea {
+  border-top: 1px solid #e6ebf0;
+  border-bottom: 1px solid #c0cfdc;
+}
+
+/* `.FormInputDisabled` dùng CHUNG rule với `.FormInput`, kể cả `color:#000` — ô readOnly không
+   xám đi. Không có rule `.FormTextInputDisabled` nào cả. */
+.FormInput,
+.FormInputDisabled {
+  border: 0;
+  background-color: #edf5ff;
+  color: #000;
+  font-family: Verdana;
+  font-size: 11px;
+  width: 100%;
+  padding-top: 0;
+  padding-left: 0;
+  padding-bottom: 0;
+  height: 13px;
+}
+
+.FormComboBox,
+.FormComboBoxDisabled {
+  border: 0;
+  background-color: #edf5ff;
+  color: #000;
+  font-family: Verdana;
+  font-size: 11px;
+  width: 100%;
+  outline: 0;
+  padding: 0;
+  height: 15px;
+}
+
+.FormTextArea,
+.FormTextAreaDisabled {
+  border: 0;
+  background-color: #edf5ff;
+  color: #000;
+  font-family: Verdana;
+  font-size: 11px;
+  width: 100%;
+  outline: 0;
+  padding: 0;
+}
+
+.FormListBox,
+.FormListBoxDisabled {
+  border: 0;
+  background-color: #f0f7fb;
+  color: #000;
+  font-family: Verdana;
+  font-size: 11px;
+  outline: 0;
+  width: 100%;
+  padding-top: 0;
+  padding-left: 0;
+  padding-bottom: 0;
+}
+
+.FormTextInput { outline: 0; }
+
+/* 13×13 và `margin:0` là số của runtime — không phải `width:auto;height:auto`. Nhờ đó hàng
+   checkbox cao đúng 24px như mọi hàng khác. */
+.FormCheckInput { background-color: inherit; padding: 0; height: 13px; width: 13px; margin: 0; }
+
+table.FormRadioButtonList tr td.Button { vertical-align: middle; padding: 0; border-style: none; outline: 0; }
+table.FormRadioButtonList tr td.Option { vertical-align: middle; padding: 0 8px 0 0; border-style: none; }
+
+/* Runtime nhúng ảnh 5×5 bằng data URI và ghi `background-position:-6px,-6px` — dấu phẩy làm
+   khai báo đó KHÔNG HỢP LỆ nên trình duyệt bỏ qua, rơi về `0% 0%`. Ta viết thẳng `left top`
+   cho đúng thứ trình duyệt thật sự làm, và trỏ vào file rời cùng nội dung. */
+.Required {
+  background-image: url(../image/fbo-required.png);
+  background-repeat: no-repeat;
+  background-position: left top;
+}
+
+/* --- khung dialog ---------------------------------------------------------
+ * Bảy lớp div, và ba lớp đầu là nơi 3px bề rộng biến mất. Bỏ lớp nào hoặc đổi viền của lớp
+ * nào cũng làm bảng lệch khỏi 550px. */
+
+div.UpdateDlgPanel {
+  background-color: #edf5ff;
+  padding: 0;
+  font-family: Tahoma;
+  font-size: 11px;
+  border-top: solid 1px #a2c0e7;
+  border-left: solid 1px #a2c0e7;
+  border-bottom: solid 1px #9dbde6;
+  border-right: solid 1px #9dbde6;
+  overflow: hidden;
+}
+
+div.UpdateDlgBorder {
+  background-color: #edf5ff;
+  border-top: 0;
+  border-left: solid 1px #fff;
+  border-bottom: solid 1px #a2c0e7;
+  border-right: solid 1px #a2c0e7;
+}
+
+div.UpdateDlgFloor { border-top: 0; border-left: solid 1px #cbdff8; border-bottom: 0; border-right: 0; }
+
+div.UpdateDlgPanel table tr td { padding: 0; }
+
+/* Ảnh nền: dải gradient 1×26 lặp ngang, và icon 16×16 ở `padding-left:20px` của dòng chữ.
+ * Hai ảnh này runtime phát qua `WebResource.axd?d=…` nên không có trong bản CSS đã lưu; chúng
+ * được trích từ tài nguyên nhúng của `FBISP24\bin\FastBusiness.ReportExtender.dll` — chính
+ * assembly chứa chuỗi `UpdateDlgTitleText`. Dải gradient nhận ra được vì nó chứa đúng
+ * `#eef6fc`, tức `background-color` mà rule này khai làm màu dự phòng. */
+.UpdateDlgTitle {
+  height: 13px;
+  padding: 4px;
+  background-color: #eef6fc;
+  background-image: url(../image/fbo-dlg-title.gif);
+  background-repeat: repeat-x;
+  white-space: nowrap;
+}
+
+.UpdateDlgTitleText {
+  background-image: url(../image/fbo-dlg-icon.gif);
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  color: #000;
+  font-family: Verdana;
+  font-size: 11px;
+  font-weight: 400;
+  vertical-align: middle;
+  white-space: nowrap;
+  padding-left: 20px;
+}
+
+.UpdateDlgContent {
+  background-color: #edf5ff !important;
+  color: #000;
+  text-decoration: none;
+  border-top: solid 1px #adc9ee;
+  border-left: solid 1px #dfecf7;
+  border-bottom: solid 1px #a8c5ec;
+  border-right: 0;
+  padding: 8px;
+}
+
+/* THÊM (không có trong runtime): `box-sizing`. Trang runtime đặt panel trong một wrapper
+ * `position:absolute` rồi gán `width` bằng JS; webview thì không, nên phải nói rõ `width`
+ * inline là bề rộng NỘI DUNG để chuỗi 573 → 570 → 553 cộng ra đúng như đo được. */
+div.UpdateDlgPanel { box-sizing: content-box; display: inline-block; vertical-align: top; }
+.UpdateDlgTitle { box-sizing: content-box; }
+.UpdateDlgContent { box-sizing: content-box; }
+
+/* THÊM: bảng một ô của thanh tiêu đề. Runtime dựng nó bằng `<table cellspacing="0">`, thuộc
+ * tính HTML mà không CSS nào thay được — ở đây viết lại bằng CSS cho tương đương. */
+.UpdateDlgTitle table { border-collapse: collapse; width: 100%; }
+
+.Break { margin: 1px 0 1px 8px; padding: 0; height: 1px; overflow: hidden; display: block; background-color: white; border-top: 1px solid #CED3DE; }
+.LabelDescription { color: #73A6DE; }

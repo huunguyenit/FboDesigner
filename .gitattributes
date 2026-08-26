@@ -1,0 +1,6 @@
+* text=auto eol=lf
+
+# Fixture XML nguồn FBO: giữ nguyên byte, KHÔNG cho git normalize newline.
+# Đây không phải sở thích format — đổi CRLF của file 1258 là đổi nội dung file khách.
+*.f  -text
+tests/fixtures/** -text

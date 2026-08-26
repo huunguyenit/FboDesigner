@@ -1,0 +1,81 @@
+{
+  "name": "fbo-designer",
+  "displayName": "FBO Designer",
+  "description": "Xem và (về sau) kéo thả thiết kế form FBO ngay trong VS Code.",
+  "version": "0.0.1",
+  "publisher": "fastbusiness",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Visualization", "Other"],
+  "main": "./src/extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "fboDesigner.form",
+        "displayName": "FBO Designer",
+        "selector": [
+          { "filenamePattern": "**/Dir/*.xml" },
+          { "filenamePattern": "**/Filter/*.xml" },
+          { "filenamePattern": "**/Grid/*.xml" },
+          { "filenamePattern": "**/Dir/*.f" },
+          { "filenamePattern": "**/Filter/*.f" },
+          { "filenamePattern": "**/Grid/*.f" }
+        ],
+        "priority": "option"
+      }
+    ],
+    "commands": [
+      {
+        "command": "fboDesigner.open",
+        "title": "FBO Designer: Mở panel bám theo file đang mở"
+      },
+      {
+        "command": "fboDesigner.openEditor",
+        "title": "FBO Designer: Mở designer gắn cứng vào file này"
+      },
+      {
+        "command": "fboDesigner.probeEncodingRoundTrip",
+        "title": "FBO Designer: Spike P0 — thử vòng Windows-1258 qua VS Code"
+      }
+    ],
+    "configuration": {
+      "title": "FBO Designer",
+      "properties": {
+        "fboDesigner.autoProgramAssets": {
+          "type": "boolean",
+          "default": true,
+          "description": "Suy thư mục program từ chính file đang mở (<program>\\App_Data\\Controllers\\...) rồi lấy Css, Images, ClientScript từ đó. Tắt thì phải tự khai fboDesigner.stylesheets."
+        },
+        "fboDesigner.stylesheets": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Ghi đè danh sách CSS: đường dẫn tuyệt đối, nạp đúng thứ tự khai. Bỏ trống thì lấy hết *.css ở tầng đầu của <program>\\Css."
+        },
+        "fboDesigner.vietnamese": {
+          "type": "boolean",
+          "default": true,
+          "description": "Lấy nhãn từ <header v> (tiếng Việt). Tắt thì lấy <header e>."
+        },
+        "fboDesigner.panelPosition": {
+          "type": "string",
+          "enum": ["right", "beside", "active"],
+          "enumDescriptions": [
+            "Luôn mở thành một nhóm editor BÊN PHẢI file đang sửa.",
+            "Theo workbench.editor.openSideBySideDirection của VS Code — phải hay dưới là do cấu hình đó quyết.",
+            "Mở ngay trong nhóm editor đang active (chiếm cùng chỗ với file)."
+          ],
+          "default": "right",
+          "description": "Panel designer mở ở đâu. Mặc định 'right': form nằm cạnh XML, đọc được cả hai cùng lúc."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test:core": "node ../core/test/run.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

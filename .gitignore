@@ -1,0 +1,9 @@
+node_modules/
+*.vsix
+.vscode-test/
+out/
+dist/
+.build/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+graft/

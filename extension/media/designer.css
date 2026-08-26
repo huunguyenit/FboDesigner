@@ -1,0 +1,452 @@
+/* designer.css — CSS KHUNG của extension, KHÔNG phải CSS của FBO.
+ *
+ * Luật một dòng: file này không được chạm vào bất cứ thứ gì tham gia tính hộp của form.
+ * Không `width`, không `padding`, không `border`, không `height`, không `display` trên các
+ * class `Form*` / `Grid*` / `UpdateDlg*`. Vi phạm là preview đẹp hơn runtime, tức là nói dối.
+ *
+ * Đây từng là nguyên nhân của khiếu nại "vùng input có size khác thực tế": file này đặt
+ * `.FormCell { padding: 2px 4px }` và `.FormInput { min-height: 1.4em; padding: 1px 3px;
+ * border: 1px }`, đè lên hình học 13px của runtime. Nay mọi chỉ dẫn hình học nằm ở base pack
+ * và ở style inline do core sinh ra; phần "nhìn thấy được ô ở đâu" chuyển hết sang lớp
+ * blueprint vẽ ĐÈ LÊN, không tham gia layout.
+ */
+
+body {
+  margin: 0;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* --- thanh trên --- */
+
+.fbo-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editorWidget-background);
+  font-size: 0.9em;
+  flex: 0 0 auto;
+}
+
+.fbo-bar #fbo-meta { opacity: 0.7; }
+.fbo-bar-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fbo-bar-right { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+
+#fbo-file { font-weight: 600; }
+
+.fbo-mode {
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 3px;
+  padding: 0 6px;
+  font-size: 0.85em;
+  opacity: 0.85;
+}
+
+.fbo-toggle { display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
+/* `display:flex` của dòng trên thắng rule `[hidden]{display:none}` mặc định của trình duyệt —
+   cùng kiểu thuộc tính, mà class thì đặc hiệu hơn attribute selector của UA stylesheet. Nên
+   `hidden` trên một `.fbo-toggle` không có tác dụng gì nếu không nói lại ở đây. */
+.fbo-toggle[hidden] { display: none; }
+.fbo-toggle input { margin: 0; }
+
+.fbo-toggle select {
+  background: var(--vscode-dropdown-background, transparent);
+  color: var(--vscode-dropdown-foreground, inherit);
+  border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border));
+  font: inherit;
+  padding: 0 2px;
+}
+
+/* --- vùng vẽ --- */
+
+#fbo-surface {
+  flex: 1 1 auto;
+  overflow: auto;      /* form FBO rộng theo tổng px — cho nó cuộn, không co lại */
+  padding: 16px;
+}
+
+/* Bọc form để lớp blueprint có gốc toạ độ. `inline-block` để nó ôm sát panel, không kéo dài
+   ra hết bề ngang vùng cuộn — nếu không thì thước kẻ dài hơn cả form. */
+#fbo-stage { position: relative; display: inline-block; }
+body.bp-on #fbo-stage { margin-top: 26px; }
+
+/* Tỉ lệ NHÌN. `zoom` (không phải `transform: scale`) vì nó tham gia layout, nên vùng cuộn
+   biết form đang chiếm bao nhiêu chỗ. Đặt Ở NGOÀI `#fbo-stage`: mọi thứ bên trong stage —
+   form lẫn lớp blueprint — phải cùng nằm trong một phép nhân, nếu không thì vạch trôi khỏi ô.
+   Giá trị do JS gán inline; mặc định không có thuộc tính nào, tức đúng 1:1. */
+#fbo-zoom { display: inline-block; }
+
+/* Lưới danh sách đứng riêng (`type="Voucher"|"Report"`) rộng bằng khung nhìn — xem `panelStyle`
+   trong `core/src/grid.mjs`. Phải nới CẢ HAI lớp bọc: `width:100%` của panel quy về hộp cha, mà
+   hộp cha đang `inline-block` co theo nội dung thì phần trăm ấy chẳng nới được gì.
+
+   Chỉ nới ở chế độ này, không lật `inline-block` vĩnh viễn: form vẫn cần ôm sát, nếu không thì
+   thước blueprint dài hơn cả cái form nó đang đo. */
+body.fbo-fit-width #fbo-zoom,
+body.fbo-fit-width #fbo-stage { display: block; }
+
+.fbo-hint { opacity: 0.6; }
+
+.fbo-error {
+  white-space: pre-wrap;
+  color: var(--vscode-errorForeground);
+}
+
+.fbo-status {
+  flex: 0 0 auto;
+  max-height: 30%;
+  overflow: auto;
+  padding: 6px 12px;
+  border-top: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editorWidget-background);
+  font-size: 0.85em;
+}
+
+.fbo-status ul { margin: 4px 0 0; padding-left: 1.2em; }
+.fbo-ok { opacity: 0.7; }
+.fbo-warn { color: var(--vscode-editorWarning-foreground); }
+
+/* --- debug: bảng tài nguyên + ô đang chọn --------------------------------
+   Mở ra thì vùng trạng thái cần chỗ; đó là lúc duy nhất nó được cao hơn 30%. */
+body.debug-on .fbo-status { max-height: 55%; }
+
+#fbo-debug { margin-top: 8px; border-top: 1px solid var(--vscode-panel-border); padding-top: 6px; }
+.fbo-debug-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.fbo-debug-head button {
+  font: inherit;
+  color: var(--vscode-button-secondaryForeground, inherit);
+  background: var(--vscode-button-secondaryBackground, transparent);
+  border: 1px solid var(--vscode-panel-border);
+  padding: 1px 8px;
+  cursor: pointer;
+}
+
+#fbo-debug table { border-collapse: collapse; width: 100%; margin-bottom: 8px; }
+#fbo-debug caption { text-align: left; opacity: 0.7; padding: 2px 0; }
+#fbo-debug th,
+#fbo-debug td {
+  border: 1px solid var(--vscode-panel-border);
+  padding: 1px 5px;
+  text-align: left;
+  vertical-align: top;
+  font-family: var(--vscode-editor-font-family, monospace);
+  word-break: break-all;
+}
+#fbo-debug th { opacity: 0.7; font-weight: 400; }
+#fbo-debug .ok { color: var(--vscode-testing-iconPassed, #3fb950); }
+#fbo-debug .bad { color: var(--vscode-errorForeground); }
+#fbo-debug pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
+
+/* --- chỗ duy nhất được chạm tới DOM của form ---
+   Hàng cột ẩn `<tr class="DwfColRow">` chỉ tồn tại để khai bề rộng cột cho table-layout:fixed;
+   nó không có ô nào và không được chiếm chiều cao.
+
+   Chọn bằng `tr.DwfColRow > th` chứ không `.DwfColRow th`: base pack nạp SAU file này và có
+   `.GridTable th { height: 30px; padding: 4px }` — cùng độ đặc hiệu thì bản sau thắng, và
+   lưới mọc ra một dải trắng 30px phía trên hàng tiêu đề. Thêm một type selector là đủ thắng
+   mà không phải `!important` (thứ sẽ chặn luôn CSS của program). */
+tr.DwfColRow > th { height: 0; padding: 0; border: 0; line-height: 0; }
+
+/* Dấu của designer — CHỈ màu, không đụng hình học. `FormRequiredLabel` không có ở runtime. */
+.FormRequiredLabel { color: #b45309; }
+.FormCellInvalid { color: var(--vscode-errorForeground); }
+
+/* Hàng thật ra nằm ở file khác (Include dùng chung): nhìn là biết không sửa tại chỗ được.
+   Đánh dấu theo CHỦ SỞ HỮU THẬT sau khi bung entity, không theo việc chuỗi có chứa `&…;` —
+   một hàng có thể đến từ Include mà bản thân nó không còn dấu vết entity nào.
+   Chỉ dùng `background`: border hay padding ở đây là đẩy lệch cả bảng. */
+tr[data-fbo-foreign="1"] > td,
+th[data-fbo-foreign="1"],
+td[data-fbo-foreign="1"] { background: rgba(56, 139, 253, 0.13); }
+
+.FormRow:hover > td { background: rgba(56, 139, 253, 0.08); }
+
+/* ---------------------------------------------------------------------------
+   BLUEPRINT OVERLAY
+   ---------------------------------------------------------------------------
+   Nguyên tắc: form ở dưới giữ nguyên từng px của runtime; mọi thứ của designer vẽ ĐÈ LÊN
+   bằng `position: absolute` trong `#fbo-stage`, `pointer-events: none`. Tắt blueprint đi thì
+   DOM của form không đổi một thuộc tính nào — đó là điều kiện để preview còn đáng tin.
+
+   Vạch dọc lấy đúng từ mốc cộng dồn của list px khai ở `views > item` DÒNG 1. Nó không đo
+   lại từ DOM, nên nếu vạch không trùng mép ô thì đó là tín hiệu thật: bảng đang không nghe
+   list px (nội dung tràn, `table-layout` sai, hoặc list px không đủ cột). */
+
+#fbo-blueprint {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  line-height: 1;
+  color: #0b6bcb;
+}
+
+body:not(.bp-on) #fbo-blueprint { display: none; }
+
+/* Vạch dọc tại mỗi mốc cột, kéo suốt chiều cao VÙNG. CHỈ có ở form — lưới không dùng mốc chung
+   nào nên vạch ở đó chỉ vẽ lại mép ô, xem `drawRegion`. */
+.bp-guide {
+  position: absolute;
+  width: 0;
+  border-left: 1px dashed rgba(234, 88, 12, 0.7);
+}
+
+.bp-guide.bp-edge { border-left-style: solid; border-left-color: rgba(234, 88, 12, 0.9); }
+
+/* Dải px của MỘT VÙNG — con số khai trong XML, viết trên đầu cột của nó.
+   Nhãn được TRÀN ra khỏi ô: cột 25px không đủ chỗ cho chữ "25", nhưng cắt cụt thì người đọc
+   mất đúng con số họ cần. Tràn một chút và chồng nhẹ lên cột bên cạnh vẫn đọc được. */
+/* Cỡ chữ đặt THẲNG ở đây, không thừa kế `#fbo-blueprint { font-size: 10px }`: dải px là thứ
+   người ta đọc nhiều nhất trên lớp blueprint, còn 10px là cỡ dành cho mấy nhãn phụ.
+
+   Vì sao cần cả `font-weight` lẫn `text-shadow`: dải này nằm trên nền xanh nhạt của panel tab,
+   và chữ cam mảnh trên nền xanh nhạt thì tương phản thấp — nhìn ra "mờ". Viền sáng quanh glyph
+   tách chữ khỏi nền mà không phải tô một mảng nền đè lên form. */
+.bp-tick {
+  position: absolute;
+  height: 15px;
+  line-height: 15px;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  overflow: visible;
+  white-space: nowrap;
+  color: #b3400a;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 1px 2px #fff;
+  border-left: 1px solid rgba(234, 88, 12, 0.55);
+}
+
+/* Trong lưới, dải px nằm ở mép dưới hàng tiêu đề — chỗ chật hơn và đã có chữ sẵn phía trên.
+   KHÔNG có nền: một dải trắng mờ 72% phủ lên mép dưới ô tiêu đề làm chính tên cột bị nhạt đi,
+   và blueprint thì không được đổi màu chữ của form. Tách chữ khỏi nền bằng viền sáng quanh
+   glyph (`text-shadow`) thay vì bằng một mảng nền — cách đó chỉ đụng tới con số của chính nó.
+   Canh phải để con số dính vào mép cột nó đang đo. */
+.bp-tick.bp-tick-grid {
+  height: 10px;
+  line-height: 10px;
+  text-align: right;
+  padding-right: 2px;
+  box-sizing: border-box;
+  font-size: 10px;
+  background: none;
+  border-left: none;
+  border-right: 1px solid rgba(234, 88, 12, 0.45);
+}
+
+/* Ô KHÔNG dùng: gạch chéo. Đây là chỗ còn thả control vào được, và gạch chéo nói ra điều đó
+   ngay cả khi ô nằm lọt giữa hai control — viền đứt thôi thì ở form dày đặc nhìn không ra. */
+.bp-slot { position: absolute; }
+
+.bp-slot.bp-empty {
+  outline: 1px dashed rgba(11, 107, 203, 0.45);
+  outline-offset: -1px;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(11, 107, 203, 0.20) 0,
+    rgba(11, 107, 203, 0.20) 1px,
+    transparent 1px,
+    transparent 6px
+  );
+}
+
+/* Ô trống mà lại thuộc file Include: gạch chéo ngược chiều, để không lẫn với ô trống sửa được. */
+.bp-slot.bp-empty.bp-foreign {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(120, 120, 120, 0.28) 0,
+    rgba(120, 120, 120, 0.28) 1px,
+    transparent 1px,
+    transparent 6px
+  );
+}
+
+/* Ô đang chọn — outline, không border: border là thêm px vào hộp. */
+.fbo-selected { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; }
+
+/* `split` — ranh giới hai vùng của bảng. Đỏ đặc, và là thứ ĐỎ DUY NHẤT của lớp blueprint:
+   mọi vạch khác đều xanh, nên nhìn một cái là biết đâu là chỗ bảng bị chia. */
+/* `anchor` — mỏ neo ĐỨNG SÁT vạch mở đầu cột được neo. Canh giữa cột thì ở cột hẹp nó trôi
+   sang cột bên cạnh, và người đọc không biết nó đang neo cột nào. */
+/* ── Tay cầm sửa ────────────────────────────────────────────────────────────
+   Vẽ trong lớp blueprint (`pointer-events:none`) nên từng nút phải tự bật lại
+   `pointer-events` — chỉ nút mới bắt chuột, phần còn lại của lớp vẫn cho click xuyên qua
+   xuống form bên dưới. */
+
+.bp-focus {
+  position: absolute;
+  outline: 2px solid rgba(11, 107, 203, 0.9);
+  outline-offset: -1px;
+  background: rgba(11, 107, 203, 0.06);
+}
+
+/* MỘT thanh lệnh cho ô đang chọn, thay cho các nút rải quanh bốn cạnh.
+   Luật hình học của nó: KHÔNG chạm vào cạnh ô. Nút đặt trên cạnh phải là nút đè lên dải bắt kéo
+   gộp/tách, và đó đúng là chỗ hỏng của bản trước — chọn ô xong thì kéo không còn ăn.
+   `translate(-50%, -100%)` neo mép DƯỚI của thanh vào điểm truyền vào, nên thanh luôn nằm hẳn
+   phía trên ô; biến thể `bp-bar-below` lật ngược lại cho ô sát mép trên. */
+.bp-bar {
+  position: absolute;
+  pointer-events: auto;
+  transform: translate(-50%, -100%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 3px;
+  white-space: nowrap;
+  border-radius: 4px;
+  border: 1px solid rgba(11, 107, 203, 0.55);
+  background: var(--vscode-editorWidget-background, #fff);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  z-index: 2;
+}
+
+.bp-bar.bp-bar-below { transform: translate(-50%, 0); }
+
+.bp-act {
+  font: inherit;
+  font-size: 11px;
+  line-height: 14px;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 3px;
+  cursor: pointer;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--vscode-foreground);
+}
+
+.bp-act:hover:not(:disabled) {
+  background: rgba(11, 107, 203, 0.16);
+  border-color: rgba(11, 107, 203, 0.6);
+}
+
+/* Nút mờ vẫn ở nguyên chỗ chứ không biến mất: thanh lệnh mà đổi số nút theo từng ô thì vị trí
+   các nút còn lại nhảy, và tay đã quen bấm chỗ nào lại bấm nhầm sang việc khác. */
+.bp-act:disabled { opacity: 0.35; cursor: default; }
+
+.bp-act.bp-del { color: rgba(185, 28, 28, 0.95); }
+.bp-act.bp-del:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.16);
+  border-color: rgba(220, 38, 38, 0.6);
+}
+
+.bp-act-sep {
+  width: 1px;
+  height: 12px;
+  margin: 0 2px;
+  background: var(--vscode-panel-border);
+}
+
+.bp-act-note {
+  font-size: 10px;
+  padding: 0 3px;
+  opacity: 0.75;
+}
+
+/* Vạch chỉ chỗ kéo gộp/tách ở cạnh phải ô đang chọn. KHÔNG bật `pointer-events`: cú kéo thật do
+   `#fbo-form` bên dưới bắt, nên vạch này phải trong suốt với chuột — bật lên là nó cướp đúng
+   thao tác mà nó đang chỉ chỗ. */
+.bp-grip {
+  position: absolute;
+  width: 3px;
+  background: rgba(11, 107, 203, 0.55);
+  border-radius: 2px;
+}
+
+/* Tay cầm kéo chiều cao của tab đang mở — thứ DUY NHẤT của lớp blueprint nằm ngang.
+   Nó phải bắt được chuột, khác với `.bp-grip`: ở đây không có handler nào bên dưới lo hộ, chính
+   nó khởi động phép kéo. Màu lấy từ `BlueprintTheme.Splitter` của DWF để hai công cụ nhìn giống
+   nhau ở cùng một thao tác. */
+.bp-hheight {
+  position: absolute;
+  pointer-events: auto;
+  height: 6px;
+  cursor: row-resize;
+  background: rgba(255, 111, 0, 0.35);
+  border-radius: 3px;
+  z-index: 2;
+}
+
+.bp-hheight:hover { background: rgba(255, 111, 0, 0.65); }
+
+/* `view@split` — ranh giới hai vùng của bảng. Đỏ đặc, và là thứ ĐỎ DUY NHẤT của lớp blueprint:
+   mọi vạch khác đều cam hoặc xanh, nên nhìn một cái là biết đâu là chỗ bảng bị chia.
+   Màu lấy từ `BlueprintTheme.SplitDivider` của DWF. */
+.bp-split {
+  position: absolute;
+  /* Vạch vẽ 2px nhưng vùng bắt chuột rộng 7px — cùng con số DWF dùng. Kéo một đường 2px bằng
+     chuột là việc gần như không làm được; phần rộng thêm nằm ở `width`, còn `border-left` mới là
+     thứ nhìn thấy. */
+  width: 7px;
+  margin-left: -3px;
+  border-left: 2px solid #c62828;
+  pointer-events: auto;
+  /* `move`, không phải `col-resize`. Hai marker này KHÔNG co giãn cái gì — chúng được DỜI sang
+     một cột khác. `col-resize` (mũi tên hai chiều) hứa một phép co giãn, và người dùng đi tìm
+     cái mép đang bị kéo ra. Xem `startMetaDrag`. */
+  cursor: move;
+  z-index: 3;
+}
+
+/* `view@anchor` — mỏ neo nép vào MÉP PHẢI của cột được neo. Canh giữa cột thì ở cột hẹp nó trôi
+   sang cột bên cạnh, và người đọc không biết nó đang neo cột nào.
+   Màu lấy từ `BlueprintTheme.AnchorIcon` của DWF. */
+.bp-anchor {
+  position: absolute;
+  font-size: 13px;
+  line-height: 13px;
+  color: #1565c0;
+  user-select: none;
+  pointer-events: auto;
+  cursor: move;
+  z-index: 3;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff;
+}
+
+/* Con trỏ đổi ngay khi rê vào dải bắt kéo ở cạnh phải ô — báo trước là kéo được, trước khi
+   người dùng phải thử. */
+#fbo-form.fbo-resizing,
+#fbo-form.fbo-resizing * { cursor: col-resize; }
+
+body.fbo-dragging,
+body.fbo-dragging * { cursor: col-resize !important; user-select: none; }
+
+/* Đang kéo mỏ neo / vạch chia — dời chỗ, không co giãn. */
+body.fbo-dragging-move,
+body.fbo-dragging-move * { cursor: move !important; user-select: none; }
+
+/* Bóng của span đang kéo: thấy trước sẽ ăn tới cột nào, trước khi thả tay. */
+.bp-drag {
+  position: absolute;
+  background: rgba(11, 107, 203, 0.18);
+  outline: 2px dashed rgba(11, 107, 203, 0.85);
+  outline-offset: -1px;
+}
+
+/* Dòng đang chọn — thứ duy nhất blueprint tô ngoài vạch cột.
+   Nền nhạt và viền trái đậm: nhìn ra ngay hàng nào đang sửa mà không phủ lên nội dung. */
+.fbo-row-selected > td {
+  background-color: rgba(234, 88, 12, 0.10) !important;
+}
+
+.fbo-row-selected > td:first-child {
+  box-shadow: inset 2px 0 0 rgba(234, 88, 12, 0.9);
+}
+
+/* Kéo chiều cao: con trỏ đổi ở mép DƯỚI của tab đang mở. */
+#fbo-form.fbo-resizing-v,
+#fbo-form.fbo-resizing-v * { cursor: row-resize; }
+
+body.fbo-dragging-v,
+body.fbo-dragging-v * { cursor: row-resize !important; user-select: none; }

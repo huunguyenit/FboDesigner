@@ -1,0 +1,329 @@
+/* Toolbar ERP — class = command (Insert) hoặc Text{command} khi hasText/$$width.
+   Icon: Config/image/fbo-toolbar.png hoặc Program/Images qua controller <css>.
+
+   DÙNG CHUNG cho lưới Detail nhúng trong tab và cho màn hình danh sách đứng riêng
+   (`type="Voucher"|"Report"`): runtime vẽ cả hai bằng đúng một sprite và đúng một bộ class —
+   đối chiếu HTML thật của `MainReport` (New/Edit/Delete/Clone/Search/View/Print…) với HTML của
+   `FormGridd81` (Insert/Grow/Down/Clone/Remove/Retrieve…) thì hai bên chỉ khác danh sách lệnh. */
+
+/* Runtime tách làm hai: `div .ToolbarStyle` giữ màu và viền, `div .Green` giữ ảnh gradient.
+   Phần HÌNH HỌC (height/display/width/vertical-align/padding-top) KHÔNG nằm ở CSS — runtime đặt
+   inline trên chính thẻ, và `renderToolbar` của core cũng vậy. Khai lại ở đây là dựng một nguồn
+   sự thật thứ hai cho cùng mấy con số. */
+.ToolbarStyle {
+    background-color: #f3f3f8;
+    border-bottom: 1px solid #bebed1;
+    border-top: 1px solid #fff;
+    color: #000;
+    /* KEO DÁN: runtime lấy font từ lớp bọc trang (`div.UpdateDlgPanel`, `div.Dialog` — cùng khai
+       `font-family:Tahoma;font-size:11px`), thứ mà lưới đứng riêng của ta không có. */
+    font-family: Tahoma, Verdana, sans-serif;
+    font-size: 11px;
+}
+
+/* MỘT rule gắn sprite cho mọi nút — nguyên văn runtime:
+   `div.ToolbarBackgroundImage{background-image:url(<sprite>);background-repeat:no-repeat}`.
+   Trước đây mỗi lệnh tự khai lại `background-image` kèm một `background-position` viết tay, và
+   khối viết tay ấy chính là chỗ sai: nó đặt `.TextRetrieve` vào ô sprite của `.Edit`. Vị trí
+   nay chỉ đến từ khối NHẬP TỪ RUNTIME ở cuối file. */
+/* Đuôi file là `.png` vì NỘI DUNG là PNG. Nó từng tên `.gif` — và đó là file DUY NHẤT trong
+   `base/image` có đuôi nói dối (ba file `.gif` còn lại đúng là GIF thật). Hậu quả: bộ đóng gói
+   khai nó `ContentType="image/gif"` trong `[Content_Types].xml`, webview phục vụ nó với header
+   ấy, và toàn bộ icon lấy từ sprite biến mất — trong khi mọi icon đến từ file PNG riêng hoặc từ
+   data URI của program vẫn hiện bình thường. Trên bàn đo (HTTP thường, có sniff) thì không lộ. */
+.ToolbarBackgroundImage {
+    background-image: url(../image/fbo-toolbar.png);
+    background-repeat: no-repeat;
+    background-position: 0 0;
+    cursor: default;
+}
+
+/* Nút có text: icon trái (22px) + chữ. NGUYÊN VĂN runtime.
+   Ba con số bản viết tay đặt sai: `line-height` 22 thay vì 24 (chữ lệch lên 2px so với icon),
+   màu chữ `#000` thay vì `#444`, và thiếu `padding-right:6px` nên chữ dính sát mép phải khi bị
+   `max-width` cắt. `text-overflow:ellipsis` cũng thiếu — nhãn dài bị cắt cụt không dấu hiệu gì
+   thay vì có dấu `…`. */
+.ToolbarTextButton {
+    cursor: pointer;
+    text-indent: 22px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 24px;
+    padding-right: 6px;
+    padding-left: 0;
+    text-decoration: none;
+    color: #444;
+}
+
+.ToolbarTextButton:hover {
+    color: #4682b4;
+}
+
+/* Nút có chữ mà KHÔNG khai bề rộng riêng — nguyên văn runtime `.ToolbarWidthButton{max-width:60px}`.
+   Thiếu rule này (và nó từng thiếu) thì nút giãn hết cỡ theo chữ: một nhãn dài đẩy cả dải nút
+   rộng ra, và thứ tự nút trông không còn giống runtime nữa. Nút CÓ khai bề rộng thì mang
+   `max-width` inline thay cho class này, không bao giờ mang cả hai. */
+.ToolbarWidthButton {
+    max-width: 60px;
+}
+
+/* Nút KHÔNG có icon — không ô sprite trong base pack, không `<css>` nào của program khai.
+   Nó không mang `ToolbarBackgroundImage` (nếu mang thì sprite cắt tại `0 0` và icon lệnh «Mới»
+   hiện ra sau lưng chữ), nên chỗ này chỉ còn phải gỡ nốt khoảng chừa dành cho icon: bỏ
+   `text-indent:22px` của `.ToolbarTextButton` và trả lại đệm hai bên cho chữ.
+   Xem `SPRITE_COMMANDS` trong `core/src/grid.mjs`. */
+.ToolbarTextButton.ToolbarNoIcon {
+    text-indent: 0;
+    padding-left: 6px;
+}
+
+/* Mũi tên dropdown — <span class="ToolbarGroupSpan"> khi group + text */
+.ToolbarGroupSpan {
+    background-image: url(../image/fbo-group.png);
+    background-repeat: no-repeat;
+    background-position: right bottom;
+    padding-right: 14px;
+}
+
+/* Menu Design (hover) — nằm trong `<td>` của chính nút group.
+   `position:relative` trên ô để menu neo vào nút chứ không vào cả trang; nó không đổi một px
+   nào của bảng, nên vẫn nằm trong luật "base pack không chạm hình học". */
+.ToolbarStyle td {
+    position: relative;
+}
+
+.ToolbarGroupMenu {
+    display: none;
+    position: absolute;
+    z-index: 20;
+    margin: 0;
+    padding: 2px 0;
+    list-style: none;
+    min-width: 160px;
+    background: #fff;
+    border: 1px solid #bebed1;
+    box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.15);
+    font-family: Tahoma, Verdana, sans-serif;
+    font-size: 11px;
+    color: #000;
+}
+td:hover > .ToolbarGroupMenu {
+    display: block;
+}
+.ToolbarGroupMenuItem {
+    padding: 3px 12px;
+    white-space: nowrap;
+    cursor: default;
+}
+.ToolbarGroupMenuSep {
+    height: 1px;
+    margin: 3px 0;
+    background: #bebed1;
+}
+
+/* ── Vị trí sprite NHẬP TỪ RUNTIME ─────────────────────────────────────────
+   Trích từ CSS thật của FBO đang chạy (trang đã lưu, styles/WebResource.axd).
+   Sprite: `fbo-toolbar.png` — ĐÚNG file runtime dùng (đối chiếu SHA-256), 804×88, cắt thành
+   ô 22×22: 4 hàng × 36 cột.
+
+   Vì sao phải đè lại: bản viết tay phía trên đặt sai vị trí cho vài lệnh — TextDown, TextClone
+   và TextRemove trỏ vào ô sprite của lệnh khác, nên nút hiện đúng chữ nhưng SAI ICON. Đây là
+   loại lỗi không đọc ra được từ XML, chỉ so với runtime mới thấy.
+
+   Mọi rule đều ràng vào `.ToolbarBackgroundImage`. Bắt buộc: CSS runtime gộp chung sprite của
+   nhiều thứ khác (Lookup, Option, Shift…), và tên class trùng với thứ dùng ở chỗ khác —
+   `td.Option` của FormRadioButtonList là một ví dụ có thật. Viết `.Option` trần thì vị trí
+   sprite của toolbar rơi xuống cả những phần tử chẳng liên quan gì.
+
+   Khối này là số liệu đo được, không phải thiết kế — đừng sửa tay. Có trang runtime mới thì
+   sinh lại.
+   ──────────────────────────────────────────────────────────────────────── */
+.ToolbarBackgroundImage.Aggregate { background-position: -396px 0; }
+.ToolbarBackgroundImage.Cancel { background-position: -176px 0; }
+.ToolbarBackgroundImage.Clone { background-position: -374px 0; }
+.ToolbarBackgroundImage.Delete { background-position: -44px 0; }
+.ToolbarBackgroundImage.DeleteOverGreen { background-position: -44px -22px; }
+.ToolbarBackgroundImage.Down { background-position: -352px 0; }
+.ToolbarBackgroundImage.Edit { background-position: -22px 0; }
+.ToolbarBackgroundImage.EditOverGreen { background-position: -22px -22px; }
+.ToolbarBackgroundImage.Export { background-position: -220px 0; }
+.ToolbarBackgroundImage.Freeze { background-position: -308px 0; }
+.ToolbarBackgroundImage.GroupPrint { background-position: -418px 0; }
+.ToolbarBackgroundImage.GroupRetrieve { background-position: -470px 0; }
+.ToolbarBackgroundImage.GroupToolbarPrint { background-position: -418px -5px; }
+.ToolbarBackgroundImage.Grow { background-position: -330px 0; }
+.ToolbarBackgroundImage.InformationIcon { background-position: -32px 0; }
+.ToolbarBackgroundImage.Insert { background-position: -286px 0; }
+.ToolbarBackgroundImage.New { background-position: 0 0; }
+.ToolbarBackgroundImage.NewOverGreen { background-position: 0 -22px; }
+.ToolbarBackgroundImage.Option { background-position: -198px 0; }
+.ToolbarBackgroundImage.Page { background-position: -242px 0; }
+.ToolbarBackgroundImage.Preview { background-position: -110px 0; }
+.ToolbarBackgroundImage.Print { background-position: -132px 0; }
+.ToolbarBackgroundImage.QuestionIcon { background-position: -64px 0; }
+.ToolbarBackgroundImage.Remove { background-position: -264px 0; }
+.ToolbarBackgroundImage.Retrieve { background-position: -448px 0; }
+.ToolbarBackgroundImage.Save { background-position: -154px 0; }
+.ToolbarBackgroundImage.Search { background-position: -66px 0; }
+.ToolbarBackgroundImage.TextClone { background-position: -470px -44px; }
+.ToolbarBackgroundImage.TextDelete { background-position: -132px -44px; }
+.ToolbarBackgroundImage.TextDown { background-position: -566px -44px; }
+.ToolbarBackgroundImage.TextEdit { background-position: -66px -44px; }
+.ToolbarBackgroundImage.TextGroupPrint { background-position: -672px 0; }
+.ToolbarBackgroundImage.TextGroupRetrieve { background-position: -672px -44px; }
+.ToolbarBackgroundImage.TextGrow { background-position: -566px 0; }
+.ToolbarBackgroundImage.TextInsert { background-position: -396px -44px; }
+.ToolbarBackgroundImage.TextNew { background-position: 0 -44px; }
+.ToolbarBackgroundImage.TextRemove { background-position: -330px -44px; }
+.ToolbarBackgroundImage.TextSearch { background-position: -198px -44px; }
+.ToolbarBackgroundImage.TextView { background-position: -264px -44px; }
+.ToolbarBackgroundImage.ToolbarClone { background-position: -374px -4px; }
+.ToolbarBackgroundImage.ToolbarNext { background-position: -544px -5px; }
+.ToolbarBackgroundImage.ToolbarNotification { background-position: -500px -5px; }
+.ToolbarBackgroundImage.ToolbarPrev { background-position: -522px -5px; }
+.ToolbarBackgroundImage.ToolbarPrint { background-position: -132px -5px; }
+.ToolbarBackgroundImage.View { background-position: -88px 0; }
+.ToolbarBackgroundImage.WarningIcon { background-position: -48px 0; }
+.ToolbarBackgroundImage.TextRetrieve { background-position: -672px -44px; }
+
+/* ── Hover: runtime chỉ dịch TRỤC Y, giữ nguyên trục X ─────────────────────
+   Nguyên văn hai rule của runtime. Đây là chỗ bản viết tay trước sai một cách có hệ thống: nó
+   khai `background-position: -22px -22px` cho `.RetrieveOverGreen`, tức GHI ĐÈ LUÔN trục X và
+   kéo nút về cột sprite của `Edit`. Rê chuột vào «Lấy dữ liệu» là icon nhảy sang cái bút chì.
+
+   Dùng `background-position-y` nên mỗi lệnh giữ đúng cột của nó, và một rule lo cho cả họ:
+   hàng icon (y=0) rơi xuống -22px; hàng có chữ (y=-44px) rơi xuống -66px. */
+.ToolbarBackgroundImage.SearchOverGreen,
+.ToolbarBackgroundImage.ViewOverGreen,
+.ToolbarBackgroundImage.PreviewOverGreen,
+.ToolbarBackgroundImage.PrintOverGreen,
+.ToolbarBackgroundImage.SaveOverGreen,
+.ToolbarBackgroundImage.CancelOverGreen,
+.ToolbarBackgroundImage.OptionOverGreen,
+.ToolbarBackgroundImage.ExportOverGreen,
+.ToolbarBackgroundImage.PageOverGreen,
+.ToolbarBackgroundImage.RemoveOverGreen,
+.ToolbarBackgroundImage.InsertOverGreen,
+.ToolbarBackgroundImage.FreezeOverGreen,
+.ToolbarBackgroundImage.GrowOverGreen,
+.ToolbarBackgroundImage.DownOverGreen,
+.ToolbarBackgroundImage.CloneOverGreen,
+.ToolbarBackgroundImage.AggregateOverGreen,
+.ToolbarBackgroundImage.GroupPrintOverGreen,
+.ToolbarBackgroundImage.RetrieveOverGreen,
+.ToolbarBackgroundImage.GroupRetrieveOverGreen,
+.ToolbarBackgroundImage.TextGrowOverGreen,
+.ToolbarBackgroundImage.TextPrintOverGreen,
+.ToolbarBackgroundImage.TextGroupPrintOverGreen { background-position-y: -22px; }
+
+.ToolbarBackgroundImage.TextNewOverGreen,
+.ToolbarBackgroundImage.TextEditOverGreen,
+.ToolbarBackgroundImage.TextDeleteOverGreen,
+.ToolbarBackgroundImage.TextSearchOverGreen,
+.ToolbarBackgroundImage.TextViewOverGreen,
+.ToolbarBackgroundImage.TextRemoveOverGreen,
+.ToolbarBackgroundImage.TextInsertOverGreen,
+.ToolbarBackgroundImage.TextCloneOverGreen,
+.ToolbarBackgroundImage.TextDownOverGreen,
+.ToolbarBackgroundImage.TextRetrieveOverGreen,
+.ToolbarBackgroundImage.TextGroupRetrieveOverGreen { background-position-y: -66px; }
+
+/* `Retrive` — lối viết thiếu chữ `e` có thật trong một số program. Runtime không khai nó, nên
+   không có gì để chép; ánh xạ về đúng ô của bản viết đủ để nút không rơi về ô sprite số 0. */
+.ToolbarBackgroundImage.Retrive { background-position: -448px 0; }
+.ToolbarBackgroundImage.GroupRetrive { background-position: -470px 0; }
+.ToolbarBackgroundImage.TextRetrive,
+.ToolbarBackgroundImage.TextGroupRetrive { background-position: -672px -44px; }
+.ToolbarBackgroundImage.RetriveOverGreen,
+.ToolbarBackgroundImage.GroupRetriveOverGreen { background-position-y: -22px; }
+.ToolbarBackgroundImage.TextRetriveOverGreen,
+.ToolbarBackgroundImage.TextGroupRetriveOverGreen { background-position-y: -66px; }
+
+/* ── Còn thiếu so với runtime, nhập nốt ────────────────────────────────────
+   Đối chiếu bằng máy (`WebResource(2).axd` so với cả base pack, theo từng selector).
+
+   `TextPrint` dùng CHUNG ô sprite với `TextGroupPrint` — runtime khai hai selector một dòng.
+   Nút In của màn hình danh sách gần như luôn là group (có `<menuItems>`), nhưng bản không group
+   vẫn tồn tại và trước đây rơi về ô sprite số 0, tức icon lệnh «Mới». */
+.ToolbarBackgroundImage.TextPrint { background-position: -672px 0; }
+
+/* Trạng thái `Over` (rê chuột, chưa đổi màu) và `Disabled` — cùng ô với `OverGreen`, và cùng
+   luật: CHỈ dịch trục Y, giữ nguyên trục X. Thiếu chúng thì một nút bị vô hiệu hoá lại hiện ô
+   sprite của lệnh khác. */
+.ToolbarBackgroundImage.NewOver,
+.ToolbarBackgroundImage.NewDisabled { background-position: 0 -22px; }
+.ToolbarBackgroundImage.EditOver,
+.ToolbarBackgroundImage.EditDisabled { background-position: -22px -22px; }
+.ToolbarBackgroundImage.DeleteOver,
+.ToolbarBackgroundImage.DeleteDisabled { background-position: -44px -22px; }
+
+.ToolbarBackgroundImage.SearchOver,
+.ToolbarBackgroundImage.SearchDisabled,
+.ToolbarBackgroundImage.ViewOver,
+.ToolbarBackgroundImage.ViewDisabled,
+.ToolbarBackgroundImage.PreviewOver,
+.ToolbarBackgroundImage.PreviewDisabled,
+.ToolbarBackgroundImage.PrintOver,
+.ToolbarBackgroundImage.PrintDisabled,
+.ToolbarBackgroundImage.SaveOver,
+.ToolbarBackgroundImage.SaveDisabled,
+.ToolbarBackgroundImage.CancelOver,
+.ToolbarBackgroundImage.CancelDisabled,
+.ToolbarBackgroundImage.OptionOver,
+.ToolbarBackgroundImage.OptionDisabled,
+.ToolbarBackgroundImage.ExportOver,
+.ToolbarBackgroundImage.ExportDisabled,
+.ToolbarBackgroundImage.PageOver,
+.ToolbarBackgroundImage.PageDisabled,
+.ToolbarBackgroundImage.RemoveOver,
+.ToolbarBackgroundImage.RemoveDisabled,
+.ToolbarBackgroundImage.InsertOver,
+.ToolbarBackgroundImage.InsertDisabled,
+.ToolbarBackgroundImage.FreezeOver,
+.ToolbarBackgroundImage.FreezeDisabled,
+.ToolbarBackgroundImage.GrowOver,
+.ToolbarBackgroundImage.GrowDisabled,
+.ToolbarBackgroundImage.DownOver,
+.ToolbarBackgroundImage.DownDisabled,
+.ToolbarBackgroundImage.CloneOver,
+.ToolbarBackgroundImage.CloneDisabled,
+.ToolbarBackgroundImage.AggregateOver,
+.ToolbarBackgroundImage.AggregateDisabled,
+.ToolbarBackgroundImage.GroupPrintOver,
+.ToolbarBackgroundImage.GroupPrintDisabled,
+.ToolbarBackgroundImage.RetrieveOver,
+.ToolbarBackgroundImage.RetrieveDisabled,
+.ToolbarBackgroundImage.GroupRetrieveOver,
+.ToolbarBackgroundImage.GroupRetrieveDisabled { background-position-y: -22px; }
+
+/* Nút nhỏ trong thanh điều hướng của lưới — hàng sprite của chúng lệch 5px, không phải 22.
+   Đây là con số đo được, không phải quy luật; đừng "làm tròn" cho đều. */
+.ToolbarBackgroundImage.ToolbarPrintOver,
+.ToolbarBackgroundImage.GroupToolbarPrintOver,
+.ToolbarBackgroundImage.ToolbarNotificationOver,
+.ToolbarBackgroundImage.ToolbarPrevOver,
+.ToolbarBackgroundImage.ToolbarNextOver { background-position-y: -27px; }
+.ToolbarBackgroundImage.ToolbarCloneOver { background-position-y: -26px; }
+
+/* ── ImportData / Download: ảnh RIÊNG, không nằm trong sprite chung ─────────
+   CSS runtime không khai vị trí cho hai lệnh này, và sprite chung cũng không có ô nào cho
+   chúng — nên trước đây cả hai rơi về `background-position: 0 0`, tức icon lệnh «Mới».
+
+   Base pack đã sẵn có `fbo-upload.png` và `fbo-download.png` (22×44 — đúng khuôn hai trạng thái
+   của một nút 22×22) mà KHÔNG rule nào dùng tới: ảnh đã được trích ra từ trước, chỉ thiếu chỗ
+   nối. Ánh xạ theo đúng nghĩa của lệnh, và tooltip runtime xác nhận:
+     `ImportData` = «Lấy dữ liệu từ tệp...» → tải LÊN  → fbo-upload.png
+     `Download`   = «Tải tệp mẫu...»        → tải XUỐNG → fbo-download.png */
+.ToolbarBackgroundImage.ImportData {
+    background-image: url(../image/fbo-upload.png);
+    background-position: 0 0;
+}
+.ToolbarBackgroundImage.ImportDataOver,
+.ToolbarBackgroundImage.ImportDataOverGreen { background-position: 0 -22px; }
+
+.ToolbarBackgroundImage.Download {
+    background-image: url(../image/fbo-download.png);
+    background-position: 0 0;
+}
+.ToolbarBackgroundImage.DownloadOver,
+.ToolbarBackgroundImage.DownloadOverGreen { background-position: 0 -22px; }

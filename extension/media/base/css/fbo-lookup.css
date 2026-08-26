@@ -1,0 +1,25 @@
+/* fbo-lookup.css — TRÍCH NGUYÊN VĂN từ `WebResource(2).axd` (xem đầu `fbo-form.css`).
+ *
+ * DOM runtime: `<a class="CellDivContainer"><img class="CellImage CellImgLookup"></a>`.
+ * `.CellDivContainer` KHÔNG có rule nào — nó là `<a>` inline trần, `margin-left:0`,
+ * `vertical-align:baseline`. Bản trước tự thêm `display:inline-block; vertical-align:middle;
+ * margin-left:2px` rồi phải thêm tiếp `line-height:0` để bù; runtime không cần cái nào, và
+ * hàng Lookup của nó vẫn cao đúng 24px như mọi hàng khác.
+ *
+ * Icon là sprite: `background-position: 0 0` = Calendar, `-16px 0` = Lookup. Kích thước thật
+ * 15×11 (không phải 14 như bản trước, và không `!important`).
+ */
+
+.CellImage {
+  background-image: url(../image/fbo-cell-icons.gif);
+  background-repeat: no-repeat;
+  border: 0;
+  outline: 0;
+}
+
+.CellImgCalendar { text-decoration: none; background-position: 0 0; height: 11px; width: 15px; }
+.CellImgLookup { text-decoration: none; background-position: -16px 0; height: 11px; width: 15px; }
+
+/* THÊM: `.FormTextInputLookup` / `.FormTextInputCalendar` là class DESIGNER gắn để đánh dấu
+ * loại adornment — runtime không có. Không cho chúng thuộc tính hình học nào; bề rộng ô nhập
+ * do style inline quyết (bề rộng ô trừ 23px chỗ đeo icon). */
