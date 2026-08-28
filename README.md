@@ -155,6 +155,34 @@ Mở project trong VS Code hoặc Cursor, mở một file controller FBO rồi c
 - Debug stylesheet và tài nguyên (`Ctrl+Alt+P`)
 - Có thêm mục trong menu chuột phải trên editor và file FBO để gọi nhanh các tiện ích
 
+### Hình minh họa
+
+#### 1) Preview form và trải nghiệm render
+
+![Preview form FBO](docs/images/Screenshot_15.png)
+
+*Xem layout form trực tiếp trong IDE, gần với trải nghiệm runtime.*
+
+![Form đang được render](docs/images/Screenshot_14.png)
+
+*Render form và các vùng layout được hiển thị rõ ràng để kiểm tra nhanh.*
+
+#### 2) Blueprint và đo kích thước layout
+
+![Blueprint layout](docs/images/Screenshot_13.png)
+
+*Blueprint giúp quan sát độ rộng, khoảng cách, cột và cấu trúc bố cục.*
+
+![Kiểm tra grid và slot](docs/images/Screenshot_12.png)
+
+*Theo dõi các ô, slot và biên định vị bằng giao diện thiết kế trực quan.*
+
+#### 3) Chế độ debug và thao tác nhanh
+
+![Debug stylesheet và tài nguyên](docs/images/Screenshot_11.png)
+
+*Xem stylesheet, resource và các thông tin debug để sửa lỗi nhanh hơn.*
+
 ### Chạy kiểm tra
 
 ```bash
