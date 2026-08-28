@@ -157,31 +157,35 @@ Mở project trong VS Code hoặc Cursor, mở một file controller FBO rồi c
 
 ### Hình minh họa
 
-#### 1) Preview form và trải nghiệm render
+#### 1) Preview form và layout trực quan
 
-![Preview form FBO](docs/images/Screenshot_15.png)
+![Form overview](docs/images/Form.png)
 
-*Xem layout form trực tiếp trong IDE, gần với trải nghiệm runtime.*
+*Preview tổng quan form FBO đang được render trực tiếp trong IDE, gần với runtime.*
 
-![Form đang được render](docs/images/Screenshot_14.png)
+![Tab layout](docs/images/Tab.png)
 
-*Render form và các vùng layout được hiển thị rõ ràng để kiểm tra nhanh.*
+*Xem cấu trúc tab và các vùng nội dung bên trong form để kiểm tra bố cục theo section.*
 
-#### 2) Blueprint và đo kích thước layout
+#### 2) Thao tác sửa layout nâng cao
 
-![Blueprint layout](docs/images/Screenshot_13.png)
+![Move control](docs/images/Move.png)
 
-*Blueprint giúp quan sát độ rộng, khoảng cách, cột và cấu trúc bố cục.*
+*Di chuyển control trong form để sắp xếp lại layout nhanh và trực quan.*
 
-![Kiểm tra grid và slot](docs/images/Screenshot_12.png)
+![Merge columns](docs/images/Merge.png)
 
-*Theo dõi các ô, slot và biên định vị bằng giao diện thiết kế trực quan.*
+*Gộp/điều chỉnh cột trong layout để thay đổi chiều rộng và vị trí vùng form chính xác hơn.*
 
-#### 3) Chế độ debug và thao tác nhanh
+#### 3) Debug filter và dữ liệu hệ thống
 
-![Debug stylesheet và tài nguyên](docs/images/Screenshot_11.png)
+![sysfilterdeclares](docs/images/sysfilterdeclares.png)
 
-*Xem stylesheet, resource và các thông tin debug để sửa lỗi nhanh hơn.*
+*Sinh và kiểm tra khai báo filter theo controller, hỗ trợ đối chiếu dữ liệu và SQL chuẩn.*
+
+![Grid / filter view](docs/images/Screenshot_12.png)
+
+*Theo dõi cấu trúc grid, filter và các thành phần điều kiện tìm kiếm trong giao diện.*
 
 ### Chạy kiểm tra
 
