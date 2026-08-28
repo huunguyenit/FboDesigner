@@ -568,22 +568,30 @@ function container(cls, valign, capped, inner, align = null) {
 function renderCell(cell, row, model, cellIndex) {
   const token = cell.token;
   const field = token?.field ? model.fieldByName.get(token.field) : null;
+  const rowMeta = (row.foreign ? ' data-fbo-foreign="1"' : '')
+    + (row.product ? ' data-fbo-product="1"' : '');
   // `data-fbo-cell` là chỉ số trong MẢNG Ô của hàng, khác hẳn `data-fbo-col` (chỉ số cột).
   // Mọi phép sửa nhắm theo ô, nên nhầm hai cái này là sửa trúng ô khác — ô trống cũng là một ô,
   // nên ở hàng có ô trống hai con số này lệch nhau ngay.
   const data = ` data-fbo-cell="${cellIndex}" data-fbo-col="${cell.col}"`
     + ` data-fbo-span="${cell.span}" data-fbo-width="${cell.width}"`;
   const td = (cls, inner, extra = '') =>
-    `<td class="${cls}" nowrap style="${CELL_STYLE}" colspan="${cell.span}"${data}${extra}>${inner}</td>`;
+    `<td class="${cls}" nowrap style="${CELL_STYLE}" colspan="${cell.span}"${data}${rowMeta}${extra}>${inner}</td>`;
 
   if (cell.empty) return td('FormCell DwfEmptyCell', '');
 
   const tokenAttr = ` data-fbo-token="${esc(token?.raw ?? '')}"`;
+  const fieldFile = field?.tagStart?.file ?? null;
+  const fieldForeign = !!(fieldFile && model.hostFile && fieldFile !== model.hostFile);
+  const fieldProduct = !!(fieldFile && /\.f$/i.test(fieldFile));
   const fieldMeta = field
     ? ` data-field-name="${esc(resolveLocaleName(field.name, model.vi))}"`
       + ` title="${esc(fieldHint(field, model.vi))}"`
       + (isTrue(field.attrs?.readOnly) ? ' data-fbo-readonly="1"' : '')
       + (isTrue(field.attrs?.external) ? ' data-fbo-external="1"' : '')
+      + (isTrue(field.attrs?.inactivate) ? ' data-fbo-inactivate="1"' : '')
+      + (fieldForeign ? ' data-fbo-foreign="1"' : '')
+      + (fieldProduct ? ' data-fbo-product="1"' : '')
     : '';
 
   if (token?.kind === 'label') {

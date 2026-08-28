@@ -605,8 +605,15 @@ td.FormCell[data-fbo-readonly="1"] input {
   border-radius: 0;       
 }
 
-td.FormCell[data-fbo-external="1"] input {
+td.FormCell[data-fbo-external="1"] input
+{
   border: 0.6px solid rgba(96, 165, 250, 0.10) !important;                 /* xóa hết viền cũ */
+  border-bottom: 1px solid rgba(96, 165, 250, 0.42) !important;
+  box-shadow: none !important;             /* bỏ box-shadow cũ */
+  border-radius: 0;                        /* nếu muốn thẳng */
+}
+td.FormCell[data-fbo-inactivate="1"] input {
+  border: 0.6px solid rgba(96, 165, 250, 0.1) !important;                 /* xóa hết viền cũ */
   border-bottom: 1px solid rgba(96, 165, 250, 0.42) !important;
   box-shadow: none !important;             /* bỏ box-shadow cũ */
   border-radius: 0;                        /* nếu muốn thẳng */

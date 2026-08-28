@@ -7,6 +7,7 @@
 
 import { ok, eq, section } from './harness.mjs';
 import { renderControllerHtml, renderRowHtml, sanitizeLabelHtml, evaluateHeight, DIALOG_CHROME_PX } from '../src/render.mjs';
+import { expandEntities } from '../src/entities.mjs';
 
 const XML = [
   '<dir table="dmkh">',
@@ -121,9 +122,10 @@ eq('hàng status tách 1/2/2 như formCell_11.1 / 11.3 / 11.5', siteRows[3].cell
 ok('ô mô tả lấy từ <footer>', site.html.includes('>1 - Còn sử dụng, 0 - Không còn sử dụng<'));
 ok('ma_kho viết hoa như dataFormatString', site.html.includes('text-transform:uppercase;'));
 ok('ten_dvcs%l dùng bộ class disabled của runtime', site.html.includes('class="FormInputDisabled FormTextInputDisabled"'));
-ok('ô control mang tooltip field để hover trên form', site.html.includes('data-fbo-token="[ma_kho]" title="ma_kho"'));
+ok('ô control mang tooltip field để hover trên form', /data-fbo-token="\[ma_kho\]"[\s\S]*title="ma_kho"/.test(site.html));
 ok('field %l hiện đủ tên phân giải + tên khai', site.html.includes('title="ten_dvcs  ·  khai: ten_dvcs%l"'));
 ok('field readOnly/external được đánh dấu trên ô', site.html.includes('data-fbo-readonly="1"') && site.html.includes('data-fbo-external="1"'));
+ok('field inactivate được đánh dấu trên ô', site.html.includes('data-fbo-inactivate="1"'));
 // Nhãn không mang style riêng nào: runtime canh TRÁI, và canh lề là việc của CSS chứ không
 // phải của HTML. Ô nhãn chỉ được có đúng bộ style chung của mọi ô.
 const labelCell = /<td class="FormCell"[^>]*data-fbo-token="\[ma_kho\]\.Label"[^>]*>/.exec(site.html)
@@ -318,3 +320,39 @@ ok('trùng khít hàng trong bảng đầy đủ', patchBase.html.includes(rowHt
 eq('hàng không tồn tại → null, để người gọi biết phải vẽ lại cả form',
   renderRowHtml(patchBase.model, 9999), null);
 eq('lưới không vá hàng được', renderRowHtml({ mode: 'grid' }, 1), null);
+
+section('foreign ở cấp ô — field khai trong Include vẫn phải đánh dấu');
+const HOST_FILE = 'C:/P/App_Data/Controllers/Dir/SVTran.xml';
+const RAW_FOREIGN_FIELD = [
+  '<!DOCTYPE dir [',
+  '  <!ENTITY SharedFields SYSTEM "../Include/SVTran-SharedFields.xml">',
+  ']>',
+  '<dir table="svtran">',
+  '  <fields>',
+  '    &SharedFields;',
+  '  </fields>',
+  '  <view id="Dir">',
+  '    <item value="100, 100"/>',
+  '    <item value="11: [so_dd], [so_hc]"/>',
+  '  </view>',
+  '</dir>',
+].join('\n');
+
+const SHARED_FIELDS = [
+  '<field name="so_dd"><header v="Số DD" e="DD No"/></field>',
+  '<field name="so_hc"><header v="Số HC" e="HC No"/></field>',
+].join('\n');
+
+const expanded = expandEntities(RAW_FOREIGN_FIELD, {
+  filePath: HOST_FILE,
+  readFile: (abs) => String(abs).replace(/\\/g, '/').endsWith('/Include/SVTran-SharedFields.xml')
+    ? SHARED_FIELDS
+    : null,
+});
+
+const foreignCell = renderControllerHtml(expanded.clearText, {
+  segments: expanded.segments,
+  hostFile: HOST_FILE,
+});
+ok('ô [so_dd] mang data-fbo-foreign', foreignCell.html.includes('data-fbo-token="[so_dd]" data-field-name="so_dd" title="so_dd" data-fbo-foreign="1"'));
+ok('ô [so_hc] mang data-fbo-foreign', foreignCell.html.includes('data-fbo-token="[so_hc]" data-field-name="so_hc" title="so_hc" data-fbo-foreign="1"'));
