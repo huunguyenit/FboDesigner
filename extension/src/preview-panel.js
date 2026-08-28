@@ -22,8 +22,14 @@ const {
   samePath,
 } = require('./render-host');
 const { handleEdit } = require('./edit-host');
+const { history } = require('./edit-history');
+const { OverlayDialogs } = require('./dialog/dialog-overlay');
+const { runWithDialogs } = require('./dialog/dialog-service');
 
 const VIEW_TYPE = 'fboDesigner.preview';
+
+/** Xem `renderSoon`. Đủ để gộp cả chùm nhịp của một thao tác, dưới ngưỡng mắt thấy được. */
+const RENDER_DEBOUNCE_MS = 40;
 
 class PreviewPanel {
   constructor(context, core, output, panel) {
@@ -31,6 +37,8 @@ class PreviewPanel {
     this.core = core;
     this.output = output;
     this.panel = panel;
+    // Hộp thoại của panel NÀY vẽ vào chính webview này, không mở tab riêng — xem `dialog-overlay.js`.
+    this.dialogs = new OverlayDialogs(panel.webview);
 
     this.document = null;      // TextDocument đang vẽ
     this.programKey = null;    // chỉ dựng lại shell khi ĐỔI program, không phải mỗi lần đổi file
@@ -40,6 +48,9 @@ class PreviewPanel {
     this.sourceFiles = null;   // file đã góp nội dung vào bản vẽ hiện tại (controller + Include)
     this.bust = 0;             // tăng khi người dùng đòi nạp lại tài nguyên (debug mode)
     this.localEdit = null;     // { item, cell } khi lần render tới chỉ cần vá MỘT hàng
+    this.renderTimer = null;   // gộp các nhịp đổi văn bản dồn dập — xem `renderSoon`
+    this.editing = false;      // đang chạy một phép sửa: hoãn mọi lượt vẽ tới khi nó ngã ngũ
+    this.renderPending = false; // có nhịp nào bị hoãn trong lúc ấy không
 
     this.disposables = [
       panel.onDidDispose(() => this.dispose()),
@@ -59,8 +70,8 @@ class PreviewPanel {
       // đứng im — nhìn ra thành "designer không cập nhật".
       vscode.workspace.onDidChangeTextDocument((e) => {
         if (!this.document) return;
-        if (e.document.uri.toString() === this.document.uri.toString()) return this.render();
-        if (e.document.uri.scheme === 'file' && this.contributes(e.document.uri.fsPath)) this.render();
+        if (e.document.uri.toString() === this.document.uri.toString()) return this.renderSoon();
+        if (e.document.uri.scheme === 'file' && this.contributes(e.document.uri.fsPath)) this.renderSoon();
       }),
 
       vscode.workspace.onDidCloseTextDocument((doc) => {
@@ -85,6 +96,16 @@ class PreviewPanel {
       preserveFocus: true,
     }, { enableScripts: true, retainContextWhenHidden: true });
 
+    PreviewPanel.current = new PreviewPanel(context, core, output, panel);
+    PreviewPanel.current.track(vscode.window.activeTextEditor?.document ?? null);
+    return PreviewPanel.current;
+  }
+
+  /**
+   * VS Code khôi phục panel sau khi mở lại: nối lại event + lifecycle cho webview đã có sẵn.
+   */
+  static revive(context, core, output, panel) {
+    if (PreviewPanel.current) PreviewPanel.current.dispose();
     PreviewPanel.current = new PreviewPanel(context, core, output, panel);
     PreviewPanel.current.track(vscode.window.activeTextEditor?.document ?? null);
     return PreviewPanel.current;
@@ -146,7 +167,7 @@ class PreviewPanel {
     if (paths) roots.push(vscode.Uri.file(paths.programRoot));
 
     this.panel.webview.options = { enableScripts: true, localResourceRoots: roots };
-    this.panel.webview.html = shellHtml(this.context, this.panel.webview, stylesheets, this.output, this.bust);
+    this.panel.webview.html = shellHtml(this.context, this.core, this.panel.webview, stylesheets, this.output, this.bust);
 
     if (paths) this.output.appendLine(`program: ${paths.programRoot} · ${stylesheets.length} css`);
   }
@@ -174,7 +195,56 @@ class PreviewPanel {
     }
   }
 
+  /**
+   * GỘP các lần vẽ lại dồn dập vào một — thứ gánh phần lớn cảm giác «render chậm sau khi sửa».
+   *
+   * Một thao tác của designer làm `onDidChangeTextDocument` bắn NHIỀU LẦN, không phải một:
+   * `applyEdit` bắn một nhịp cho mỗi file bị đụng (xoá control kèm khai báo `<field>` là hai),
+   * rồi `save()` bắn tiếp nếu VS Code cắt khoảng trắng cuối dòng hay thêm dòng trắng cuối file.
+   * Mỗi nhịp trước đây kéo theo một lượt bung entity + dựng lại toàn bộ HTML, và ba lượt như
+   * thế thì lượt cuối — lượt duy nhất người dùng nhìn thấy — phải xếp hàng sau hai lượt vô ích.
+   *
+   * Gõ tay trong XML cũng vậy: từng phím một lượt dựng lại cả form.
+   *
+   * 40ms là đủ để nuốt cả chùm nhịp của một thao tác mà mắt không nhận ra độ trễ (ngưỡng thấy
+   * được của mắt quanh 100ms). Bấm giờ được ĐẶT LẠI mỗi nhịp, nên chùm dài bao nhiêu cũng chỉ
+   * ra một lượt vẽ.
+   *
+   * NHƯNG bấm giờ một mình chỉ là cái lưới thưa: nó gộp được những nhịp rơi GẦN nhau, mà
+   * `applyEdit` với `save()` là hai lượt chạm đĩa — chúng có thể cách nhau hơn 40ms trên máy
+   * đang bận, và khi ấy lại ra hai lượt vẽ. Nên trong lúc một phép sửa đang chạy, mọi yêu cầu
+   * vẽ chỉ được GHI NHẬN chứ không hẹn giờ; `finishEdit` thả ra đúng một lượt sau khi phép sửa
+   * đã ngã ngũ. Đó là chốt chắc chắn, không phụ thuộc vào việc đoán đúng con số mili giây.
+   *
+   * Việc gõ tay trong XML lúc một hộp thoại đang mở cũng bị hoãn theo — đúng chứ không phải tác
+   * dụng phụ: vẽ lại giữa chừng một phép sửa là vẽ ra trạng thái nửa vời.
+   */
+  renderSoon() {
+    if (this.editing) { this.renderPending = true; return; }
+    if (this.renderTimer) clearTimeout(this.renderTimer);
+    this.renderTimer = setTimeout(() => {
+      this.renderTimer = null;
+      this.render();
+    }, RENDER_DEBOUNCE_MS);
+  }
+
+  /**
+   * Phép sửa đã ngã ngũ (ghi xong, bị từ chối, hay người dùng bấm Esc) — thả cái vẽ bị hoãn.
+   *
+   * Không có nhịp nào bị hoãn nghĩa là KHÔNG có gì đổi: phép sửa bị từ chối thì không
+   * `onDidChangeTextDocument` nào bắn. Vẽ lại khi ấy là dựng lại y nguyên cái đang có, và
+   * dựng lại `innerHTML` thì mất vị trí cuộn với tab đang mở — trả giá cho một thao tác
+   * không xảy ra.
+   */
+  finishEdit() {
+    this.editing = false;
+    if (!this.renderPending) return;
+    this.renderPending = false;
+    this.renderSoon();
+  }
+
   render(forceShell = false) {
+    if (this.renderTimer) { clearTimeout(this.renderTimer); this.renderTimer = null; }
     if (!this.document) return;
     const cfg = config();
     this.ensureShell(cfg, forceShell);
@@ -220,6 +290,7 @@ class PreviewPanel {
           type: 'patchRow',
           item: local.item,
           cell: local.cell,
+          col: local.col,
           html,
           warnings: payload.warnings,
         });
@@ -237,12 +308,16 @@ class PreviewPanel {
    * clone) sẽ NÉM. Model là của phía host, webview không cần và không được cầm nó.
    */
   post(payload) {
-    const { model, ...wire } = payload;
+    // `expanded` cũng bị bóc như `model`: nó là bản đã bung cộng bản đồ đoạn, chỉ tầng edit
+    // phía host cần. Gửi sang webview là chép cả file qua `postMessage` mỗi lần vẽ, không ai đọc.
+    const { model, expanded, ...wire } = payload;
     if (!this.ready) { this.pending = wire; return; }
     this.panel.webview.postMessage(wire);
   }
 
   onMessage(msg) {
+    // Trả lời hộp thoại đi trước mọi thứ: nó là cái đang có một `await` chờ ở đầu kia.
+    if (this.dialogs.handleMessage(msg)) return;
     if (msg.type === 'ready') {
       this.ready = true;
       if (this.pending) { this.panel.webview.postMessage(this.pending); this.pending = null; }
@@ -251,6 +326,23 @@ class PreviewPanel {
     }
     if (msg.type === 'select') return revealSource(msg, this.document, this.output);
 
+    /*
+     * Ctrl+Z / Ctrl+Y bấm TRONG webview.
+     *
+     * Undo của VS Code bám vào editor đang active, mà lúc này editor active chính là cái webview
+     * — không phải TextEditor nào cả — nên phím tắt của workbench không có gì để bám. Designer
+     * giữ chồng hoàn tác riêng cho những phép sửa do chính nó gây ra; xem `edit-history.js`.
+     */
+    // Cùng chốt `editing` với phép sửa: hoàn tác cũng là `applyEdit` + `save()`, tức cũng đẻ ra
+    // nhiều nhịp cho một thao tác — và nó còn chạm NHIỀU FILE hơn, vì nó lùi cả cụm splice.
+    if (msg.type === 'undo' || msg.type === 'redo') {
+      this.editing = true;
+      const stack = history(this.output);
+      return runWithDialogs(this.dialogs, () => Promise.resolve(msg.type === 'undo' ? stack.undo() : stack.redo()))
+        .catch((err) => this.output.appendLine(`${msg.type} lỗi: ${err.stack || err.message}`))
+        .finally(() => this.finishEdit());
+    }
+
     // Sửa: dựng lại model từ VĂN BẢN HIỆN TẠI mỗi lần, không dùng lại model của lần render
     // trước — người dùng có thể vừa gõ tay vào XML, và offset cũ đã lệch.
     if (msg.type === 'edit') {
@@ -258,16 +350,70 @@ class PreviewPanel {
       // Đánh dấu TRƯỚC khi sửa: `WorkspaceEdit` làm `onDidChangeTextDocument` bắn, và chính
       // `render()` chạy từ đó mới là chỗ đọc cờ này. Đặt sau là muộn mất một nhịp.
       // Chỉ `resize` (gộp/tách) mới được vá cục bộ — xem `render()`.
-      this.localEdit = msg.op === 'resize' ? { item: msg.item, cell: msg.cell } : null;
+      /*
+       * BỐN phép sửa chỉ đụng ĐÚNG MỘT hàng, nên cả bốn vá cục bộ được — không riêng `resize`.
+       *
+       * `move`, `insert`, `remove` đều chỉ ghi lại `value` của một thẻ `<item>`. Bắt chúng đi
+       * đường vẽ lại TOÀN BỘ là nguyên nhân của cái giật: `formLayer.innerHTML = …` dựng lại cả
+       * form, nên control còn nằm ở chỗ cũ suốt vòng gửi–ghi–lưu–vẽ rồi mới nhảy sang chỗ mới,
+       * kéo theo mất tab đang mở và mất vị trí cuộn.
+       *
+       * `addRow` thì KHÔNG: nó thêm hẳn một hàng mới, không có hàng cũ nào để mà vá.
+       *
+       * `col` chỉ có ở `move` — sau khi dời, control nằm ở CỘT khác, nên chọn lại theo cột mới
+       * chứ không theo chỉ số ô cũ (chỉ số ô đổi khi ô trống bị ăn mất). `swap` không cần: đổi
+       * chỗ giữ nguyên pattern nên mọi chỉ số ô đứng yên.
+       */
+      /*
+       * Shift+Delete thì KHÔNG vá cục bộ, dù `remove` vốn nằm trong danh sách.
+       *
+       * Nó kéo theo cả cụm: `[x].Label` cùng hàng, nhưng `[x].Description` và `[x].Footer`
+       * thường ở HÀNG KHÁC — có khi ở file khác. Vá một hàng khi ba hàng vừa đổi là để lại
+       * trên màn hình hai cái nhãn của một control đã không còn tồn tại, và chúng chỉ biến mất
+       * ở lần vẽ lại sau đó. Cứ vẽ lại toàn bộ: đằng nào cũng nhiều hàng đổi.
+       *
+       * (Xoá thường vẫn vá được — hàng biến mất hẳn thì `renderRowHtml` trả null và `render()`
+       * tự rơi về vẽ lại toàn bộ.)
+       */
+      const PATCHABLE = new Set(['resize', 'move', 'swap', 'insert', 'remove']);
+      const sameRowMove = msg.op === 'move' || msg.op === 'swap'
+        ? !Number.isFinite(Number(msg.toItem)) || Number(msg.toItem) === Number(msg.item)
+        : true;
+      const patchable = PATCHABLE.has(msg.op)
+        && !(msg.op === 'remove' && msg.withField === true)
+        && sameRowMove;
+      /*
+       * `swap` chọn lại ô `other`, KHÔNG phải ô `cell`.
+       *
+       * Đổi chỗ không đụng tới pattern, nên chỉ số ô của cả hàng y nguyên — chọn theo `cell` là
+       * chọn đúng cái slot cũ, và trong slot ấy giờ là control KIA. Người dùng vừa kéo control
+       * của họ sang chỗ mới; ô đang chọn phải đi theo nó, không đứng lại chờ.
+       */
+      this.localEdit = patchable
+        ? {
+          item: msg.item,
+          cell: msg.op === 'swap' ? msg.other : msg.cell,
+          col: msg.op === 'move' ? msg.col : undefined,
+        }
+        : null;
       // Sửa bị TỪ CHỐI thì không có `onDidChangeTextDocument` nào bắn, và cờ ở lại. Lần render
       // sau — rất có thể do người dùng gõ tay vào XML — sẽ bị gửi đi dưới dạng bản vá một hàng,
       // tức nuốt mất mọi thay đổi khác. Dọn cờ ngay khi biết phép sửa không thành.
-      return Promise.resolve(handleEdit(msg, this.core, this.document, () => this.buildNow(), this.output))
+      //
+      // `editing` giữ mọi nhịp vẽ lại cho tới khi phép sửa ngã ngũ — xem `renderSoon`. Một phép
+      // sửa chạm hai file là `applyEdit` bắn hai nhịp rồi `save()` bắn tiếp; không có chốt này
+      // thì ba lượt dựng lại toàn bộ HTML xếp hàng trước lượt duy nhất người dùng nhìn thấy.
+      this.editing = true;
+      return runWithDialogs(this.dialogs, () => Promise.resolve(handleEdit(msg, this.core, this.document, () => this.buildNow(), this.output)))
         .then((applied) => { if (!applied) this.localEdit = null; })
         .catch((err) => {
           this.localEdit = null;
           this.output.appendLine(`sửa lỗi: ${err.stack || err.message}`);
-        });
+        })
+        // `finally`: hộp thoại bị Esc, phép sửa bị từ chối, hay handler ném — cả ba đều phải
+        // thả chốt ra. Kẹt `editing` ở `true` là preview đứng hình vĩnh viễn, và người dùng
+        // không có cách nào nối chuyện đó với cái hộp thoại họ vừa bấm Esc.
+        .finally(() => this.finishEdit());
     }
 
     // Dựng lại shell với dấu phiên bản mới trên MỌI url — lối thoát khi webview còn giữ bản cũ
@@ -287,6 +433,9 @@ class PreviewPanel {
   }
 
   dispose() {
+    if (this.renderTimer) { clearTimeout(this.renderTimer); this.renderTimer = null; }
+    // Còn hộp thoại đang chờ mà panel chết: thả hết, không thì `await` treo và cờ `editing` kẹt.
+    this.dialogs.dispose();
     PreviewPanel.current = undefined;
     for (const d of this.disposables) d.dispose();
     this.disposables = [];

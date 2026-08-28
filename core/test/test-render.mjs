@@ -121,6 +121,9 @@ eq('hàng status tách 1/2/2 như formCell_11.1 / 11.3 / 11.5', siteRows[3].cell
 ok('ô mô tả lấy từ <footer>', site.html.includes('>1 - Còn sử dụng, 0 - Không còn sử dụng<'));
 ok('ma_kho viết hoa như dataFormatString', site.html.includes('text-transform:uppercase;'));
 ok('ten_dvcs%l dùng bộ class disabled của runtime', site.html.includes('class="FormInputDisabled FormTextInputDisabled"'));
+ok('ô control mang tooltip field để hover trên form', site.html.includes('data-fbo-token="[ma_kho]" title="ma_kho"'));
+ok('field %l hiện đủ tên phân giải + tên khai', site.html.includes('title="ten_dvcs  ·  khai: ten_dvcs%l"'));
+ok('field readOnly/external được đánh dấu trên ô', site.html.includes('data-fbo-readonly="1"') && site.html.includes('data-fbo-external="1"'));
 // Nhãn không mang style riêng nào: runtime canh TRÁI, và canh lề là việc của CSS chứ không
 // phải của HTML. Ô nhãn chỉ được có đúng bộ style chung của mọi ô.
 const labelCell = /<td class="FormCell"[^>]*data-fbo-token="\[ma_kho\]\.Label"[^>]*>/.exec(site.html)

@@ -9,6 +9,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { readSource } from '../src/encoding.mjs';
 import { renderControllerHtml } from '../src/render.mjs';
 import { expandEntities } from '../src/entities.mjs';
@@ -16,6 +17,16 @@ import { expandEntities } from '../src/entities.mjs';
 const readInclude = (abs) => {
   try { return fs.existsSync(abs) ? readSource(abs).text : null; } catch { return null; }
 };
+
+/**
+ * CSS nền, đọc như tầng vỏ đọc. Không truyền thì mọi nút toolbar ra chỉ-chữ và bộ quét báo
+ * 1954 cảnh báo về chính nó — nhiễu che mất cảnh báo thật của corpus.
+ */
+const BASE_CSS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'extension', 'media', 'base', 'css');
+const baseCss = fs.existsSync(BASE_CSS_DIR)
+  ? fs.readdirSync(BASE_CSS_DIR).filter((f) => f.toLowerCase().endsWith('.css')).sort()
+    .map((f) => fs.readFileSync(path.join(BASE_CSS_DIR, f), 'utf8')).join('\n')
+  : '';
 
 const [root, folder = 'Dir'] = process.argv.slice(2);
 if (!root) {
@@ -50,6 +61,7 @@ for (const file of walk(root)) {
     const { model, warnings } = renderControllerHtml(expanded.clearText, {
       segments: expanded.segments,
       hostFile: file,
+      baseCss,
     });
     if (!model) { stats.noView++; continue; }
     stats.rendered++;

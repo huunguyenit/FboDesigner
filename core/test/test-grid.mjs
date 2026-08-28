@@ -7,6 +7,25 @@ import { renderControllerHtml } from '../src/render.mjs';
 import { applyArrangement } from '../src/grid.mjs';
 import { resolveLocaleName } from '../src/control.mjs';
 import { scanFields, scanViews, scanRoot } from '../src/spans.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/*
+ * CSS NỀN THẬT, đọc từ base pack — không phải một bản chép tay.
+ *
+ * Icon nút toolbar quyết định theo CSS quy tắc chung, nên test phải hỏi đúng cái CSS mà tầng vỏ
+ * sẽ nạp. Chép một danh sách class vào đây là dựng lại đúng thứ vừa phải gỡ: một bản sao trôi
+ * dần khỏi CSS, rồi khẳng định sai mà test vẫn xanh.
+ *
+ * Đây là test đọc đĩa, không phải core đọc đĩa — `core/src` vẫn không chạm fs (ADR-0002).
+ */
+const BASE_CSS = (() => {
+  const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'extension', 'media', 'base', 'css');
+  return fs.readdirSync(dir).filter((f) => f.endsWith('.css')).sort()
+    .map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
+})();
+const withBase = (opts = {}) => ({ baseCss: BASE_CSS, ...opts });
 
 const XML = [
   '<grid table="d31$000000" type="Detail" freezeColumns="2" xmlns="urn:schemas-fast-com:data-grid">',
@@ -159,7 +178,7 @@ const loadDetail = (name) => (name === 'CustomerPurchasingDetail'
   : null);
 
 section('grid nhúng — tab có <items style="Grid"> phải ra lưới thật');
-const emb = renderControllerHtml(HOST_GRID, { loadDetail });
+const emb = renderControllerHtml(HOST_GRID, withBase({ loadDetail }));
 ok('ô lưới dùng class riêng, không phải FormCell thường', emb.html.includes('class="FormCellGrid"'));
 ok('có bảng lưới trong tab', emb.html.includes('GridTable'));
 ok('cột lấy từ file Detail', emb.html.includes('Đơn vị mua') && emb.html.includes('Tên đơn vị mua'));
@@ -228,7 +247,7 @@ const GROUPED = [
   '  </toolbar>',
   '</grid>',
 ].join('\r\n');
-const grouped = renderControllerHtml(GROUPED);
+const grouped = renderControllerHtml(GROUPED, withBase());
 
 ok('Retrieve có menuItems → dựng NGUYÊN VĂN như runtime', grouped.html.includes(
   '<div class="ToolbarBackgroundImage TextGroupRetrieve ToolbarTextButton" data-fbo-command="Retrieve"'
@@ -241,9 +260,27 @@ ok('không rơi về TextRetrieve (ô sprite runtime không khai)', !grouped.htm
 ok('không gắn kèm ToolbarWidthButton khi đã có max-width',
   !/TextGroupRetrieve ToolbarTextButton ToolbarWidthButton/.test(grouped.html));
 
-// `<title v="Khác..."/>` không có dấu `$` nào → runtime vẽ nút CHỈ ICON, và group thì rộng 30px
-// chứ không 22. Trông như một cái nhãn nhưng không phải.
-ok('title không có "$" → nút chỉ icon', grouped.html.includes(
+/*
+ * `<title v="Khác..."/>` không có dấu `$` nào → runtime vẽ nút CHỈ ICON, và group thì rộng 30px
+ * chứ không 22. Trông như một cái nhãn nhưng không phải.
+ *
+ * Icon thì KHÔNG: `Extra` là lệnh riêng của khách, và CSS quy tắc chung không khai `.GroupExtra`.
+ * Nút chỉ-icon cũng phải qua đúng phép hỏi CSS ấy — trước đây nó không qua gì cả, nên nó dán
+ * `ToolbarBackgroundImage` rồi để sprite cắt tại `0 0`, tức hiện icon lệnh «Mới».
+ * Bề rộng 30px vẫn giữ: đó là hình học của nút group, không dính gì tới icon.
+ */
+ok('title không có "$" → nút chỉ icon, rộng 30px', grouped.html.includes(
+  '<div class="ToolbarNoIcon" data-fbo-command="Extra"'
+  + ' style="height:22px;width:30px;border-width:0px;" title="Khác..."></div>'));
+ok('lệnh lạ: KHÔNG dán sprite chung lên nút chỉ icon', !grouped.html.includes('ToolbarBackgroundImage GroupExtra'));
+
+// Nhưng program khai icon cho chính nó thì nút chỉ-icon phải lấy lại được icon — đó là đường
+// runtime vẫn đi, và luật mới không được chặn nó.
+const groupedCss = renderControllerHtml(
+  GROUPED.replace('</grid>', '  <css><text><![CDATA[div.GroupExtra{background-image:url(../Images/Extra.png);}]]></text></css>\r\n</grid>'),
+  withBase(),
+);
+ok('program khai .GroupExtra → nút chỉ icon lấy lại icon', groupedCss.html.includes(
   '<div class="ToolbarBackgroundImage GroupExtra" data-fbo-command="Extra"'
   + ' style="height:22px;width:30px;border-width:0px;" title="Khác..."></div>'));
 ok('nút icon KHÔNG group vẫn 22px', grouped.html.includes(
@@ -293,8 +330,15 @@ section('grid — MỘT hàng mẫu, và không cuộn thừa');
 eq('đúng một hàng dữ liệu mẫu', (emb.html.match(/class="GridDataRow"/g) || []).length, 1);
 // `overflow-y:hidden` mà bỏ trống trục x thì CSS tự tính trục x thành `auto` — footer mọc ra
 // một thanh cuộn không ai gọi, chồng lên thanh của thân lưới.
-ok('footer khai overflow cho CẢ HAI trục', emb.html.includes('class="FooterStyle divFooter" style="overflow:hidden;'));
-ok('thân lưới là chỗ DUY NHẤT cuộn ngang', emb.html.includes('overflow-x:auto;overflow-y:auto;'));
+ok('footer cuộn ngang, khoá cuộn dọc', emb.html.includes('class="FooterStyle divFooter" style="overflow-x:auto;overflow-y:hidden;'));
+/*
+ * Thân lưới phải là vùng cuộn theo cả hai trục: X cho cột thừa, Y cho dữ liệu dài.
+ *
+ * Thanh cuộn dọc KHÔNG nằm trên panel tab; nếu không thì toolbar/header/split/footer sẽ trôi
+ * cùng và mất bố cục runtime.
+ */
+ok('thân lưới chỉ cuộn dọc', emb.html.includes('overflow-x:hidden;overflow-y:auto;'));
+ok('cuộn dọc đặt ở divGrid', emb.html.includes('class="GridStyle divGrid" style="height:212px;overflow-x:hidden;overflow-y:auto;"'));
 
 /*
  * Panel của tab chỉ mang `overflow` khi `view@height` ghim chiều cao — không ghim thì không có
@@ -309,7 +353,7 @@ const TWO_TABS = HOST_GRID
   .replace('    <field name="bidmnccbp0"', '    <field name="ghi_chu" categoryIndex="5"><header v="Ghi chú" e="Note"/></field>\r\n    <field name="bidmnccbp0"')
   .replace('    </categories>', '      <category index="5" columns="100, 400"><header v="Khác" e="Other"/></category>\r\n    </categories>');
 const withHeight = renderControllerHtml(TWO_TABS, { loadDetail });
-ok('panel của tab CÓ lưới: trục ngang hidden', withHeight.html.includes('overflow-y:auto;overflow-x:hidden;'));
+ok('panel của tab CÓ lưới: cả hai trục hidden', withHeight.html.includes('overflow-y:hidden;overflow-x:hidden;'));
 ok('panel của tab KHÔNG lưới: trục ngang auto', withHeight.html.includes('overflow-y:auto;overflow-x:auto;'));
 
 section('grid nhúng — thiếu file Detail thì NÓI, không vẽ ô rỗng');
@@ -349,7 +393,7 @@ const NOICON = [
   '  </toolbar>',
   '</grid>',
 ].join('\r\n');
-const noIcon = renderControllerHtml(NOICON);
+const noIcon = renderControllerHtml(NOICON, withBase());
 ok('lệnh lạ: không gắn ToolbarBackgroundImage',
   noIcon.html.includes('<div class="ToolbarTextButton ToolbarNoIcon" data-fbo-command="PurOrgDeclaration"'));
 ok('lệnh lạ: vẫn giữ nguyên nhãn', noIcon.html.includes('>Khai báo theo đơn vị</div>'));
@@ -361,7 +405,7 @@ ok('lệnh có sprite: không bị gắn nhầm ToolbarNoIcon', !/TextInsert[^"]
 // `<css>` của chính program khai icon cho nút riêng → nút đó có icon thật, giữ nguyên đường cũ.
 const WITHCSS = NOICON.replace('</grid>',
   '  <css><text><![CDATA[div.TextPurOrgDeclaration{background-image:url(../Images/PurOrg.png);}]]></text></css>\r\n</grid>');
-const withCss = renderControllerHtml(WITHCSS);
+const withCss = renderControllerHtml(WITHCSS, withBase());
 ok('program khai icon → giữ nút có icon',
   withCss.html.includes('ToolbarBackgroundImage TextPurOrgDeclaration ToolbarTextButton'));
 ok('program khai icon → không gắn ToolbarNoIcon', !withCss.html.includes('ToolbarNoIcon'));
@@ -407,8 +451,9 @@ for (const type of ['Voucher', 'Report']) {
   const g = listGrid(type);
   ok(`${type}: panel rộng 100%, không ghim px`, g.html.includes('style="width:100%;overflow:hidden;"'));
   ok(`${type}: mang dấu GridFitWidth cho tầng vỏ`, g.html.includes('FormParent GridTabPanel GridFitWidth'));
-  // Rộng bằng khung nhìn thì phần cột thừa phải cuộn được — nếu không thì cột bị cắt mất luôn.
-  ok(`${type}: thân lưới cuộn ngang được`, g.html.includes('overflow-x:auto;overflow-y:auto;'));
+  // Runtime chuẩn: divGrid cuộn dọc, còn cuộn ngang nằm ở divFooter.
+  ok(`${type}: thân lưới chỉ cuộn dọc`, g.html.includes('overflow-x:hidden;overflow-y:auto;'));
+  ok(`${type}: footer giữ cuộn ngang`, g.html.includes('class="FooterStyle divFooter" style="overflow-x:auto;overflow-y:hidden;'));
   eq(`${type}: báo cờ ra cho tầng vỏ`, g.fitWidth, true);
 }
 // Stage của webview là `inline-block`, nên `width:100%` một mình không nới được gì — cờ này là
@@ -461,7 +506,7 @@ const listToolbar = renderControllerHtml([
   '    <button command="ImportData"><title v="Toolbar.ImportData" e="Toolbar.ImportData"/></button>',
   '  </toolbar>',
   '</grid>',
-].join('\r\n')).html;
+].join('\r\n'), withBase()).html;
 
 ok('Toolbar.Copy → nút CÓ CHỮ, class TextClone, rộng tối đa 90', listToolbar.includes(
   '<div class="ToolbarBackgroundImage TextClone ToolbarTextButton" data-fbo-command="Clone"'
@@ -516,7 +561,7 @@ ok('checkbox readOnly ra thuộc tính disabled',
 
 // maxlength theo runtime: có ở cột thường, BỎ QUA ở cột AutoComplete — ô ấy còn phải chứa được
 // giá trị người dùng gõ dở trước khi danh sách lọc xong.
-ok('cột thường có maxlength', /data-field-name="ma_vt" maxlength="16"/.test(cells));
+ok('cột thường có maxlength', /data-field-name="ma_vt" title="[^"]*" maxlength="16"/.test(cells));
 ok('cột AutoComplete KHÔNG có maxlength', !/data-field-name="ma_kh"[^>]*maxlength/.test(cells));
 
 // Lưới không có select và không có textarea, dù field khai DropDownList / rows="3".
@@ -832,3 +877,455 @@ const embedded = renderControllerHtml(EMBED, {
 ok('lưới nhúng dựng được', embedded.html.includes('GridEmbedded') && embedded.html.includes('Địa chỉ'));
 ok('lưới nhúng: không dải lọc dù cột khai allowFilter', !embedded.html.includes('FilterPanel'));
 ok('lưới nhúng: hàng tiêu đề không bị đẩy lên 60px', !embedded.html.includes('style="height:60px;"'));
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Icon nút toolbar theo CSS QUY TẮC CHUNG — không theo danh sách lệnh chép tay.
+ *
+ * Bản trước hỏi một `Set` 27 TÊN LỆNH, trong khi CSS khai theo TÊN CLASS. Hai thứ đó khác nhau
+ * ngay ở nút có chữ: lệnh `Export` phát ra class `TextExport`. Kết quả đo trên trình duyệt với
+ * chính base pack này:
+ *
+ *   `.ToolbarBackgroundImage.TextNew`     → fbo-toolbar.png @ 0px -44px   (icon «Mới» dạng chữ)
+ *   `.ToolbarBackgroundImage.TextExport`  → fbo-toolbar.png @ 0px 0px     ← KHÔNG có rule
+ *
+ * `0 0` là gốc sprite, tức icon lệnh «Mới». Chín lệnh cùng rơi vào đó: Export, Freeze, Save,
+ * Cancel, Option, Page, Preview, Aggregate, GroupToolbarPrint — tất cả hiện icon «Mới».
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+section('toolbar — icon hỏi CSS chung bằng ĐÚNG class sắp phát ra');
+
+const toolbarOf = (commands, extra = '') => renderControllerHtml([
+  '<grid table="m64$000000" type="Voucher" xmlns="urn:schemas-fast-com:data-grid">',
+  '  <fields><field name="so_ct" width="100"><header v="Số" e="No"/></field></fields>',
+  '  <views><view id="Grid"><field name="so_ct"/></view></views>',
+  '  <toolbar>',
+  ...commands.map((c) => `    <button command="${c}"><title v="Nhãn$Nhãn" e="Label$Label"/></button>`),
+  '  </toolbar>',
+  extra,
+  '</grid>',
+].join('\r\n'), withBase()).html;
+
+/*
+ * Chín lệnh này CÓ trong Set chép tay cũ nên nút có chữ của chúng giữ `ToolbarBackgroundImage`,
+ * nhưng base pack không khai `.Text<lệnh>` — nên chúng hiện icon «Mới». Nay phải ra chỉ-chữ.
+ */
+const WRONG_ICON = ['Export', 'Freeze', 'Save', 'Cancel', 'Option', 'Page', 'Preview', 'Aggregate'];
+for (const cmd of WRONG_ICON) {
+  const html = toolbarOf([cmd]);
+  ok(`${cmd} có chữ: không dán sprite (base pack không khai .Text${cmd})`,
+    !html.includes(`ToolbarBackgroundImage Text${cmd}`));
+  ok(`${cmd} có chữ: đánh dấu ToolbarNoIcon`, html.includes('ToolbarNoIcon'));
+}
+
+// Lệnh mà base pack CÓ khai `.Text<lệnh>` thì phải giữ nguyên icon — luật mới không được cắt nhầm.
+const RIGHT_ICON = ['New', 'Edit', 'Delete', 'Search', 'View', 'Print', 'Clone', 'Insert', 'Remove'];
+for (const cmd of RIGHT_ICON) {
+  const html = toolbarOf([cmd]);
+  ok(`${cmd} có chữ: giữ icon thật`, html.includes(`ToolbarBackgroundImage Text${cmd} ToolbarTextButton`));
+  ok(`${cmd} có chữ: không bị gắn nhầm ToolbarNoIcon`, !html.includes('ToolbarNoIcon'));
+}
+
+/*
+ * Hướng sai còn lại của danh sách chép tay: BỎ SÓT. `Download` và `ImportData` không có trong
+ * Set cũ, nhưng base pack khai đủ cho chúng — ảnh riêng `fbo-download.png` / `fbo-upload.png`,
+ * không nằm trong sprite chung. Danh sách bỏ sót là nút mất icon thật.
+ */
+section('toolbar — danh sách chép tay bỏ sót thì nút mất icon THẬT');
+/*
+ * Hai lệnh này là nút CHỈ ICON: chuỗi tài nguyên của chúng («Tải tệp mẫu...») không có dấu `$`
+ * nào, nên class phát ra là `Download` / `ImportData` trần — đúng cái base pack khai. Phải dùng
+ * khoá tài nguyên thật ở đây; ép một nhãn vào là sang nhánh `Text<lệnh>`, thứ base pack KHÔNG
+ * khai, và test sẽ hỏi một câu khác câu cần hỏi.
+ */
+const iconOnly = renderControllerHtml([
+  '<grid table="m64$000000" type="Voucher" xmlns="urn:schemas-fast-com:data-grid">',
+  '  <fields><field name="so_ct" width="100"><header v="Số" e="No"/></field></fields>',
+  '  <views><view id="Grid"><field name="so_ct"/></view></views>',
+  '  <toolbar>',
+  '    <button command="Download"><title v="Toolbar.Download" e="Toolbar.Download"/></button>',
+  '    <button command="ImportData"><title v="Toolbar.ImportData" e="Toolbar.ImportData"/></button>',
+  '  </toolbar>',
+  '</grid>',
+].join('\r\n'), withBase()).html;
+for (const cmd of ['Download', 'ImportData']) {
+  ok(`${cmd}: base pack khai ảnh riêng nên nút giữ icon`,
+    iconOnly.includes(`<div class="ToolbarBackgroundImage ${cmd}" data-fbo-command="${cmd}"`));
+}
+// Có nhãn thì lại KHÔNG có icon, và đó là câu trả lời đúng: base pack không khai `.TextDownload`.
+ok('Download CÓ chữ thì không icon — base pack không khai .TextDownload',
+  !toolbarOf(['Download']).includes('ToolbarBackgroundImage TextDownload'));
+
+section('toolbar — không có CSS nền thì nói ra, không im lặng vẽ trơ');
+/*
+ * Tầng vỏ quên truyền `baseCss` là MỌI nút thành chỉ-chữ. Im lặng thì trông y hệt "toolbar hỏng"
+ * mà không có manh mối nào; nên model phải mang theo một cảnh báo đọc được.
+ */
+const noBase = renderControllerHtml([
+  '<grid table="m64$000000" type="Voucher" xmlns="urn:schemas-fast-com:data-grid">',
+  '  <fields><field name="so_ct" width="100"><header v="Số" e="No"/></field></fields>',
+  '  <views><view id="Grid"><field name="so_ct"/></view></views>',
+  '  <toolbar><button command="New"><title v="Toolbar.New" e="Toolbar.New"/></button></toolbar>',
+  '</grid>',
+].join('\r\n'));
+ok('có cảnh báo thiếu baseCss', noBase.model.warnings.some((w) => String(w.message).includes('baseCss')));
+ok('và nút vẫn vẽ ra, chỉ là không icon', noBase.html.includes('data-fbo-command="New"'));
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * `<field rows="N">` = divHeader + divGrid. Không gồm toolbar, divSplit, dải cuộn.
+ *
+ * Phép cộng đầy đủ cho `<view height="302">` + `<field rows="242">`:
+ *   toolbar 30 · divHeader 30 · divGrid 212 · divSplit 8 · cuộn 22  = 302
+ *
+ * Bản trước đọc `rows` là «divGrid + divSplit + divFooter», và ra CÙNG 212 cho ca thường
+ * (242−8−22 = 242−30) nên trông như đúng. Hai cách đọc chỉ tách ra khi hàng tiêu đề không cao
+ * 30 — tức khi lưới có dải lọc nhanh, hàng tiêu đề 60px.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+section('lưới — chiều cao: rows = divHeader + divGrid');
+
+const heightHost = (rows, detailXml) => renderControllerHtml([
+  '<dir xmlns="urn:schemas-fast-com:data-dir">',
+  `  <fields><field name="d0" rows="${rows}"><header v="Chi tiết" e="Detail"/>`,
+  '    <items style="Grid" controller="D"/></field></fields>',
+  '  <views><view id="Dir" columns="100,300"><item value="1100: [d0]"/></view></views>',
+  '</dir>',
+].join('\n'), withBase({
+  loadDetail: (n) => (n === 'D' ? { text: detailXml, segments: null, file: 'C:/P/App_Data/Controllers/Grid/D.f' } : null),
+})).html;
+
+const PLAIN_DETAIL = [
+  '<grid type="Detail" xmlns="urn:schemas-fast-com:data-grid">',
+  '  <fields><field name="ma_vt" width="100"><header v="Mã vt" e="Item"/></field></fields>',
+  '  <views><view id="Grid"><field name="ma_vt"/></view></views>',
+  '</grid>',
+].join('\n');
+
+// 242 − 30 (divHeader) = 212. Không phải 242 − 8 − 22.
+ok('rows=242 → divGrid cao 212px', heightHost(242, PLAIN_DETAIL).includes('height:212px;overflow-x:hidden'));
+// Con số khác để chắc đây là phép trừ 30, không phải trùng hợp của riêng 242.
+ok('rows=100 → divGrid cao 70px', heightHost(100, PLAIN_DETAIL).includes('height:70px;overflow-x:hidden'));
+ok('rows=30 → không còn chỗ cho thân lưới, không ghim height',
+  !/height:\d+px;overflow-x:hidden/.test(heightHost(30, PLAIN_DETAIL)));
+
+/*
+ * `rows` chỉ có nghĩa với lưới NHÚNG, và lưới nhúng thì không bao giờ có dải lọc nhanh — nên
+ * trên thực tế `divHeader` luôn là 30. Đó là lý do hai cách đọc cũ và mới cho cùng con số, và
+ * cũng là lý do lỗi này nằm im được lâu.
+ *
+ * Chốt chính cái bất biến ấy, thay vì dựng một cấu hình chưa từng tồn tại: khai `allowFilter`
+ * trong file lưới Detail cũng KHÔNG mở ra dải lọc, nên phép trừ 30 luôn đúng.
+ */
+const FILTER_DETAIL = PLAIN_DETAIL.replace(
+  '<field name="ma_vt" width="100">',
+  '<field name="ma_vt" width="100" allowFilter="true">',
+);
+const embeddedFilter = heightHost(242, FILTER_DETAIL);
+ok('lưới nhúng: allowFilter cũng không mở dải lọc', !embeddedFilter.includes('FilterPanel'));
+ok('nên rows vẫn chia 30 + 212', embeddedFilter.includes('height:212px;overflow-x:hidden'));
+ok('và hàng tiêu đề không bị đẩy lên 60px', !embeddedFilter.includes('style="height:60px;"'));
+
+section('toolbar — dải nút cố định, menu group không bị cắt');
+/*
+ * `overflow:hidden` trên dải nút cắt đúng cái menu xổ xuống nằm trong `<td>` của nút group —
+ * rê chuột vào chỉ thấy một vạch. Runtime không gặp vì nó chèn popup vào cuối `<body>` bằng JS.
+ */
+ok('dải nút KHÔNG overflow:hidden', !grouped.html.includes('class="ToolbarStyle Green" data-fbo-region="toolbar" style="overflow:hidden'));
+// `sticky` chứ không `relative`: nó vừa tạo tầng riêng cho menu, vừa neo dải nút tại mép trái
+// khi tổ tiên cuộn ngang — bảng lưới rộng hơn khung là ca thường.
+ok('dải nút neo mép trái và tạo tầng riêng cho menu',
+  grouped.html.includes('data-fbo-region="toolbar" style="position:sticky;left:0;z-index:5;'));
+ok('menu group vẫn dựng trong td của nút', grouped.html.includes('<ul class="ToolbarGroupMenu">'));
+
+/*
+ * Phép cộng của chủ hệ thống, chốt bằng một con số đọc được từ DOM:
+ *   toolbar 30 + rows 242 (header 30 + grid 212) + divSplit 8 + cuộn 22 = 302 = view@height
+ */
+ok('rows=242 → cả khối cao 302, khớp view@height', heightHost(242, PLAIN_DETAIL).includes('data-fbo-block="302"'));
+ok('rows=100 → cả khối cao 160', heightHost(100, PLAIN_DETAIL).includes('data-fbo-block="160"'));
+// Lưới đứng riêng không có `rows` nào ghim, nên cũng không có con số khối để mà so.
+ok('lưới đứng riêng không mang data-fbo-block', !renderControllerHtml(LIST_FILTER, withBase()).html.includes('data-fbo-block'));
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * `field@align` và mặc định của `type="Boolean"`.
+ *
+ * Ca thật: `Grid/CustomerBankDetail.xml` của HOATP có `default_yn type="Boolean"` (không khai
+ * align) và `line_nbr align="right"`.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+section('align — canh giá trị trong ô, và Boolean mặc định canh GIỮA');
+const ALIGN = [
+  '<grid table="cbank" type="Detail" xmlns="urn:schemas-fast-com:data-grid">',
+  '  <fields>',
+  '    <field name="so_tk" width="120"><header v="Số TK" e="Account"/></field>',
+  '    <field name="ghi_chu" width="120" align="right"><header v="Ghi chú" e="Note"/></field>',
+  '    <field name="ten" width="120" align="center"><header v="Tên" e="Name"/></field>',
+  '    <field name="default_yn" type="Boolean" width="80"><header v="Mặc định" e="Default"/></field>',
+  '    <field name="tien" type="Decimal" width="100"><header v="Tiền" e="Amount"/>',
+  '      <items style="Numeric"/></field>',
+  '  </fields>',
+  '  <views><view id="Grid">',
+  '    <field name="so_tk"/><field name="ghi_chu"/><field name="ten"/>',
+  '    <field name="default_yn"/><field name="tien"/>',
+  '  </view></views>',
+  '</grid>',
+].join('\n');
+const aligned = renderControllerHtml(ALIGN, withBase()).html;
+
+// Cắt lấy HÀNG DỮ LIỆU rồi tách theo `<td` — chắc chắn hơn một regex trùm cả ô tiêu đề.
+const dataRow = aligned.slice(aligned.indexOf('GridDataRow'), aligned.indexOf('</tr>', aligned.indexOf('GridDataRow')));
+const cellOf = (name) => dataRow.split('<td').find((t) => t.includes(`data-fbo-column="${name}"`)) || '';
+
+// Không khai gì, không phải số, không phải Boolean → không gắn text-align nào.
+ok('cột thường: không tự canh', !cellOf('so_tk').includes('text-align'));
+ok('align="right" áp cho container', cellOf('ghi_chu').includes('text-align:right;'));
+ok('align="right" áp cho cả ô nhập', /class="CellInput TextInput"[^>]*text-align:right/.test(cellOf('ghi_chu')));
+ok('align="center" áp được', cellOf('ten').includes('text-align:center;'));
+/*
+ * Boolean là ca phải có VẾ CONTAINER: `text-align` trên `<input type="checkbox">` không làm gì
+ * cả — checkbox là hộp cỡ cố định, chỉ dịch khi thứ bọc nó canh nó.
+ */
+ok('Boolean: container canh giữa', cellOf('default_yn').includes('text-align:center;'));
+ok('Boolean: đúng là checkbox', cellOf('default_yn').includes('type="checkbox"'));
+// `<items style="Numeric">` canh phải — quy ước của cả hệ thống, không phải lựa chọn ở đây.
+ok('cột số canh phải', cellOf('tien').includes('text-align:right;'));
+
+section('nguồn — cột khai ở file .f mang dấu riêng, khác dấu của Include');
+/*
+ * Hai cờ, hai nghĩa: `foreign` = khai ở file KHÁC file đang mở (Include/entity, sửa được nhưng
+ * đụng nhiều controller); `product` = khai ở một file `.f`, tức bản chuẩn sản phẩm mà designer
+ * TỪ CHỐI ghi vào. Một cột có thể là cả hai.
+ */
+const fromF = renderControllerHtml(ALIGN, withBase({ hostFile: 'C:/P/App_Data/Controllers/Grid/CT.f' }));
+ok('mọi cột của file .f mang data-fbo-product', fromF.html.includes('data-fbo-product="1"'));
+ok('nhưng KHÔNG phải foreign — chúng khai ngay trong file đang mở',
+  !fromF.html.includes('data-fbo-foreign="1"'));
+ok('model đếm được', fromF.model.productColumns > 0);
+
+const fromXml = renderControllerHtml(ALIGN, withBase({ hostFile: 'C:/P/App_Data/Controllers/Grid/CT.xml' }));
+ok('file .xml thì không cột nào mang dấu .f', !fromXml.html.includes('data-fbo-product="1"'));
+
+section('bốn hàng của lưới khớp nhau THEO VỊ TRÍ ô — nền của phép kéo giãn cột');
+/*
+ * Phép kéo giãn cột trên webview ghép ô của bốn hàng bằng VỊ TRÍ trong hàng
+ * (`gridColumnCells` ở `designer.js`), không bằng `data-fbo-column`: ô số thứ tự và ô tổng cố
+ * tình KHÔNG mang `data-fbo-*` — chúng là chrome, không phải slot sửa được — nhưng vẫn phải
+ * giãn theo, nếu không thì dải footer lệch khỏi cột của nó.
+ *
+ * Bất biến ấy đúng vì cả bốn hàng do cùng một vòng `model.columns` dựng ra, và `model.widths`
+ * là `[cột STT, ...cột]`. Test này ghim nó lại: đổi thứ tự dựng ở `renderGridHtml` mà quên
+ * webview thì cột kéo ra một đằng, tiêu đề chạy một nẻo — và đó là lỗi nhìn ra ngay nhưng
+ * không ai nối được về chỗ đã sửa.
+ */
+const SYNCED = [
+  '<grid type="Detail">',
+  '  <fields>',
+  '    <field name="ma_kho" width="100"><header v="Mã kho" e="Code"/></field>',
+  '    <field name="ten_kho" width="180"><header v="Tên kho" e="Name"/></field>',
+  '    <field name="so_luong" width="80" type="Decimal"><header v="SL" e="Qty"/></field>',
+  '  </fields>',
+  '  <view id="Grid">',
+  '    <field name="ma_kho"/>',
+  '    <field name="ten_kho"/>',
+  '    <field name="so_luong"/>',
+  '  </view>',
+  '</grid>',
+].join('\r\n');
+
+const syncedHtml = renderControllerHtml(SYNCED, withBase()).html;
+
+/** Nội dung của hàng đầu tiên mang class này. */
+const rowOf = (cls) => {
+  const open = syncedHtml.indexOf(`<tr class="${cls}"`);
+  if (open === -1) return null;
+  return syncedHtml.slice(open, syncedHtml.indexOf('</tr>', open));
+};
+const tdsOf = (cls) => (rowOf(cls) ?? '').split('<td').slice(1);
+
+const declared = /data-fbo-col-widths="([^"]+)"/.exec(syncedHtml)[1].split(',');
+const header = tdsOf('GridHeader');
+const body = tdsOf('GridDataRow');
+const footer = tdsOf('GridFooter');
+
+eq('list px mở đầu bằng cột STT rồi tới từng cột', declared, ['24', '100', '180', '80']);
+eq('hàng tiêu đề có đúng ngần ấy ô', header.length, declared.length);
+eq('hàng dữ liệu cũng vậy', body.length, declared.length);
+eq('hàng tổng cũng vậy', footer.length, declared.length);
+
+// Ô ở CÙNG vị trí của ba hàng phải nói về cùng một cột — đo bằng chính con số px của nó.
+for (const [i, w] of declared.entries()) {
+  if (i === 0) continue; // cột STT: bề rộng cố định, không có `<field>` nào khai
+  ok(`vị trí ${i}: cả ba hàng đều rộng ${w}px`,
+    header[i].includes(`width:${w}px;`) && body[i].includes(`width:${w}px;`) && footer[i].includes(`width:${w}px;`));
+}
+
+// Ô tổng và ô STT không được mang `data-fbo-*`: gắn vào là `wireSelection` bám theo và người
+// dùng bấm được một ô rỗng không nhảy tới đâu được.
+ok('ô tổng không phải slot sửa được', !footer.some((td) => td.includes('data-fbo-col=')));
+ok('nhưng ô tiêu đề thì có', header.slice(1).every((td) => td.includes('data-fbo-column=')));
+
+/*
+ * Div container BÊN TRONG ô cũng mang bề rộng — đây là vế thứ hai mà phép kéo giãn phải sửa.
+ * Chỉ sửa `<td>` thì div bên trong ghim ô ở bề rộng cũ và cột không nhúc nhích.
+ */
+for (const [cls, container] of [['GridHeader', 'HeaderCellContainer'], ['GridDataRow', 'RowCellContainer'], ['GridFooter', 'FooterCellContainer']]) {
+  ok(`${cls}: container trong ô mang lại đúng bề rộng`,
+    (rowOf(cls).match(new RegExp(`${container}[^>]*width:180px`, 'g')) || []).length === 1);
+}
+
+section('lưới tự xưng tên — không có nó thì cột lưới ĐỨNG RIÊNG không sửa được');
+/*
+ * `data-fbo-grid` là khoá duy nhất webview dùng để nói «cột này thuộc lưới nào»
+ * (`gridColTarget` ở `designer.js`). Trước đây nó chỉ được gắn trên ô `FormCellGrid` của FORM
+ * chứa lưới nhúng — nên mở thẳng một `Grid/X.xml` là cả trang không có dấu nào, `gridColTarget`
+ * trả `null`, và cú `mousedown` kéo giãn cột thoát ngay từ dòng đầu. Không phép sửa cột nào
+ * chạy được: chèn, xoá, kéo giãn đều đi qua đúng hàm tra tên ấy.
+ */
+const SOLO_GRID = [
+  '<grid type="Detail">',
+  '  <fields>',
+  '    <field name="ma_vt" width="100"><header v="Mã vật tư" e="Item"/></field>',
+  '    <field name="ten_vt" width="180"><header v="Tên vật tư" e="Name"/></field>',
+  '  </fields>',
+  '  <view id="Grid">',
+  '    <field name="ma_vt"/>',
+  '    <field name="ten_vt"/>',
+  '  </view>',
+  '</grid>',
+].join('\r\n');
+
+const soloGrid = renderControllerHtml(SOLO_GRID, withBase({ hostFile: 'C:/P/App_Data/Controllers/Grid/SVTran.xml' }));
+eq('lưới đứng riêng suy tên từ file đang mở', /data-fbo-grid="([^"]*)"/.exec(soloGrid.html)?.[1], 'SVTran');
+eq('model mang luôn tên ấy', soloGrid.model.controller, 'SVTran');
+ok('dấu nằm trên panel, tức tổ tiên của mọi ô tiêu đề',
+  soloGrid.html.indexOf('data-fbo-grid=') < soloGrid.html.indexOf('GridHeader'));
+
+// Bản chuẩn `.f` vẫn ra CÙNG một tên: khoá tra cứu là tên controller, không phải tên file.
+eq('bản .f cùng tên controller',
+  renderControllerHtml(SOLO_GRID, withBase({ hostFile: 'C:/P/App_Data/Controllers/Grid/SVTran.f' })).model.controller,
+  'SVTran');
+
+// Lưới NHÚNG lấy tên từ `<items controller="X"/>` của form, không suy từ tên file — file có thể
+// là `X.f` trong khi khoá form dùng vẫn là `X`.
+const HOST_SOLO_GRID = [
+  '<dir table="t">',
+  '  <fields>',
+  '    <field name="ct" rows="242"><header v="CT" e="D"/><items style="Grid" controller="SVTran"/></field>',
+  '  </fields>',
+  '  <view id="Dir">',
+  '    <item value="200"/>',
+  '    <item value="1: [ct]"/>',
+  '  </view>',
+  '</dir>',
+].join('\r\n');
+const nested = renderControllerHtml(HOST_SOLO_GRID, withBase({
+  hostFile: 'C:/P/App_Data/Controllers/Dir/SV.xml',
+  loadDetail: () => ({ text: SOLO_GRID, segments: null, file: 'C:/P/App_Data/Controllers/Grid/SVTran.f' }),
+}));
+const marks = [...nested.html.matchAll(/data-fbo-grid="([^"]*)"/g)].map((m) => m[1]);
+ok('lưới nhúng có dấu ở cả ô của form lẫn panel', marks.length === 2);
+ok('và hai dấu cùng một tên — `closest` lấy cái gần nhất, không được lệch',
+  marks.every((m) => m === 'SVTran'));
+
+section('thứ tự cột: controller > arrangement > Config/Fields > Config/Initialize');
+/*
+ * Bốn nguồn cùng góp cột vào một lưới, và ba trong số đó nằm ngoài file controller. Thứ tự ưu
+ * tiên, từ mạnh tới yếu:
+ *
+ *   1. view của chính `Grid/<Tên>`            cột khai ở đây đứng trước, đúng thứ tự khai
+ *   2. `Config/Fields/<Tên>` @arrangement     luật neo chạy SAU CÙNG nên nó nói lời cuối
+ *   3. `Config/Fields/<Tên>` các cột nó khai
+ *   4. `Config/Initialize.xml` cột của `<group>` dùng chung
+ *
+ * Bản trước xếp 4 TRƯỚC 3 — chỉ vì tầng vỏ đẩy `Initialize` vào mảng trước — nên cột dùng chung
+ * của cả nhóm chen lên trước cột khai riêng cho chính controller này, ngược hẳn mức độ cụ thể
+ * của hai nguồn.
+ */
+const CFG_OWN = [
+  '<grid table="m81$000000" type="Detail">',
+  '  <fields>',
+  '    <field name="ma_kh" width="100"><header v="Mã khách" e="Customer"/></field>',
+  '    <field name="ten_kh" width="180"><header v="Tên khách" e="Name"/></field>',
+  '  </fields>',
+  '  <view id="Grid"><field name="ma_kh"/><field name="ten_kh"/></view>',
+  '</grid>',
+].join('\r\n');
+
+const partInit = (extra = '') => ({
+  text: [
+    '<group id="001">',
+    '  <fields><field name="tu_group" width="70"><header v="Từ group" e="G"/></field></fields>',
+    `  <view id="Grid"${extra}><field name="tu_group"/></view>`,
+    '</group>',
+  ].join('\r\n'),
+  segments: null,
+  file: 'C:/P/App_Data/Controllers/Grid/Config/Initialize.xml',
+  kind: 'initialize',
+  rank: 2,
+});
+const partFields = (extra = '') => ({
+  text: [
+    '<grid>',
+    '  <fields><field name="tu_fields" width="90"><header v="Từ fields" e="F"/></field></fields>',
+    `  <view id="Grid"${extra}><field name="tu_fields"/></view>`,
+    '</grid>',
+  ].join('\r\n'),
+  segments: null,
+  file: 'C:/P/App_Data/Controllers/Grid/Config/Fields/SVTran.xml',
+  kind: 'fields',
+  rank: 1,
+});
+
+const cfgNames = (opts) => renderControllerHtml(CFG_OWN, withBase({
+  hostFile: 'C:/P/App_Data/Controllers/Grid/SVTran.xml', ...opts,
+})).model.columns.map((c) => c.name);
+
+// Tầng vỏ đưa `Initialize` vào TRƯỚC (thứ tự đọc file), nhưng `rank` mới là thứ quyết định.
+eq('cột riêng của controller đứng trước cột dùng chung',
+  cfgNames({ gridConfig: [partInit(), partFields()] }),
+  ['ma_kh', 'ten_kh', 'tu_fields', 'tu_group']);
+
+// Đảo thứ tự mảng cũng ra CÙNG kết quả — luật ưu tiên là quy ước FBO, không phải chi tiết cài đặt.
+eq('không phụ thuộc thứ tự mảng người gọi đưa vào',
+  cfgNames({ gridConfig: [partFields(), partInit()] }),
+  ['ma_kh', 'ten_kh', 'tu_fields', 'tu_group']);
+
+// `arrangement` của Config/Fields thắng arrangement của Initialize.
+eq('arrangement của bản riêng nói lời cuối',
+  cfgNames({ gridConfig: [partInit(' arrangement="tu_group:%b(ma_kh)"'), partFields(' arrangement="tu_group:%a(ma_kh)"')] }),
+  ['ma_kh', 'tu_group', 'ten_kh', 'tu_fields']);
+
+// Chỉ Initialize khai arrangement thì vẫn dùng nó — "bản riêng thắng" không có nghĩa là bỏ qua.
+eq('không ai khác khai thì arrangement của Initialize vẫn có hiệu lực',
+  cfgNames({ gridConfig: [partInit(' arrangement="tu_group:%b(ma_kh)"'), partFields()] }),
+  ['tu_group', 'ma_kh', 'ten_kh', 'tu_fields']);
+
+section('cột của cấu hình ẩn tự khai nguồn — ba nguồn, ba màu');
+/*
+ * `data-fbo-foreign` chỉ nói «khai ở file khác», mà ba nguồn rất khác nhau cùng rơi vào đó.
+ * Diện ảnh hưởng của chúng khác hẳn: sửa một cột của `<group>` là đổi cho MỌI controller cùng
+ * nhóm. Không phân biệt được bằng mắt thì người dùng không biết mình đang đứng trước cái nào.
+ */
+const cfgMarked = renderControllerHtml(CFG_OWN, withBase({
+  hostFile: 'C:/P/App_Data/Controllers/Grid/SVTran.xml',
+  gridConfig: [partInit(), partFields()],
+}));
+const cfgKindOf = (n) => cfgMarked.model.columns.find((c) => c.name === n).configKind;
+eq('cột của chính controller không mang dấu nguồn', cfgKindOf('ma_kh'), null);
+eq('cột của Config/Fields', cfgKindOf('tu_fields'), 'fields');
+eq('cột của Initialize', cfgKindOf('tu_group'), 'initialize');
+ok('dấu đi ra HTML để CSS tô màu', cfgMarked.html.includes('data-fbo-config="initialize"')
+  && cfgMarked.html.includes('data-fbo-config="fields"'));
+
+section('lưới nói ra MỌI file đã góp cột vào nó');
+// Cho `fboDesigner.revealRelatedFiles = "all"`: một cột có thể khai ở tới bốn chỗ, và câu hỏi
+// ngay sau «nó khai ở đâu» thường là «còn chỗ nào khác nói về nó nữa».
+eq('đủ ba file: lưới + hai mảnh cấu hình', cfgMarked.model.relatedFiles, [
+  'C:/P/App_Data/Controllers/Grid/SVTran.xml',
+  'C:/P/App_Data/Controllers/Grid/Config/Initialize.xml',
+  'C:/P/App_Data/Controllers/Grid/Config/Fields/SVTran.xml',
+]);
+ok('và đi ra HTML trên panel', cfgMarked.html.includes('data-fbo-related="'));
+// Lưới KHÔNG có mảnh cấu hình nào thì không phát dấu — một danh sách một phần tử chẳng nói gì.
+ok('lưới trơn thì không có data-fbo-related',
+  !renderControllerHtml(CFG_OWN, withBase({ hostFile: 'C:/P/App_Data/Controllers/Grid/SVTran.xml' }))
+    .html.includes('data-fbo-related='));

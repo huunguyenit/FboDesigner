@@ -2,26 +2,44 @@
   "name": "fbo-designer",
   "displayName": "FBO Designer",
   "description": "Xem và (về sau) kéo thả thiết kế form FBO ngay trong VS Code.",
-  "version": "0.0.1",
-  "publisher": "fastbusiness",
+  "version": "0.0.2",
+  "publisher": "NGUYENTDH",
   "private": true,
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Visualization", "Other"],
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
   "main": "./src/extension.js",
+  "activationEvents": [
+    "onWebviewPanel:fboDesigner.preview"
+  ],
   "contributes": {
     "customEditors": [
       {
         "viewType": "fboDesigner.form",
         "displayName": "FBO Designer",
         "selector": [
-          { "filenamePattern": "**/Dir/*.xml" },
-          { "filenamePattern": "**/Filter/*.xml" },
-          { "filenamePattern": "**/Grid/*.xml" },
-          { "filenamePattern": "**/Dir/*.f" },
-          { "filenamePattern": "**/Filter/*.f" },
-          { "filenamePattern": "**/Grid/*.f" }
+          {
+            "filenamePattern": "**/Dir/*.xml"
+          },
+          {
+            "filenamePattern": "**/Filter/*.xml"
+          },
+          {
+            "filenamePattern": "**/Grid/*.xml"
+          },
+          {
+            "filenamePattern": "**/Dir/*.f"
+          },
+          {
+            "filenamePattern": "**/Filter/*.f"
+          },
+          {
+            "filenamePattern": "**/Grid/*.f"
+          }
         ],
         "priority": "option"
       }
@@ -29,15 +47,73 @@
     "commands": [
       {
         "command": "fboDesigner.open",
-        "title": "FBO Designer: Mở panel bám theo file đang mở"
+        "category": "FBO Designer",
+        "title": "Mở giao diện giả lập FBO"
       },
       {
-        "command": "fboDesigner.openEditor",
-        "title": "FBO Designer: Mở designer gắn cứng vào file này"
+        "command": "fboDesigner.declareFilter",
+        "category": "FBO Designer",
+        "title": "Khai báo lọc nhanh cho lưới này"
       },
       {
-        "command": "fboDesigner.probeEncodingRoundTrip",
-        "title": "FBO Designer: Spike P0 — thử vòng Windows-1258 qua VS Code"
+        "command": "fboDesigner.addColumns",
+        "category": "FBO Designer",
+        "title": "Sinh script thêm cột cho field mới"
+      },
+      {
+        "command": "fboDesigner.showDialogDemo",
+        "category": "FBO Designer",
+        "title": "Show Dialog Demo"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "fboDesigner.open",
+        "key": "ctrl+alt+o",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "fboDesigner.declareFilter",
+        "key": "ctrl+alt+f",
+        "when": "resourceScheme == file && resourceExtname =~ /\\.(xml|f)$/ && editorTextFocus"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "fboDesigner.showDialogDemo",
+          "when": "false"
+        }
+      ],
+      "editor/context": [
+        {
+          "submenu": "fboDesigner.mainMenu",
+          "when": "resourceScheme == file && resourceExtname =~ /\\.(xml|f)$/",
+          "group": "navigation@20"
+        }
+      ],
+      "fboDesigner.mainMenu": [
+        {
+          "command": "fboDesigner.declareFilter",
+          "when": "resourceScheme == file && resourceExtname =~ /\\.(xml|f)$/",
+          "group": "navigation@10"
+        },
+        {
+          "command": "fboDesigner.addColumns",
+          "when": "resourceScheme == file && resourceExtname =~ /\\.(xml|f)$/",
+          "group": "navigation@15"
+        },
+        {
+          "command": "fboDesigner.open",
+          "when": "resourceScheme == file && resourceExtname =~ /\\.(xml|f)$/",
+          "group": "navigation@20"
+        }
+      ]
+    },
+    "submenus": [
+      {
+        "id": "fboDesigner.mainMenu",
+        "label": "FBO Designer"
       }
     ],
     "configuration": {
@@ -46,29 +122,93 @@
         "fboDesigner.autoProgramAssets": {
           "type": "boolean",
           "default": true,
+          "category": "FBO Designer",
           "description": "Suy thư mục program từ chính file đang mở (<program>\\App_Data\\Controllers\\...) rồi lấy Css, Images, ClientScript từ đó. Tắt thì phải tự khai fboDesigner.stylesheets."
         },
         "fboDesigner.stylesheets": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
+          "category": "FBO Designer",
           "description": "Ghi đè danh sách CSS: đường dẫn tuyệt đối, nạp đúng thứ tự khai. Bỏ trống thì lấy hết *.css ở tầng đầu của <program>\\Css."
+        },
+        "fboDesigner.addColumnPartitionTemplate": {
+          "type": "string",
+          "default": "",
+          "category": "FBO Designer",
+          "description": "Đường dẫn file .sql TỰ SỬA cho script 'thêm cột' của bảng chia kỳ thật, thay cho DEFAULT_PARTITION_TEMPLATE trong core. Placeholder: {{primeMaster}} {{primePattern}} {{partitionField}} {{column}} {{sqlType}} {{backfill}}. Bỏ trống thì dùng mẫu mặc định."
+        },
+        "fboDesigner.sqlcmdPath": {
+          "type": "string",
+          "default": "",
+          "category": "FBO Designer",
+          "description": "Đường dẫn tới SQLCMD.EXE, dùng để dò sys.columns khi sinh script 'thêm cột'. Bỏ trống thì thử hai đường cài ODBC Client SDK mặc định, cuối cùng rơi về 'sqlcmd' trên PATH."
         },
         "fboDesigner.vietnamese": {
           "type": "boolean",
           "default": true,
+          "category": "FBO Designer",
           "description": "Lấy nhãn từ <header v> (tiếng Việt). Tắt thì lấy <header e>."
         },
         "fboDesigner.panelPosition": {
           "type": "string",
-          "enum": ["right", "beside", "active"],
+          "enum": [
+            "right",
+            "beside",
+            "active"
+          ],
           "enumDescriptions": [
             "Luôn mở thành một nhóm editor BÊN PHẢI file đang sửa.",
             "Theo workbench.editor.openSideBySideDirection của VS Code — phải hay dưới là do cấu hình đó quyết.",
             "Mở ngay trong nhóm editor đang active (chiếm cùng chỗ với file)."
           ],
           "default": "right",
+          "category": "FBO Designer",
           "description": "Panel designer mở ở đâu. Mặc định 'right': form nằm cạnh XML, đọc được cả hai cùng lúc."
+        },
+        "fboDesigner.confirmForeignEdit": {
+          "type": "boolean",
+          "default": true,
+          "category": "FBO Designer",
+          "description": "Hỏi trước khi ghi vào file KHÁC file đang mở (Include dùng chung, hoặc khai báo &ENTITY;). Sửa ở đó là đổi cho MỌI controller dùng file ấy. Tắt thì ghi thẳng, không hỏi."
+        },
+        "fboDesigner.confirmDelete": {
+          "type": "boolean",
+          "default": true,
+          "category": "FBO Designer",
+          "description": "Hỏi trước khi xoá một control khỏi form hoặc một cột khỏi lưới. Tắt thì xoá ngay (vẫn hoàn tác được bằng Ctrl+Z)."
+        },
+        "fboDesigner.revealRelatedFiles": {
+          "type": "string",
+          "enum": [
+            "one",
+            "all"
+          ],
+          "enumDescriptions": [
+            "Chỉ mở file khai ra ô đang bấm.",
+            "Mở kèm mọi file cùng góp phần khai ra nó: file chủ tại dòng &Name;, Grid/Config/Fields/<Tên>.xml, và Grid/Config/Initialize.xml."
+          ],
+          "default": "one",
+          "category": "FBO Designer",
+          "description": "Ctrl+bấm (hoặc bấm đúp) vào một ô thì mở bao nhiêu file. Một cột lưới có thể được khai ở tới bốn chỗ khác nhau."
+        },
+        "fboDesigner.entityEditTarget": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "source",
+            "inline"
+          ],
+          "enumDescriptions": [
+            "Hỏi mỗi lần: ghi vào file gốc hay phân giải vào file thiết kế.",
+            "Luôn ghi thẳng vào file khai ra hàng đó (Include) — mọi controller dùng chung cùng đổi theo.",
+            "Luôn phân giải vào file thiết kế: comment dòng &Name; rồi chèn bản đã bung ngay dưới, và chỉ controller này đổi."
+          ],
+          "default": "ask",
+          "category": "FBO Designer",
+          "description": "Thao tác lên một control đến từ &ENTITY; thì ghi vào đâu."
         }
       }
     }

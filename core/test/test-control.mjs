@@ -64,7 +64,9 @@ ok("defaultValue=\"''\" là chuỗi rỗng, không phải hai dấu nháy", ro.i
 ok('id bỏ hậu tố %l', ro.includes('id="fbo-field-ten_dvcs"'));
 
 section('Boolean = checkbox');
-ok('dai_ly_yn không tích', html('dai_ly_yn') === '<input type="checkbox" id="fbo-field-dai_ly_yn" class="FormInput FormCheckInput" data-field-name="dai_ly_yn">');
+// `title` là tooltip tên field của designer — runtime không có nó, và nó không đổi một px nào
+// của bố cục. Xem `fieldHint`.
+ok('dai_ly_yn không tích', html('dai_ly_yn') === '<input type="checkbox" id="fbo-field-dai_ly_yn" class="FormInput FormCheckInput" data-field-name="dai_ly_yn" title="dai_ly_yn">');
 ok('clientDefault="1" thì tích', html('default_yn').includes(' checked'));
 
 section('rows > 1 = textarea');

@@ -39,15 +39,23 @@ const CONTENT = [
   ['extension/src/preview-panel.js', 'extension/src/preview-panel.js'],
   ['extension/src/render-host.js', 'extension/src/render-host.js'],
   ['extension/src/edit-host.js', 'extension/src/edit-host.js'],
-  ['extension/src/probe-encoding.js', 'extension/src/probe-encoding.js'],
+  ['extension/src/edit-history.js', 'extension/src/edit-history.js'],
+  ['extension/src/dialog/dialog-service.js', 'extension/src/dialog/dialog-service.js'],
+  ['extension/src/dialog/dialog-overlay.js', 'extension/src/dialog/dialog-overlay.js'],
+  ['extension/src/dialog/dialog-panel.js', 'extension/src/dialog/dialog-panel.js'],
+  ['extension/src/dialog/dialog-types.js', 'extension/src/dialog/dialog-types.js'],
   ['extension/media/designer.css', 'extension/media/designer.css'],
   ['extension/media/designer.js', 'extension/media/designer.js'],
   ['extension/media/shell.html', 'extension/media/shell.html'],
+  ['extension/src/filter-host.js', 'extension/src/filter-host.js'],
+  ['extension/src/add-column-host.js', 'extension/src/add-column-host.js'],
+  ['extension/src/sql-host.js', 'extension/src/sql-host.js'],
   // core chép VÀO gói: khi cài từ .vsix thì không có package anh em bên cạnh nữa.
   ['core/src/index.mjs', 'extension/core/index.mjs'],
   ['core/src/encoding.mjs', 'extension/core/encoding.mjs'],
   ['core/src/spans.mjs', 'extension/core/spans.mjs'],
   ['core/src/item-value.mjs', 'extension/core/item-value.mjs'],
+  ['core/src/columns.mjs', 'extension/core/columns.mjs'],
   ['core/src/edit.mjs', 'extension/core/edit.mjs'],
   ['core/src/field-template.mjs', 'extension/core/field-template.mjs'],
   ['core/src/control.mjs', 'extension/core/control.mjs'],
@@ -55,6 +63,11 @@ const CONTENT = [
   ['core/src/program.mjs', 'extension/core/program.mjs'],
   ['core/src/render.mjs', 'extension/core/render.mjs'],
   ['core/src/grid.mjs', 'extension/core/grid.mjs'],
+  ['core/src/filter-declare.mjs', 'extension/core/filter-declare.mjs'],
+  ['core/src/add-column.mjs', 'extension/core/add-column.mjs'],
+  ['core/src/sql-config.mjs', 'extension/core/sql-config.mjs'],
+  ['core/src/css-scope.mjs', 'extension/core/css-scope.mjs'],
+  ['core/src/xml-comment.mjs', 'extension/core/xml-comment.mjs'],
 ];
 
 // Danh sách khai tay ở trên là chỗ dễ quên nhất khi thêm file mới: gói vẫn dựng xong, vẫn cài
@@ -62,12 +75,22 @@ const CONTENT = [
 // quên là biết ngay, thay vì biết qua báo lỗi của khách.
 const declared = new Set(CONTENT.map(([from]) => from.replace(/\\/g, '/')));
 const missing = [];
-for (const dir of ['extension/src', 'core/src']) {
-  for (const f of fs.readdirSync(path.join(ROOT, dir))) {
-    const rel = `${dir}/${f}`;
-    if (/\.(js|mjs)$/.test(f) && !declared.has(rel)) missing.push(rel);
+/*
+ * Quét ĐỆ QUY, và đó là bản vá của đúng lỗ hổng mà chính bộ kiểm này sinh ra để chặn.
+ *
+ * Bản trước đọc một tầng bằng `readdirSync`, nên cả thư mục `extension/src/dialog/` lọt qua
+ * không một tiếng động: ba file dialog không được khai, gói vẫn dựng, vẫn cài, rồi chết ở
+ * `require('./dialog/dialog-service')` ngay lúc activate trên máy người khác. Thư mục con là
+ * chỗ nấp mà bản một-tầng không bao giờ nhìn tới.
+ */
+function scanForUndeclared(dir) {
+  for (const e of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+    const rel = `${dir}/${e.name}`;
+    if (e.isDirectory()) scanForUndeclared(rel);
+    else if (/\.(js|mjs)$/.test(e.name) && !declared.has(rel)) missing.push(rel);
   }
 }
+for (const dir of ['extension/src', 'core/src']) scanForUndeclared(dir);
 if (missing.length) {
   process.stderr.write(`CONTENT thiếu file (thêm vào tools/package-vsix.mjs):\n  ${missing.join('\n  ')}\n`);
   process.exit(2);

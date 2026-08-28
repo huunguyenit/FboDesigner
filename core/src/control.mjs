@@ -77,6 +77,30 @@ function isBoolean(field) {
   return t === 'boolean' || itemsStyle(field) === 'checkbox';
 }
 
+/**
+ * Giá trị canh về phía nào TRONG ô — `field@align`, và mặc định theo KIỂU field.
+ *
+ * Ba nguồn, xét theo thứ tự này:
+ *   `align="left|right|center"`  khai tay, thắng tất cả
+ *   `<items style="Numeric">`    số canh phải — quy ước của cả hệ thống, không phải lựa chọn ở đây
+ *   `type="Boolean"`             checkbox canh GIỮA, mặc định theo lời chủ hệ thống
+ *
+ * Vì sao phải trả về cho cả CONTAINER chứ không chỉ cho `<input>`: `text-align` trên một
+ * `<input type="checkbox">` không làm gì cả — checkbox là một hộp có kích thước cố định, nó chỉ
+ * dịch chuyển khi thứ BỌC nó canh nó. Chỉ đặt trên input là cột Boolean vĩnh viễn dính lề trái
+ * dù khai `align` gì đi nữa.
+ *
+ * @returns {'left'|'right'|'center'|null} `null` = không khai gì, để trình duyệt tự xử.
+ */
+export function alignOf(field) {
+  const a = field?.attrs ?? {};
+  const declared = String(a.align ?? '').toLowerCase();
+  if (declared === 'left' || declared === 'right' || declared === 'center') return declared;
+  if (itemsStyle(field) === 'numeric') return 'right';
+  if (isBoolean(field)) return 'center';
+  return null;
+}
+
 function isCalendar(field) {
   const t = (field.attrs?.type ?? field.attrs?.dataType ?? '').toLowerCase();
   return t === 'datetime' || t === 'date' || itemsStyle(field) === 'calendar';
@@ -141,12 +165,31 @@ function adornedWidth(field, cellWidth) {
  * @param {object} field  phần tử của scanFields()
  * @param {{vi?: boolean, cellWidth?: number}} opts  `cellWidth` = tổng px các cột ô trải qua
  */
+/**
+ * Tooltip của một ô nhập: TÊN FIELD.
+ *
+ * Câu hỏi hay hỏi nhất khi nhìn một form FBO lạ là «ô này là field gì» — để viết JS, để tra cột
+ * database, để tìm nó trong XML. Trước nay trả lời được bằng cách bấm vào ô rồi đọc bảng Debug,
+ * tức ba thao tác cho một câu hỏi hỏi liên tục.
+ *
+ * Ghi CẢ HAI khi tên khai khác tên đã phân giải: `ten_kh%l` là thứ nằm trong XML (thứ cần tìm
+ * kiếm), còn `ten_kh2` là cột database thật (thứ cần viết vào SQL). Chỉ đưa một cái thì người
+ * dùng vẫn phải tự suy cái kia, và `%l` phân giải theo bản đang xem chứ không cố định.
+ *
+ * `title` không đổi một px nào của bố cục, nên nó không phá luật «form phải giống runtime từng
+ * px» — nó chỉ thêm một tooltip mà runtime không có.
+ */
+export function fieldHint(field, vi) {
+  const resolved = resolveLocaleName(field.name, vi);
+  return resolved === field.name ? resolved : `${resolved}  ·  khai: ${field.name}`;
+}
+
 export function renderControl(field, { vi = true, cellWidth = null } = {}) {
   const a = field.attrs ?? {};
   const id = `fbo-field-${safeId(field.name, vi)}`;
   // Tên field gửi ra ngoài là tên ĐÃ PHÂN GIẢI hậu tố ngôn ngữ — `ten_kh%l` ra `ten_kh` hay
   // `ten_kh2` tuỳ bản đang xem. Đây là tên cột database thật, xem `resolveLocaleName`.
-  const common = ` data-field-name="${esc(resolveLocaleName(field.name, vi))}"`;
+  const common = ` data-field-name="${esc(resolveLocaleName(field.name, vi))}" title="${esc(fieldHint(field, vi))}"`;
   const disabled = isDisabled(field);
   const value = defaultValue(field);
 
@@ -187,8 +230,8 @@ export function renderControl(field, { vi = true, cellWidth = null } = {}) {
 
   const inline = [];
   if (String(a.dataFormatString ?? '').toLowerCase().includes('uppercase')) inline.push('text-transform:uppercase;');
-  if (style === 'numeric') inline.push('text-align:right;');
-  else if (['left', 'right', 'center'].includes((a.align ?? '').toLowerCase())) inline.push(`text-align:${a.align.toLowerCase()};`);
+  const align = alignOf(field);
+  if (align) inline.push(`text-align:${align};`);
 
   if (lookup || calendar) {
     inline.push(adornedWidth(field, cellWidth));
@@ -233,7 +276,7 @@ export function renderGridControl(field, { vi = true, cellWidth = null } = {}) {
   void cellWidth; // giữ cùng chữ ký với `renderControl` — lưới không dùng tới
   const a = field.attrs ?? {};
   const id = `fbo-field-${safeId(field.name, vi)}`;
-  const common = ` data-field-name="${esc(resolveLocaleName(field.name, vi))}"`;
+  const common = ` data-field-name="${esc(resolveLocaleName(field.name, vi))}" title="${esc(fieldHint(field, vi))}"`;
   const disabled = isDisabled(field);
   const value = defaultValue(field);
 
@@ -244,8 +287,8 @@ export function renderGridControl(field, { vi = true, cellWidth = null } = {}) {
 
   const inline = [];
   if (String(a.dataFormatString ?? '').toLowerCase().includes('uppercase')) inline.push('text-transform:uppercase;');
-  if (itemsStyle(field) === 'numeric') inline.push('text-align:right;');
-  else if (['left', 'right', 'center'].includes((a.align ?? '').toLowerCase())) inline.push(`text-align:${a.align.toLowerCase()};`);
+  const align = alignOf(field);
+  if (align) inline.push(`text-align:${align};`);
 
   // `maxlength` bị bỏ qua ở cột AutoComplete — nguyên văn runtime, vì ô ấy còn phải chứa được
   // giá trị người dùng gõ dở trước khi danh sách lọc xong.

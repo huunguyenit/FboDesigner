@@ -12,9 +12,11 @@ import {
   planColumnWidth, planRemoveColumn, planInsertColumn, planViewHeight, planFieldRows,
   rowEditTargetFile,
   planRegionMetadata,
+  planRemoveControl, planInlineEntity,
 } from '../src/edit.mjs';
+import { moveCell, swapCells } from '../src/item-value.mjs';
 import { FIELD_KINDS, buildField, isValidFieldName } from '../src/field-template.mjs';
-import { expandEntities } from '../src/entities.mjs';
+import { expandEntities, refResolvedSpan } from '../src/entities.mjs';
 import { applySplices } from '../src/spans.mjs';
 
 const NL = '\r\n';
@@ -135,11 +137,39 @@ eq('và `hasEntity` KHÔNG bắt được nó', entRow.row.hasEntity, false);
 // Thứ bắt được là so nguyên văn: văn bản trong file khác hẳn giá trị đã bung.
 ok('văn bản nguồn khác giá trị đã bung',
   ENT.slice(entRow.range.start, entRow.range.end) !== entRow.item.value);
-// Phép nào ĐỘNG VÀO TOKEN thì vẫn phải từ chối — ghi đè token là xoá mất `&k;`.
+/*
+ * THÊM và XOÁ nay LÀM ĐƯỢC trên hàng dùng entity, và `&k;` vẫn sống.
+ *
+ * Chìa khoá: hai phép này chạy trên bản parse của VĂN BẢN GỐC, không phải bản đã bung. Token
+ * không đụng tới đi qua nguyên văn `[&k;]`, `serializeRow` ghi lại đúng chuỗi ấy.
+ *
+ * Bản trước từ chối cả hai — kể cả khi thêm một control chẳng liên quan gì tới `&k;`.
+ */
 const entRemove = planRowEdit(entModel.model, { kind: 'remove', item: entRow.index, cell: 0 }, ENT);
-ok('xoá control thì từ chối', !entRemove.ok);
-ok('chỉ đúng chỗ phải sửa', entRemove.reason.includes('sửa tại file khai nó'));
-eq('canEditRow cũng từ chối', canEditRow(entRow, ENT).ok, false);
+ok('xoá control LÀM ĐƯỢC', entRemove.ok);
+ok('và `&k;` còn nguyên trong chuỗi ghi lại', entRemove.splice.text.includes('&k;'));
+ok('không có chữ đã bung nào lọt vào', !entRemove.splice.text.includes('ma_kho'));
+
+/*
+ * Thêm control vào ô trống bên phải: chuỗi cũ giữ nguyên từng ký tự, chỉ mọc thêm token mới.
+ *
+ * Pattern `110-` chứ không `1100`: hàng gốc chiếm hết 4 cột nên KHÔNG còn ô trống nào để thêm
+ * vào, và phép thử sẽ hỏi một câu khác câu cần hỏi.
+ */
+const ENT_FREE = ENT.replace('1100: [&k;].Label, [&k;]', '110-: [&k;].Label, [&k;]');
+const entFreeModel = build(ENT_FREE);
+const entFreeRow = entFreeModel.model.rows.find((r) => r.row.tokens.some((t) => t.field === 'ma_kho'));
+const entInsert = planRowEdit(entFreeModel.model,
+  { kind: 'insert', item: entFreeRow.index, cell: 1, side: 'right', token: '[ghi_chu]' }, ENT_FREE);
+ok('thêm control LÀM ĐƯỢC', entInsert.ok);
+ok('cả HAI tham chiếu &k; còn nguyên',
+  (entInsert.splice.text.match(/&k;/g) || []).length === 2);
+ok('token mới có mặt', entInsert.splice.text.includes('[ghi_chu]'));
+ok('không có chữ đã bung nào lọt vào', !entInsert.splice.text.includes('ma_kho'));
+
+// `canEditRow` VẪN từ chối — nó là guard của phép ghi ĐÈ CẢ HÀNG (gộp/tách đi đường khác).
+// Giữ nguyên để không ai tưởng luật cũ đã bị gỡ bỏ hoàn toàn.
+eq('canEditRow vẫn từ chối ghi đè cả hàng', canEditRow(entRow, ENT).ok, false);
 
 section('…nhưng gộp/tách thì VẪN LÀM ĐƯỢC trên hàng dùng entity');
 // Gộp/tách chỉ đổi pattern. Bắt cả hàng phải khớp nguyên văn mới cho sửa thì mọi hàng viết
@@ -580,3 +610,399 @@ const twoRow = twoBuilt.model.rows.find((r) => r.index === 1);
 const secondCell = twoRow.cells.findIndex((c, i) => !c.empty && i > 0);
 const blockedLeft = planRowEdit(twoBuilt.model, { kind: 'resize', item: 1, cell: secondCell, col: 0, side: 'left' }, TWO);
 ok('không nuốt ô có control', !blockedLeft.ok);
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Thêm control cạnh một ô viết bằng entity — ca của chủ hệ thống, nguyên văn:
+ *
+ *   1111-: [&k;].Label, [&k;], [ma_kh_ref].Label, [ma_kh_ref]
+ *
+ * «Thêm control hoàn toàn không ảnh hưởng tới entity.» Đây là chỗ chốt điều đó bằng byte.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+section('thêm control — entity trong hàng phải sống sót từng ký tự');
+const REF = [
+  '<?xml version="1.0" encoding="utf-8"?>',
+  '<!DOCTYPE dir [<!ENTITY k "ma_kh">]>',
+  '<dir table="dmkh" xmlns="urn:schemas-fast-com:data-dir">',
+  '  <fields>',
+  '    <field name="ma_kh"><header v="Mã khách" e="Code"/></field>',
+  '    <field name="ma_kh_ref"><header v="Mã tham chiếu" e="Ref"/></field>',
+  '    <field name="ghi_chu"><header v="Ghi chú" e="Note"/></field>',
+  '  </fields>',
+  '  <views><view id="Dir" columns="120,100,120,100,150">',
+  '    <item value="120, 100, 120, 100, 150"/>',
+  '    <item value="1111-: [&k;].Label, [&k;], [ma_kh_ref].Label, [ma_kh_ref]"/>',
+  '  </view></views>',
+  '</dir>',
+].join('\r\n');
+const refModel = build(REF);
+const refRow = refModel.model.rows.find((r) => r.row.tokens.length > 2);
+
+// Điều kiện của phép thử: trong file là `&k;`, bản đã bung là `ma_kh` — hai chuỗi KHÁC nhau.
+ok('file và bản đã bung khác nhau thật',
+  REF.slice(refRow.range.start, refRow.range.end) !== refRow.item.value);
+ok('trong file vẫn là &k;', REF.slice(refRow.range.start, refRow.range.end).includes('[&k;]'));
+
+const added = planRowEdit(refModel.model,
+  { kind: 'insert', item: refRow.index, cell: 3, side: 'right', token: '[ghi_chu]' }, REF);
+ok('thêm được, không còn bị khoá vì entity', added.ok);
+eq('chuỗi ghi lại: pattern mở thêm một cột, token mới nối vào cuối',
+  added.splice.text, '11111: [&k;].Label, [&k;], [ma_kh_ref].Label, [ma_kh_ref], [ghi_chu]');
+
+// Đối chiếu trên VĂN BẢN SAU KHI ÁP, không chỉ trên chuỗi splice — đó mới là thứ nằm trên đĩa.
+const afterAddRef = REF.slice(0, added.splice.start) + added.splice.text + REF.slice(added.splice.end);
+eq('cả hai `&k;` còn nguyên', (afterAddRef.match(/&k;/g) || []).length, 2);
+ok("khai báo entity không bị đụng", afterAddRef.includes('<!ENTITY k "ma_kh">'));
+ok('không có `[ma_kh]` trần nào bị bung vào file', !afterAddRef.includes('[ma_kh]'));
+ok('token không đụng tới giữ nguyên', afterAddRef.includes('[ma_kh_ref].Label, [ma_kh_ref]'));
+
+section('thêm control — pattern viết bằng entity thì VẪN từ chối');
+/*
+ * Phép thêm GHI LẠI pattern (`-` thành `1`). Pattern viết bằng entity thì ghi lại là bung nó
+ * thành chữ — đúng thứ tổn thất mà cả tầng này sinh ra để chặn. Token có entity thì không sao;
+ * pattern có thì phải từ chối, và nói rõ chỗ phải sửa.
+ */
+const PAT = REF.replace('<!ENTITY k "ma_kh">', '<!ENTITY k "ma_kh"><!ENTITY P "1111-">')
+  .replace('value="1111-:', 'value="&P;:');
+const patModel = build(PAT);
+const patRow = patModel.model.rows.find((r) => r.row.tokens.length > 2);
+const patAdd = planRowEdit(patModel.model,
+  { kind: 'insert', item: patRow.index, cell: 3, side: 'right', token: '[ghi_chu]' }, PAT);
+ok('từ chối', !patAdd.ok);
+ok('nói rõ vì sao là pattern chứ không phải token', patAdd.reason.includes('pattern'));
+
+section('thêm HÀNG dưới một hàng dùng entity — cũng không bị khoá');
+// Chèn hẳn một thẻ `<item>` mới thì không ghi đè ký tự nào của hàng cũ. Bắt hàng cũ phải khớp
+// nguyên văn là khoá luôn cả thao tác chẳng liên quan gì tới `&k;`.
+const rowAdd = planAddRow(refModel.model,
+  { kind: 'addRow', item: refRow.index, side: 'below', token: '[ghi_chu]' }, REF, refRow.itemRange);
+ok('thêm hàng được', rowAdd.ok);
+ok('là phép CHÈN, không ghi đè', rowAdd.splice.start === rowAdd.splice.end);
+ok('hàng cũ không bị đụng', rowAdd.splice.text.includes('[ghi_chu]') && !rowAdd.splice.text.includes('&k;'));
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * DỜI control sang slot khác — kéo thả.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+section('dời control — span đi theo, token đi nguyên xi');
+const MOVE = [
+  '<?xml version="1.0" encoding="utf-8"?>',
+  '<!DOCTYPE dir [<!ENTITY k "ma_kh">]>',
+  '<dir table="dmkh" xmlns="urn:schemas-fast-com:data-dir">',
+  '  <fields>',
+  '    <field name="ma_kh"><header v="Mã khách" e="Code"/></field>',
+  '    <field name="ten_kh"><header v="Tên khách" e="Name"/></field>',
+  '  </fields>',
+  '  <views><view id="Dir" columns="100,100,100,100,100">',
+  '    <item value="100, 100, 100, 100, 100"/>',
+  '    <item value="10--1: [&k;].Label, [ten_kh]"/>',
+  '  </view></views>',
+  '</dir>',
+].join('\r\n');
+const moveModel = build(MOVE);
+const moveRow = moveModel.model.rows.find((r) => r.row.tokens.length === 2);
+eq('bố cục ban đầu', moveRow.row.pattern, '10--1');
+
+// Ô 0 trải 2 cột (`10`). Dời sang cột 2 → `--10 1`… tức `--101` sau khi ghép.
+const moved = planRowEdit(moveModel.model, { kind: 'move', item: moveRow.index, cell: 0, col: 2 }, MOVE);
+ok('dời được', moved.ok);
+eq('pattern: nguồn thành trống, đích mở `10`', moved.splice.text.split(':')[0], '--101');
+ok('token giữ nguyên văn entity', moved.splice.text.includes('[&k;].Label'));
+ok('không bung entity ra chữ', !moved.splice.text.includes('[ma_kh]'));
+// Thứ tự token phải theo thứ tự CỘT: `ten_kh` ở cột 4 nay đứng sau `&k;` ở cột 2.
+eq('thứ tự token khớp thứ tự cột', moved.splice.text, '--101: [&k;].Label, [ten_kh]');
+
+section('dời control — ô đích đang có control thì TỪ CHỐI');
+/*
+ * Bố cục `10--1`: ô 0 ở cột 0 trải 2, hai ô trống ở cột 2 và 3, ô 3 ở cột 4 trải 1.
+ * Chỉ số Ô khác chỉ số CỘT — ô trống cũng được đánh số, nên `cell 2` là ô trống ở cột 3.
+ */
+const onEmpty = planRowEdit(moveModel.model, { kind: 'move', item: moveRow.index, cell: 2, col: 2 }, MOVE);
+ok('ô trống thì không có gì để dời', !onEmpty.ok);
+ok('nói rõ lý do', onEmpty.reason.includes('không có gì để dời'));
+
+// Dời `ten_kh` (ô 3, cột 4, span 1) về cột 2 — chỗ trống, đi được.
+const back = planRowEdit(moveModel.model, { kind: 'move', item: moveRow.index, cell: 3, col: 2 }, MOVE);
+ok('dời được', back.ok);
+// Thứ tự token vẫn theo thứ tự CỘT: `&k;` ở cột 0 đứng trước `ten_kh` ở cột 2.
+eq('token đúng thứ tự cột', back.splice.text, '101--: [&k;].Label, [ten_kh]');
+ok('entity vẫn nguyên văn', back.splice.text.includes('[&k;]'));
+
+section('dời control — vượt khỏi hàng thì TỪ CHỐI, không tự co span');
+/*
+ * Ô 0 trải 2 cột. Dời nó tới cột cuối (index 4) thì cần cột 4 và 5, mà hàng chỉ có 5 cột.
+ * TỪ CHỐI chứ không bóp về span 1: người dùng kéo một control, họ không ngầm yêu cầu thu nhỏ nó.
+ */
+const over = planRowEdit(moveModel.model, { kind: 'move', item: moveRow.index, cell: 0, col: 4 }, MOVE);
+ok('từ chối', !over.ok);
+ok('nói rõ là vượt hàng, kèm span', over.reason.includes('trải 2 cột vượt khỏi hàng'));
+
+// Dời về đúng chỗ cũ không phải một thay đổi.
+const same = moveCell(moveRow.row, moveRow.widths, 0, 0, { allowEntity: true });
+ok('dời về chính chỗ cũ → không có gì thay đổi', !same.ok && same.reason.includes('không có gì thay đổi'));
+
+// Vùng đích CHỒNG vùng nguồn (dời một nấc) phải đi được — nếu kiểm trên pattern chưa xoá nguồn
+// thì mọi cú dời một nấc đều tự đụng vào chính mình rồi bị từ chối.
+const nudge = moveCell(moveRow.row, moveRow.widths, 0, 1, { allowEntity: true });
+ok('dời một nấc sang phải được', nudge.ok);
+// Ô 0 (`10` ở cột 0-1) trượt sang cột 1-2; ô ở cột 4 đứng yên → `-10-1`.
+eq('pattern trượt đúng một cột', nudge.row.pattern, '-10-1');
+
+section('dời control — phần ngoài splice không đổi một byte');
+applyAndCheck('move', MOVE, moved.splice);
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * ĐỔI CHỖ hai control — hoán vị, pattern đứng yên.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+section('đổi chỗ — hai ô cùng span thì token hoán vị, pattern không đổi một ký tự');
+const SWAP = [
+  '<?xml version="1.0" encoding="utf-8"?>',
+  '<!DOCTYPE dir [<!ENTITY k "ma_kh">]>',
+  '<dir table="dmkh" xmlns="urn:schemas-fast-com:data-dir">',
+  '  <fields>',
+  '    <field name="ma_kh"><header v="Mã khách" e="Code"/></field>',
+  '    <field name="ten_kh"><header v="Tên khách" e="Name"/></field>',
+  '    <field name="ngay_ct"><header v="Ngày" e="Date"/></field>',
+  '  </fields>',
+  '  <views><view id="Dir" columns="100,100,100,100,100">',
+  '    <item value="100, 100, 100, 100, 100"/>',
+  '    <item value="1-1-1: [&k;], [ten_kh], [ngay_ct]"/>',
+  '  </view></views>',
+  '</dir>',
+].join('\r\n');
+const swapModel = build(SWAP);
+const swapRow = swapModel.model.rows.find((r) => r.row.tokens.length === 3);
+eq('bố cục ban đầu', swapRow.row.pattern, '1-1-1');
+
+// Ô 0 (cột 0) và ô 2 (cột 2) — chỉ số Ô đếm cả ô trống, nên ô 1 là ô trống ở cột 1.
+const swapped = planRowEdit(swapModel.model, { kind: 'swap', item: swapRow.index, cell: 0, other: 2 }, SWAP);
+ok('đổi chỗ được', swapped.ok);
+eq('PATTERN không đổi', swapped.splice.text.split(':')[0], '1-1-1');
+eq('đúng hai token hoán vị, token thứ ba đứng yên', swapped.splice.text, '1-1-1: [ten_kh], [&k;], [ngay_ct]');
+ok('token giữ nguyên văn entity', swapped.splice.text.includes('[&k;]'));
+ok('không bung entity ra chữ', !swapped.splice.text.includes('[ma_kh]'));
+
+// Đổi chỗ hai ô KHÔNG kề nhau cũng đi được — «gần nhau» là chuyện của thanh lệnh, không phải
+// của phép sửa.
+const farSwap = planRowEdit(swapModel.model, { kind: 'swap', item: swapRow.index, cell: 0, other: 4 }, SWAP);
+ok('đổi chỗ ô đầu với ô cuối được', farSwap.ok);
+eq('token đầu và cuối hoán vị', farSwap.splice.text, '1-1-1: [ngay_ct], [ten_kh], [&k;]');
+
+section('đổi chỗ — khác span thì TỪ CHỐI, không tự dồn lại hàng');
+/*
+ * `10--1`: ô 0 trải 2 cột, ô 3 (cột 4) trải 1. Tráo chúng thì ô trải 2 đè lên cột 5 không có
+ * thật, hoặc phải dồn lại cả hàng — cả hai đều là quyết định bố cục người dùng chưa nói ra.
+ */
+const diffSpan = planRowEdit(moveModel.model, { kind: 'swap', item: moveRow.index, cell: 0, other: 3 }, MOVE);
+ok('từ chối', !diffSpan.ok);
+ok('nói rõ hai bề rộng', diffSpan.reason.includes('trải 2 và 1 cột'));
+ok('chỉ đường ra', diffSpan.reason.includes('cho bằng nhau'));
+
+section('đổi chỗ — ô trống và chính nó thì TỪ CHỐI');
+const swapEmpty = swapCells(swapRow.row, swapRow.widths, 0, 1, { allowEntity: true });
+ok('ô trống không có control để đổi chỗ', !swapEmpty.ok && swapEmpty.reason.includes('ô trống'));
+const swapSelf = swapCells(swapRow.row, swapRow.widths, 0, 0, { allowEntity: true });
+ok('đổi chỗ với chính mình → không có gì thay đổi', !swapSelf.ok && swapSelf.reason.includes('không có gì thay đổi'));
+const swapGone = swapCells(swapRow.row, swapRow.widths, 0, 99, { allowEntity: true });
+ok('ô không tồn tại thì nói rõ', !swapGone.ok && swapGone.reason.includes('không có ô thứ 99'));
+
+section('đổi chỗ — phần ngoài splice không đổi một byte');
+applyAndCheck('swap', SWAP, swapped.splice);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hàng rỗng · xoá cả cụm control · phân giải entity vào file thiết kế
+// ─────────────────────────────────────────────────────────────────────────────
+
+section('xoá control cuối cùng của hàng thì bỏ luôn thẻ <item>');
+// Một `<item value="----: "/>` không token nào vẫn chiếm một hàng trên form — người dùng nhìn
+// thấy khoảng trắng không giải thích được. Xoá hàng là thứ họ đang yêu cầu, chỉ chưa nói ra.
+const dropDoc = [
+  '<?xml version="1.0" encoding="utf-8"?>',
+  '<dir table="dmkho">',
+  '  <fields>',
+  '    <field name="ma_kho"><header v="Mã kho" e="Code"/></field>',
+  '    <field name="ten_kho"><header v="Tên kho" e="Name"/></field>',
+  '  </fields>',
+  '  <view id="Dir">',
+  '    <item value="100, 60, 90, 150"/>',
+  '    <item value="1---: [ma_kho]"/>',
+  '    <item value="11--: [ten_kho].Label, [ten_kho]"/>',
+  '  </view>',
+  '</dir>',
+].join(NL);
+const dropBase = build(dropDoc);
+const lonely = dropBase.model.rows.find((r) => r.row.tokens.length === 1);
+const dropPlan = planRowEdit(dropBase.model, { kind: 'remove', item: lonely.index, cell: 0 }, dropDoc);
+ok('lập được kế hoạch', dropPlan.ok);
+ok('báo cho tầng vỏ biết là hàng đã đi', dropPlan.rowRemoved === true);
+const afterDrop = applyAndCheck('xoá hàng rỗng', dropDoc, dropPlan.splice);
+ok('thẻ <item> của hàng đó biến mất', !afterDrop.includes('[ma_kho]'));
+ok('không để lại dòng trắng', !/\r\n\s*\r\n\s*<item value="11--/.test(afterDrop));
+eq('view còn đúng một hàng control', build(afterDrop).model.rows.length, 1);
+ok('hàng còn lại nguyên vẹn', afterDrop.includes('<item value="11--: [ten_kho].Label, [ten_kho]"/>'));
+
+// Ngược lại: hàng còn token khác thì CHỈ ghi lại value, thẻ giữ nguyên.
+const keepPlan = planRowEdit(dropBase.model,
+  { kind: 'remove', item: dropBase.model.rows[1].index, cell: 0 }, dropDoc);
+ok('hàng còn token thì không bỏ thẻ', keepPlan.ok && keepPlan.rowRemoved !== true);
+ok('và splice nhắm vào value chứ không vào cả thẻ',
+  dropDoc.slice(keepPlan.splice.start, keepPlan.splice.end).startsWith('11--'));
+
+section('Shift+Delete — control đi cùng Label, Footer, Description của nó');
+// Ba kind ấy chỉ tô điểm cho ô Input; để chúng ở lại là để lại nhãn trỏ vào hư không.
+const clusterDoc = [
+  '<?xml version="1.0" encoding="utf-8"?>',
+  '<dir table="dmkho">',
+  '  <fields>',
+  '    <field name="ma_kho"><header v="Mã kho" e="Code"/></field>',
+  '    <field name="ten_kho"><header v="Tên kho" e="Name"/></field>',
+  '  </fields>',
+  '  <view id="Dir">',
+  '    <item value="100, 60, 90, 150"/>',
+  '    <item value="1100: [ma_kho].Label, [ma_kho]"/>',
+  '    <item value="-1--: [ma_kho].Description"/>',
+  '    <item value="11--: [ten_kho].Label, [ten_kho]"/>',
+  '    <item value="1---: [ma_kho].Footer"/>',
+  '  </view>',
+  '</dir>',
+].join(NL);
+const cluster = build(clusterDoc);
+const inputRow = cluster.model.rows.find((r) => r.row.tokens.some((t) => t.field === 'ma_kho' && t.kind === 'input'));
+const inputCell = inputRow.cells.findIndex((c) => c.token?.field === 'ma_kho' && c.token.kind === 'input');
+
+const solo = planRemoveControl(cluster.model, { item: inputRow.index, cell: inputCell }, () => clusterDoc);
+ok('không giữ Shift thì chỉ một hàng bị đụng', solo.ok && solo.edits.length === 1);
+
+const whole = planRemoveControl(cluster.model,
+  { item: inputRow.index, cell: inputCell, companions: true }, () => clusterDoc);
+ok('giữ Shift thì lập được kế hoạch', whole.ok);
+eq('đụng đúng ba hàng: ô nhập, Description, Footer', whole.edits.length, 3);
+eq('nói ra field đang xoá', whole.fieldName, 'ma_kho');
+const afterCluster = applySplices(clusterDoc, whole.edits);
+ok('mọi token của ma_kho biến mất', !afterCluster.includes('[ma_kho]'));
+ok('Description đi theo', !afterCluster.includes('.Description'));
+ok('Footer đi theo', !afterCluster.includes('.Footer'));
+ok('hàng chỉ có Description bị bỏ hẳn thẻ', !/-1--/.test(afterCluster));
+ok('hàng của ten_kho không bị đụng', afterCluster.includes('<item value="11--: [ten_kho].Label, [ten_kho]"/>'));
+// `.Label` cùng hàng với ô nhập → hàng ấy rỗng, thẻ phải đi luôn.
+eq('view chỉ còn hàng ten_kho', build(afterCluster).model.rows.length, 1);
+
+// Bấm Shift trên chính ô `.Label` thì KHÔNG kéo theo cả cụm — người dùng nhắm vào cái nhãn.
+const labelCell = inputRow.cells.findIndex((c) => c.token?.kind === 'label');
+const onLabel = planRemoveControl(cluster.model,
+  { item: inputRow.index, cell: labelCell, companions: true }, () => clusterDoc);
+ok('Shift trên .Label chỉ xoá đúng nó', onLabel.ok && onLabel.edits.length === 1);
+const afterLabel = applySplices(clusterDoc, onLabel.edits);
+ok('ô nhập vẫn còn', /<item value="-1--: \[ma_kho\]"\/>|\[ma_kho\]/.test(afterLabel));
+
+section('planInlineEntity — comment dòng &Name;, chèn bản đã bung ngay dưới');
+// Đây là lối thoát cho «tôi muốn sửa hàng này, nhưng nó khai ở Include dùng chung»: chỉ
+// controller NÀY đổi, Include giữ nguyên cho mọi controller khác.
+const hostText = [
+  '<dir>',
+  '  <view id="Dir">',
+  '    <item value="100, 60"/>',
+  '    &Rows.Extra;',
+  '    <item value="1-: [x]"/>',
+  '  </view>',
+  '</dir>',
+].join(NL);
+const refAt = hostText.indexOf('&Rows.Extra;');
+const inline = planInlineEntity(hostText, { start: refAt, end: refAt + '&Rows.Extra;'.length },
+  '    <item value="11: [a].Label, [a]"/>');
+ok('lập được kế hoạch', inline.ok);
+const afterInline = applyAndCheck('planInlineEntity', hostText, inline.splice);
+ok('tham chiếu cũ được COMMENT, không xoá', afterInline.includes('<!-- &Rows.Extra; -->'));
+ok('bản đã bung nằm ngay dưới', afterInline.includes(`<!-- &Rows.Extra; -->${NL}    <item value="11: [a].Label, [a]"/>`));
+ok('giữ CRLF của file', !/[^\r]\n/.test(afterInline));
+ok('thụt lề của dòng comment bằng dòng cũ', afterInline.includes(`${NL}    <!-- &Rows.Extra; -->`));
+ok('hàng phía sau không bị đụng', afterInline.includes('<item value="1-: [x]"/>'));
+
+// Dòng còn nội dung khác thì TỪ CHỐI: comment cả dòng là tắt luôn phần kia, hỏng im lặng.
+const mixed = '<view>\r\n    <item value="1"/>&K;\r\n</view>';
+const mixedAt = mixed.indexOf('&K;');
+ok('dòng lẫn nội dung khác thì từ chối',
+  !planInlineEntity(mixed, { start: mixedAt, end: mixedAt + 3 }, '<item/>').ok);
+// Offset lệch (file đã đổi) thì cũng từ chối, không ghi bừa.
+ok('dải không phải &…; thì từ chối', !planInlineEntity(hostText, { start: 0, end: 5 }, '<item/>').ok);
+ok('bung ra rỗng thì từ chối',
+  !planInlineEntity(hostText, { start: refAt, end: refAt + '&Rows.Extra;'.length }, '   \r\n  ').ok);
+
+section('refResolvedSpan — dải clearText mà MỘT tham chiếu &Name; đẻ ra');
+// Không có nó thì «phân giải vào file thiết kế» phải đoán xem chèn cái gì.
+const INC = 'C:/P/App_Data/Controllers/Include/Extra.ent';
+const withEnt = [
+  '<?xml version="1.0" encoding="utf-8"?>',
+  '<!DOCTYPE dir [',
+  `<!ENTITY Rows.Extra SYSTEM "../Include/Extra.ent">`,
+  ']>',
+  '<dir>',
+  '  <fields>',
+  '    <field name="a"><header v="A" e="A"/></field>',
+  '  </fields>',
+  '  <view id="Dir">',
+  '    <item value="100, 60"/>',
+  '    &Rows.Extra;',
+  '  </view>',
+  '</dir>',
+].join(NL);
+const INC_TEXT = '<item value="11: [a].Label, [a]"/>';
+const exWith = expandEntities(withEnt, {
+  filePath: 'C:/P/App_Data/Controllers/Dir/Kho.xml',
+  readFile: (abs) => (abs.replace(/\\/g, '/').toLowerCase() === INC.toLowerCase() ? INC_TEXT : null),
+});
+const atInc = exWith.clearText.indexOf('[a].Label');
+const span = refResolvedSpan(exWith.segments, atInc);
+ok('tìm được tham chiếu đã sinh ra đoạn này', span !== null);
+eq('bản bung đúng bằng nội dung file Include', exWith.clearText.slice(span.start, span.end), INC_TEXT);
+eq('ref trỏ về đúng dòng &Name; trong controller',
+  withEnt.slice(span.ref.start, span.ref.end), '&Rows.Extra;');
+// Đoạn thuộc chính controller thì không có tham chiếu nào — đừng bịa ra một cái.
+eq('đoạn của chính file chủ không có ref',
+  refResolvedSpan(exWith.segments, exWith.clearText.indexOf('<fields>')), null);
+
+section('khai báo <field> nhiều thẻ con thì xuống dòng, đúng như corpus viết');
+// Field chỉ có `<header>` luôn nằm gọn một dòng; có thêm `<items>` thì luôn tách dòng. Sinh ra
+// một dòng dài `<field …><header …/><items …/></field>` là thứ không giống dòng nào quanh nó.
+const oneChild = buildField('textbox', 'ma_kh', 'Mã khách');
+ok('một thẻ con → một dòng', !oneChild.xml.includes('\n'));
+const manyChild = buildField('numeric', 't_tien', 'Tiền');
+ok('nhiều thẻ con → nhiều dòng', manyChild.xml.includes('\n'));
+eq('bố cục đúng ba tầng', manyChild.xml.split('\n').length, 4);
+ok('thẻ con thụt vào', manyChild.xml.includes('\n  <items style="Numeric"/>'));
+
+const declMulti = planAddField(DOC, manyChild.xml, 't_tien');
+ok('planAddField nhận được XML nhiều dòng', declMulti.ok);
+const afterMulti = applyAndCheck('planAddField nhiều dòng', DOC, declMulti.splice);
+ok('mọi dòng đều kê theo thụt lề của file', afterMulti.includes(`${NL}    <field name="t_tien"`)
+  && afterMulti.includes(`${NL}      <items style="Numeric"/>`)
+  && afterMulti.includes(`${NL}    </field>`));
+ok('vẫn dùng CRLF như file', !/[^\r]\n/.test(afterMulti));
+eq('đọc lại thấy field mới', build(afterMulti).model.fieldByName.has('t_tien'), true);
+
+section('cột lưới khai `width`, ô của form thì KHÔNG');
+/*
+ * Hai định dạng khác nhau ở đúng chỗ này. Cột lưới có bề rộng RIÊNG ở `<field width="N">`; không
+ * khai thì runtime tự cho 100px — con số vẫn tồn tại, chỉ nằm ở chỗ không ai đọc được. Ô của
+ * form thì lấy px từ list cột của vùng (`<item value="100, 60, …">`), nên sinh `width` cho nó là
+ * khai một con số runtime bỏ qua, mà người đọc file sau này lại tin.
+ */
+const formField = buildField('textbox', 'ma_vt', 'Mã vật tư');
+ok('form: không có width', !formField.xml.includes('width='));
+
+const gridField = buildField('textbox', 'ma_vt', 'Mã vật tư', null, { width: 100 });
+eq('lưới: width đứng ngay sau name, đúng chỗ corpus đặt', gridField.xml,
+  '<field name="ma_vt" width="100"><header v="Mã vật tư" e="Mã vật tư"/></field>');
+
+// Kiểu có `<items>` vẫn xuống dòng như thường — `width` không đổi cách trình bày.
+const gridNum = buildField('numeric', 'so_luong', 'Số lượng', null, { width: 80 });
+ok('lưới + items: width vẫn ở thẻ mở', gridNum.xml.startsWith('<field name="so_luong" width="80" type="Decimal"'));
+ok('và vẫn xuống dòng', gridNum.xml.includes('\n  <items style="Numeric"/>'));
+
+eq('width 0 là hợp lệ — cột khoá kỹ thuật khai đúng như vậy',
+  buildField('textbox', 'stt_rec', '', null, { width: 0 }).xml,
+  '<field name="stt_rec" width="0"><header v="stt_rec" e="stt_rec"/></field>');
+// Giá trị hỏng thì BỎ QUA chứ không ghi ra `width="NaN"` — thà thiếu còn hơn sai.
+ok('width không phải số thì bỏ qua', !buildField('textbox', 'x', 'X', null, { width: 'to' }).xml.includes('width='));
+ok('width âm cũng bỏ qua', !buildField('textbox', 'x', 'X', null, { width: -5 }).xml.includes('width='));

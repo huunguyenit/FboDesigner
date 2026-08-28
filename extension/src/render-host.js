@@ -32,7 +32,90 @@ function config() {
     stylesheets: c.get('stylesheets') || [],
     vietnamese: c.get('vietnamese') !== false,
     panelPosition: c.get('panelPosition') || 'right',
+    confirmForeignEdit: c.get('confirmForeignEdit') !== false,
+    confirmDelete: c.get('confirmDelete') !== false,
+    entityEditTarget: c.get('entityEditTarget') || 'ask',
+    revealRelatedFiles: c.get('revealRelatedFiles') || 'one',
   };
+}
+
+/**
+ * Đọc file nguồn có NHỚ, khoá theo mtime — thứ gánh phần lớn cái chậm sau mỗi thao tác.
+ *
+ * Vì sao cần: một lần render bung entity là đọc lại TOÀN BỘ Include mà controller kéo vào —
+ * `Dir/Customer.xml` của một program thật kéo hơn hai chục file, mỗi file lại phải dò BOM và
+ * decode. Không nhớ gì thì mỗi lần gõ một phím trong XML là ngần ấy lượt đọc đĩa cộng decode,
+ * và cái trễ ấy rơi đúng vào lúc người dùng vừa thả chuột sau một cú kéo.
+ *
+ * Khoá là `mtimeMs + size`, không phải chỉ đường dẫn: `fs.statSync` rẻ hơn đọc-và-decode cả bậc,
+ * mà vẫn bắt được mọi thay đổi thật — kể cả file bị sửa bởi công cụ khác ngoài VS Code. Nhớ theo
+ * đường dẫn thôi là designer vẽ bản cũ của một Include mà người dùng vừa sửa, và không có dấu
+ * hiệu gì.
+ *
+ * Bộ nhớ có TRẦN: một phiên mở nhiều program thì bảng này phình theo, mà những file cũ không ai
+ * hỏi lại nữa.
+ */
+const SOURCE_CACHE_MAX = 400;
+const sourceCache = new Map(); // abs (lowercase) → { key, text }
+
+function cachedReadFile(core) {
+  return (abs) => {
+    try {
+      if (!fs.existsSync(abs)) return null;
+      const st = fs.statSync(abs);
+      const id = abs.toLowerCase();
+      const key = `${st.mtimeMs}:${st.size}`;
+      const hit = sourceCache.get(id);
+      if (hit && hit.key === key) return hit.text;
+
+      const { text } = core.readSource(abs);
+      if (sourceCache.size >= SOURCE_CACHE_MAX) sourceCache.delete(sourceCache.keys().next().value);
+      sourceCache.set(id, { key, text });
+      return text;
+    } catch {
+      return null;
+    }
+  };
+}
+
+/**
+ * NHỚ KẾT QUẢ ĐÃ BUNG giữa các lần render, và bỏ nhớ đúng lúc file nguồn đổi.
+ *
+ * `cachedReadFile` mới chỉ bỏ được phần đọc đĩa; phần đắt còn lại là CHÍNH PHÉP BUNG. Mỗi lần
+ * vẽ một controller, `loadGridConfig` bung lại `Grid/Config/Initialize.xml` — file kéo cả
+ * `Include\Field.ent` vào và bung ra 147 `<controller>` — chỉ để lấy đúng một thẻ `<group>`.
+ * `loadDetail` cũng vậy với từng lưới nhúng trong tab. Cả hai cho ra CÙNG một kết quả cho tới
+ * khi một file nguồn thật sự đổi.
+ *
+ * Khoá bỏ nhớ là mtime của MỌI FILE đã góp vào kết quả, không phải của riêng file gốc.
+ * `expandEntities` trả về `segments` với `file` của từng đoạn, nên danh sách ấy là chính xác —
+ * không phải đoán. Nhớ theo mỗi file gốc thì sửa `Include\Field.ent` mà cấu hình lưới không
+ * đổi theo, và designer vẽ bản cũ suốt phiên mà không có dấu hiệu gì; đó đúng là kiểu hỏng mà
+ * cache bừa bãi hay đẻ ra.
+ */
+function stampOf(files) {
+  return [...new Set(files.filter(Boolean))].sort().map((f) => {
+    try {
+      const st = fs.statSync(f);
+      return `${f}:${st.mtimeMs}:${st.size}`;
+    } catch {
+      return `${f}:-`; // chưa có file: "vắng mặt" cũng là một trạng thái phải theo dõi
+    }
+  }).join('|');
+}
+
+const gridConfigMemo = new Map();
+const detailMemo = new Map();
+
+function memoHit(store, key) {
+  const hit = store.get(key);
+  if (!hit) return null;
+  if (stampOf(hit.files) !== hit.stamp) { store.delete(key); return null; }
+  return hit;
+}
+
+function memoPut(store, key, value, files) {
+  store.set(key, { value, files, stamp: stampOf(files) });
 }
 
 /**
@@ -147,6 +230,9 @@ function loadGridConfig(core, hostPath, readFile, cache) {
   const name = path.basename(hostPath).replace(/\.(xml|f)$/i, '');
   if (cache.has(name)) return cache.get(name);
 
+  const memo = memoHit(gridConfigMemo, hostPath.toLowerCase());
+  if (memo) { cache.set(name, memo.value); return memo.value; }
+
   const controllers = path.dirname(path.dirname(hostPath));
   const configDir = path.join(controllers, 'Grid', 'Config');
   const parts = [];
@@ -167,8 +253,25 @@ function loadGridConfig(core, hostPath, readFile, cache) {
       const decl = new RegExp(`<controller\\s+name="${name}"[^>]*\\sgroup="([\\w.-]+)"`, 'i').exec(init.text);
       if (decl) {
         const body = new RegExp(`<group\\s+id="${decl[1]}"[\\s\\S]*?</group>`, 'i').exec(init.text);
-        // Thân group nằm TRONG `Initialize.xml` đã bung, nên nó dùng chung `segments` của file ấy.
-        if (body) parts.push({ text: body[0], segments: init.segments, file: initFile });
+        if (body) {
+          /*
+           * Bản đồ đoạn phải DỜI theo lát vừa cắt.
+           *
+           * `text` ở đây chỉ là thẻ `<group>` của riêng controller này, nên mọi span bộ quét trả
+           * về đo từ đầu THẺ. `init.segments` thì đo từ đầu FILE. Bản trước đưa thẳng
+           * `init.segments` vào, tức trộn hai hệ toạ độ: Ctrl+bấm một cột đến từ `Initialize.xml`
+           * nhảy tới vị trí cùng số ấy tính từ đầu file — cách chỗ đúng đúng bằng khoảng cách
+           * tới thẻ `<group>`, mà file thật khai cả trăm controller nên đó là hàng chục nghìn ký
+           * tự. Con trỏ đáp xuống giữa cấu hình của một controller khác hẳn.
+           */
+          parts.push({
+            text: body[0],
+            segments: core.shiftSegments(init.segments, body.index),
+            file: initFile,
+            kind: 'initialize',
+            rank: 2,
+          });
+        }
       }
     }
   }
@@ -176,22 +279,26 @@ function loadGridConfig(core, hostPath, readFile, cache) {
   const fieldsFile = path.join(configDir, 'Fields', `${name}.xml`);
   if (fs.existsSync(fieldsFile)) {
     const own = expand(fieldsFile);
-    if (own) parts.push(own);
+    if (own) parts.push({ ...own, kind: 'fields', rank: 1 });
   }
 
   cache.set(name, parts);
+  memoPut(gridConfigMemo, hostPath.toLowerCase(), parts, [
+    initFile, fieldsFile, ...parts.flatMap((p) => p.segments.map((seg) => seg.file)),
+  ]);
   return parts;
 }
 
 function loadDetail(core, hostPath, name, readFile, cache) {
   if (cache.has(name)) return cache.get(name);
 
+  const key = `${path.dirname(path.dirname(hostPath)).toLowerCase()}|${String(name).toLowerCase()}`;
+  const memo = memoHit(detailMemo, key);
+  if (memo) { cache.set(name, memo.value); return memo.value; }
+
   const controllers = path.dirname(path.dirname(hostPath)); // <program>\App_Data\Controllers
-  let found = null;
-  for (const ext of ['.xml', '.f']) {
-    const candidate = path.join(controllers, 'Grid', `${name}${ext}`);
-    if (fs.existsSync(candidate)) { found = candidate; break; }
-  }
+  const candidates = ['.xml', '.f'].map((ext) => path.join(controllers, 'Grid', `${name}${ext}`));
+  const found = candidates.find((c) => fs.existsSync(c)) ?? null;
 
   let value = null;
   if (found) {
@@ -202,6 +309,14 @@ function loadDetail(core, hostPath, name, readFile, cache) {
     }
   }
   cache.set(name, value);
+  /*
+   * KHÔNG tìm thấy lưới cũng phải nhớ theo mtime — và nhớ theo CẢ HAI ứng viên.
+   *
+   * `.xml` được ưu tiên trước `.f`, nên vừa tạo bản customize `Grid/X.xml` cạnh `Grid/X.f` là
+   * lưới phải đổi ngay. Chỉ theo dõi file đã tìm thấy thì bản customize mới tạo không được nhìn
+   * thấy cho tới khi khởi động lại — đúng lúc người dùng vừa tạo nó ra để xem thử.
+   */
+  memoPut(detailMemo, key, value, value ? [...candidates, ...value.segments.map((seg) => seg.file)] : candidates);
   return value;
 }
 
@@ -232,9 +347,7 @@ function rewriteControllerCssUrls(css, webview, paths, bust, output) {
 
 /** Bung entity rồi gọi core. Ném ra ngoài để người gọi quyết hiện lỗi thế nào. */
 function buildPayload(core, document, { cfg, paths, output, webview = null, bust = 0 }) {
-  const readFile = (abs) => {
-    try { return fs.existsSync(abs) ? core.readSource(abs).text : null; } catch { return null; }
-  };
+  const readFile = cachedReadFile(core);
 
   // Bung entity TRƯỚC khi render: hàng từ Include (vd BI mode) không tồn tại trong file gốc,
   // không bung thì form thiếu hàng mà không có cảnh báo nào.
@@ -246,6 +359,9 @@ function buildPayload(core, document, { cfg, paths, output, webview = null, bust
   const configCache = new Map();
   const result = core.renderControllerHtml(expanded.clearText, {
     vi: cfg.vietnamese,
+    // Icon nút toolbar quyết định theo CSS QUY TẮC CHUNG, không theo một danh sách lệnh chép
+    // tay — nên core phải cầm được văn bản CSS nền. Xem `readBaseCss`.
+    baseCss: readBaseCss(output),
     titleMode: titleMode(paths?.folder),
     segments: expanded.segments,
     hostFile: document.uri.fsPath,
@@ -273,13 +389,42 @@ function buildPayload(core, document, { cfg, paths, output, webview = null, bust
     // Model KHÔNG gửi sang webview (nó có hàm, có Map — không postMessage được). Nó ở lại phía
     // host cho tầng edit dùng; `post()` bỏ qua khoá này.
     model: result.model,
+    /*
+     * Bản ĐÃ BUNG cộng bản đồ đoạn — cũng ở lại phía host, cùng lý do với `model`.
+     *
+     * Tầng edit cần cả hai để phân giải một `&Name;` vào file thiết kế: `segments` nói tham
+     * chiếu nào đẻ ra hàng đang sửa, `clearText` là chỗ cắt ra nội dung để chèn xuống. Tính lại
+     * ở đó thì phải bung entity thêm một lượt nữa cho mỗi thao tác, và tệ hơn — có thể ra một
+     * bản khác bản đang vẽ.
+     */
+    expanded: { clearText: expanded.clearText, segments: expanded.segments },
     html: result.html,
     mode: result.mode,
     // Lưới danh sách đứng riêng (`type="Voucher"|"Report"`) rộng bằng khung nhìn chứ không bằng
     // tổng px cột — webview phải nới `#fbo-stage` ra, xem `fbo-fit-width`.
     fitWidth: result.fitWidth === true,
     modeLabel: modeLabel(paths?.folder, result),
-    controllerCss: rewriteControllerCssUrls(result.css, webview, webview ? paths : null, bust, output),
+    /*
+     * `<css>` của CHÍNH controller cũng được gắn scope `#fbo-form`, và thứ tự ba tầng là CÓ CHỦ Ý:
+     *
+     *   1. CSS của program (`<link>`)   0-x-y   không gắn scope
+     *   2. base pack (`<style>` ở head) 1-x-y   gắn scope
+     *   3. `<css>` của controller       1-x-y   gắn scope, nhưng nằm ở BODY nên đứng sau
+     *
+     * Tầng 2 thắng tầng 1 bằng đặc hiệu — đó là yêu cầu «class của extension luôn ưu tiên trên
+     * class trong dự án», ca thật là `div.ToolbarBackgroundImage` của
+     * `FastBusiness.NotifyExtender.NotifyExtender.css` ở HOATP.
+     *
+     * Tầng 3 thắng tầng 2 vì `div.GroupExtra` sau khi gắn scope là (1,1,1) > (1,1,0) của
+     * `.ToolbarBackgroundImage`; khai bằng class trần thì hoà đặc hiệu và thắng bằng thứ tự.
+     * Thiếu bước này là bản sửa scoping ở lượt trước ĐÈ MẤT icon riêng của khách — nút
+     * «Khác…» (`GroupExtra`) hiện sprite chung thay vì ảnh của chính nó. Runtime cũng xếp đúng
+     * thứ tự này: `<style>` của controller nhúng sau mọi `<link>`.
+     */
+    controllerCss: core.scopeCss(
+      rewriteControllerCssUrls(result.css, webview, webview ? paths : null, bust, output),
+      core.FORM_SCOPE,
+    ),
     sourceFiles,
     // Lớp blueprint kẻ vạch theo ĐÚNG list px này, không đo lại từ DOM — xem designer.js.
     columns: result.model?.widths ?? [],
@@ -293,6 +438,7 @@ function buildPayload(core, document, { cfg, paths, output, webview = null, bust
     entities: {
       declared: expanded.declarations.size,
       foreignRows: result.model?.foreignRows ?? 0,
+      productRows: (result.model?.productRows ?? 0) + (result.model?.productColumns ?? 0),
       diagnostics: expanded.diagnostics,
     },
   };
@@ -316,6 +462,45 @@ function assetUri(webview, absPath, bust) {
   return webview.asWebviewUri(vscode.Uri.file(absPath)).with({ query });
 }
 
+/**
+ * Thư mục base pack, tính từ CHÍNH file này.
+ *
+ * `extension/src/render-host.js` → `extension/media/base/css` đúng cả hai cách chạy: F5 từ repo
+ * và cài từ .vsix (`tools/package-vsix.mjs` giữ nguyên hai nhánh `src/` và `media/` cạnh nhau).
+ * Không đi qua `context.extensionUri` vì `buildPayload` không nhận `context`.
+ */
+const BASE_CSS_DIR = path.join(__dirname, '..', 'media', 'base', 'css');
+
+/**
+ * VĂN BẢN CSS của base pack — thứ core hỏi để biết nút toolbar nào có icon thật.
+ *
+ * Luật của hệ thống: dù toolbar khai ở đâu thì icon cũng theo CSS QUY TẮC CHUNG. Core không
+ * được chạm đĩa (ADR-0002), nên chỗ đọc file là đây và core chỉ nhận chuỗi.
+ *
+ * Đọc CẢ base pack chứ không riêng `fbo-toolbar.css`: một nút có thể được khai kiểu ở file nền
+ * khác, và cả bộ chỉ ~50KB.
+ *
+ * Nhớ theo mtime, không nhớ vĩnh viễn: sửa CSS rồi bấm "Nạp lại tài nguyên" phải thấy đổi ngay,
+ * mà cũng không đọc lại 5 file cho mỗi lần gõ phím trong XML.
+ */
+let baseCssCache = { stamp: '', text: '' };
+
+function readBaseCss(output) {
+  if (!fs.existsSync(BASE_CSS_DIR)) return '';
+  const files = fs.readdirSync(BASE_CSS_DIR).filter((f) => f.toLowerCase().endsWith('.css')).sort();
+  const stamp = files.map((f) => {
+    try { return `${f}:${fs.statSync(path.join(BASE_CSS_DIR, f)).mtimeMs}`; } catch { return `${f}:?`; }
+  }).join('|');
+  if (stamp === baseCssCache.stamp) return baseCssCache.text;
+
+  const text = files.map((f) => {
+    try { return fs.readFileSync(path.join(BASE_CSS_DIR, f), 'utf8'); } catch { return ''; }
+  }).join('\n');
+  baseCssCache = { stamp, text };
+  if (text === '' && output) output.appendLine('base pack không có file CSS nào — nút toolbar sẽ vẽ dạng chỉ chữ');
+  return text;
+}
+
 const RE_CSS_URL = /url\(\s*(['"]?)([^'")]+)\1\s*\)/g;
 
 /**
@@ -330,14 +515,21 @@ const RE_CSS_URL = /url\(\s*(['"]?)([^'")]+)\1\s*\)/g;
  * CSS của program giữ nguyên `<link>` — nó lớn, là của khách, và viết lại đường dẫn trong đó
  * là tự nhận rủi ro cho một thứ mình không kiểm soát.
  */
-function inlineBaseCss(webview, baseDir, bust, output) {
+/**
+ * Nâng độ đặc hiệu của base pack lên trên CSS của program — xem `core/src/css-scope.mjs` để
+ * biết vì sao phải làm và vì sao không dùng `!important` hay `@layer`.
+ *
+ * Phép biến đổi nằm ở core vì bàn đo (`tools/probe-layout.mjs`) cũng phải áp đúng nó; hai bản
+ * sao là hai bản sẽ trôi khỏi nhau, và bàn đo sẽ đo một cascade khác cái đang chạy.
+ */
+function inlineBaseCss(core, webview, baseDir, bust, output) {
   if (!fs.existsSync(baseDir)) return '';
   return fs.readdirSync(baseDir)
     .filter((f) => f.toLowerCase().endsWith('.css'))
     .sort()
     .map((f) => {
       const abs = path.join(baseDir, f);
-      const raw = fs.readFileSync(abs, 'utf8');
+      const raw = core.scopeCss(fs.readFileSync(abs, 'utf8'), core.FORM_SCOPE);
       // Một chuỗi `</style` trong CSS sẽ thoát khỏi thẻ và phá cả trang. Không có file nào như
       // vậy hôm nay, nhưng nhúng thì phải kiểm — rơi về <link> còn hơn dựng ra trang hỏng.
       if (/<\/style/i.test(raw)) {
@@ -362,7 +554,7 @@ function inlineBaseCss(webview, baseDir, bust, output) {
  * Shell HTML. CSP chặt: chỉ script mang nonce, chỉ tài nguyên qua `webview.cspSource`.
  * @param {number} bust số phiên, tăng lên khi người dùng bấm nạp lại tài nguyên
  */
-function shellHtml(context, webview, stylesheets, output, bust = 0) {
+function shellHtml(context, core, webview, stylesheets, output, bust = 0) {
   const n = nonce();
   const asset = (p) => assetUri(webview, p, bust);
   const links = stylesheets
@@ -383,7 +575,7 @@ function shellHtml(context, webview, stylesheets, output, bust = 0) {
   // Giữ nguyên layout css/ + image/ của bộ gốc: `url(../image/fbo-required.png)` trong CSS
   // chỉ phân giải đúng khi file CSS còn nằm trong một thư mục `css/` anh em với `image/`.
   const baseDir = path.join(context.extensionUri.fsPath, 'media', 'base', 'css');
-  const baseLinks = inlineBaseCss(webview, baseDir, bust, output);
+  const baseLinks = inlineBaseCss(core, webview, baseDir, bust, output);
 
   // Thân shell nằm ở file riêng, dùng chung với `tools/probe-layout.mjs`. Giữ hai bản là bàn
   // đo đo một cái shell khác cái đang chạy.
@@ -444,6 +636,55 @@ async function revealIn(document, viewColumn, start, end) {
  * Alt-click giữ lối cũ cho ai cần: chỉ ra chỗ trong file ĐANG MỞ đã kéo hàng đó vào, không rời
  * file đang sửa.
  */
+/**
+ * Mở kèm MỌI file cùng góp phần khai ra ô này — `fboDesigner.revealRelatedFiles = "all"`.
+ *
+ * Vì sao đáng có: một cột lưới có thể được khai ở tới bốn chỗ (view của controller,
+ * `Config/Fields/<Tên>.xml`, `<group>` trong `Config/Initialize.xml`, và `<fields>` của bất kỳ
+ * file nào trong số đó), còn một hàng form đến từ Include thì sống ở hai chỗ — file Include khai
+ * nó, và dòng `&Name;` trong controller kéo nó vào. Nhảy tới đúng MỘT chỗ trả lời được câu «nó
+ * khai ở đâu», nhưng không trả lời được câu hay hỏi ngay sau đó: «còn chỗ nào khác nói về nó
+ * nữa?».
+ *
+ * Mặc định vẫn là `one`: mở bốn tab cho một cú bấm là thứ phải tự chọn, không phải thứ ập vào
+ * mặt người chỉ định liếc một cái.
+ *
+ * File phụ mở với `preserveFocus` và KHÔNG cuộn tới đâu cả — chỉ file chính mới được đặt con
+ * trỏ. Đặt con trỏ ở cả bốn thì không còn biết cái nào là chỗ vừa hỏi.
+ */
+async function revealRelated(msg, hostPath, target, output) {
+  const seen = new Set([target.toLowerCase()]);
+  const extras = [];
+
+  // File chủ tại chính dòng `&Name;` đã kéo hàng này vào — vế thứ hai của ca entity.
+  if (hostPath && !samePath(hostPath, target) && Number.isFinite(msg.hostStart)) {
+    extras.push({ file: hostPath, start: msg.hostStart, end: msg.hostEnd });
+    seen.add(hostPath.toLowerCase());
+  }
+  for (const f of msg.related || []) {
+    if (typeof f !== 'string' || f === '' || seen.has(f.toLowerCase())) continue;
+    seen.add(f.toLowerCase());
+    extras.push({ file: f, start: null, end: null });
+  }
+
+  for (const e of extras) {
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(e.file)).then(
+      (d) => d,
+      (err) => { output.appendLine(`không mở kèm được ${e.file}: ${err.message}`); return null; },
+    );
+    if (!doc) continue;
+    const visible = vscode.window.visibleTextEditors.find((v) => samePath(v.document.uri.fsPath, e.file));
+    if (e.start === null) {
+      await vscode.window.showTextDocument(doc, {
+        viewColumn: visible?.viewColumn ?? vscode.ViewColumn.Beside,
+        preserveFocus: true,
+      });
+    } else {
+      await revealIn(doc, visible?.viewColumn ?? vscode.ViewColumn.Beside, e.start, e.end);
+    }
+  }
+}
+
 async function revealSource(msg, hostDocument, output) {
   const hostPath = hostDocument?.uri.fsPath ?? '';
   const target = msg.file || hostPath;
@@ -454,6 +695,9 @@ async function revealSource(msg, hostDocument, output) {
     if (hostEditor) return revealIn(hostEditor.document, hostEditor.viewColumn, msg.hostStart, msg.hostEnd);
     if (hostDocument) return revealIn(hostDocument, vscode.ViewColumn.Beside, msg.hostStart, msg.hostEnd);
   }
+
+  // Mở kèm TRƯỚC, file chính SAU: file mở sau cùng là file nằm trên, và đó phải là chỗ vừa hỏi.
+  if (config().revealRelatedFiles === 'all') await revealRelated(msg, hostPath, target, output);
 
   // File đã mở sẵn thì dùng lại tab đó, đừng mở thêm một bản nữa ở cột khác.
   const visible = vscode.window.visibleTextEditors.find((e) => samePath(e.document.uri.fsPath, target));

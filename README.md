@@ -1,165 +1,221 @@
 # FBO Designer
 
-Extension VS Code để **xem** — và về sau **kéo thả thiết kế** — form FBO ngay trong IDE, thay
-vì đọc `<item value="1100: [ma_kh].Label, [ma_kh]"/>` rồi hình dung trong đầu.
+FBO Designer là extension cho VS Code giúp bạn xem trước, kiểm tra và chỉnh sửa giao diện form FBO trực tiếp trong IDE, thay vì phải hình dung layout từ file XML bằng mắt.
 
-Quyết định tách repo và chia package: hub 4AI, `docs/adr/ADR-0002-fbo-designer-repo-split.md`.
+Dự án này tập trung vào trải nghiệm làm việc thực tế của lập trình viên: mở file FBO, nhìn form render như runtime, kiểm tra vùng layout, nhấn nhanh vào control, xác định lỗi CSS và tài nguyên, rồi sửa ngay trên XML mà không rời khỏi môi trường làm việc hiện tại.
 
-## Hai package
+## Tại sao nên dùng FBO Designer?
 
-| | Là gì | Luật |
-|---|---|---|
-| `core/` | Lõi thuần: encoding, offset/splice, đại số `item value`, render model → HTML | ESM `.mjs`, **runtime dependency = 0**, không import `vscode`, không chạm DOM, không ghi file |
-| `extension/` | Vỏ VS Code: custom editor, webview, WorkspaceEdit | JavaScript trần, không bundler, không npm install |
+- Xem form FBO ngay trong VS Code hoặc Cursor
+- Giảm thời gian đoán layout từ XML thuần
+- Kiểm tra thiết kế gần với runtime hơn là mô phỏng tay
+- Theo dõi tài nguyên, stylesheet và hình ảnh đang được load
+- Hỗ trợ thao tác nhanh với filter, entity và các thành phần trong form
+- Làm việc như một công cụ thiết kế nội bộ, không cần chuyển qua môi trường khác
 
-Chiều phụ thuộc một chiều: `extension` → `core`. Không bao giờ ngược lại.
+## Tính năng chính
 
-## Chạy
+### 1. Preview form trực tiếp
+
+- Mở form từ file XML đang active hoặc từ một file cụ thể
+- Dùng chế độ xem theo document đang mở hoặc panel bám theo file đang làm việc
+- Kiểm tra form, grid và cấu trúc layout ngay trong trình soạn thảo
+
+### 2. Blueprint và kiểm tra hình học
+
+- Hiển thị thước đo pixel, khung slot và cấu trúc layout
+- Giúp xác định khoảng cách, chiều rộng, vị trí control và yếu tố bố cục
+- Dễ phát hiện sai lệch giữa XML và render thực tế
+
+### 3. Debug tài nguyên và stylesheet
+
+- Xem stylesheet đang được nạp và nguồn gốc của từng rule
+- Kiểm tra ảnh đang sử dụng, kích thước file, kích thước render và sprite
+- Cung cấp thông tin chi tiết của ô đang chọn: class, offset, HTML, file nguồn và vị trí
+- Nạp lại resource khi cần làm mới cache hoặc phát hiện lỗi hình ảnh
+
+### 4. Hỗ trợ filter và logic nghiệp vụ
+
+- Sinh khai báo filter nhanh cho grid theo controller, alias và cặp join trong câu Finding
+- Cho phép chọn các cột cần bật lọc nhanh, tự gắn `allowFilter` và `<query>` vào XML đúng vị trí
+- Tạo script SQL chuẩn để xoá và nạp lại `sysfilterdeclares` theo controller cùng tên field
+- Hỗ trợ kiểm tra dữ liệu đối với cấu trúc query và form điều kiện tìm kiếm
+
+#### Khai báo lọc nhanh
+
+- Mở file grid FBO trong `App_Data\Controllers\Grid`
+- Chạy lệnh `FBO Designer: Khai báo lọc nhanh cho lưới này` hoặc dùng phím tắt `Ctrl+Alt+F`
+- Chọn các cột cần bật filter và chấp nhận sửa XML nếu extension phát hiện thiếu `allowFilter` / `%Control.Filter;`
+- Xem script SQL được mở ở tab riêng, rồi đọc và chạy trên database `sys` của khách theo đúng controller
+- Nếu có dòng cần xem lại, extension đánh dấu rõ và không che giấu điểm chưa biết bảng nguồn
+
+### 5. Quản lý entity và include
+
+- Giải quyết tham chiếu entity trong các file FBO
+- Nhảy đúng nơi khai báo khi click vào item liên quan
+- Dễ theo dõi và sửa các thành phần dùng chung trên nhiều controller
+
+### 6. Đóng gói và vận hành linh hoạt
+
+- Có thể đóng gói thành file .vsix để cài trên VS Code hoặc Cursor
+- Không phụ thuộc vào npm install trong môi trường runtime của dự án
+- Dễ triển khai cho nhóm phát triển hoặc môi trường nội bộ
+
+## Cập nhật gần đây
+
+- Render đã được gộp nhịp để giảm lag khi một thao tác phát sinh nhiều thay đổi liên tiếp.
+- Includes và dữ liệu bung entity được nhớ theo mtime để không đọc lại và không bung lại vô ích mỗi lần render.
+- Cấu hình Grid/Config/Initialize.xml được memo hóa theo toàn bộ tập file đã tham gia vào kết quả.
+- Custom editor và preview panel đều chỉ gửi dữ liệu an toàn qua webview, không đẩy `model` và `expanded` qua `postMessage`.
+- Blueprint trên design có thêm lớp tô màu và biểu tượng rõ hơn để đọc layout nhanh hơn.
+
+## Cách dùng nhanh
+
+### 1. Mở đúng loại file
+
+- Mở file controller FBO trong `App_Data/Controllers/Dir`, `Filter` hoặc `Grid`.
+- File ngoài các thư mục này sẽ không có preview designer.
+
+### 2. Mở designer
+
+- Dùng F5 để chạy extension trong VS Code.
+- Hoặc mở lệnh tương ứng từ Command Palette để bật designer hoặc preview panel.
+
+### 3. Bật Blueprint khi cần đo layout
+
+- Blueprint hiển thị thước px, đường cột, ô trống, số `colspan`, mỏ neo và các tay cầm kéo.
+- Khi chỉ cần xem form, có thể tắt blueprint để giao diện gọn hơn.
+
+### 4. Sửa trực tiếp trên design
+
+- Chọn control để hiện thanh thao tác nổi.
+- Kéo các mép và tay cầm để đổi kích thước, gộp/tách hoặc đổi vị trí.
+- Bấm vào các nút + hoặc × để thêm/xóa theo ngữ cảnh.
+- Chọn control rồi theo liên kết để nhảy tới file liên quan khi designer cung cấp.
+
+#### Tách / gộp BIÊN CỘT của một vùng
+
+Bật Blueprint, rồi bấm vào con số px trên dải thước phía trên bảng. Thanh lệnh hiện ra ba nút:
+
+- `Tách` — chia cột đang chọn thành hai, hỏi bề rộng hai nửa (điền sẵn chia đôi, tổng giữ nguyên).
+- `Gộp◄` / `Gộp►` — gộp cột đang chọn với cột liền kề bên trái hoặc bên phải; bề rộng mới là tổng
+  hai cột cũ.
+
+**Đây không phải cùng một việc với tay cầm xanh ở mép ô.** Tay cầm xanh đổi số cột một control
+đang trải, trong danh sách biên có sẵn, và chỉ ảnh hưởng một hàng. Ba nút này đổi chính danh sách
+biên — mà danh sách ấy DÙNG CHUNG: một `<item value="100, 60, 90">` ở đầu view là toạ độ của mọi
+hàng trong dải header, dải footer và mọi tab không khai `<category columns="…">` riêng. Nên mọi
+hàng đọc nó đều được viết lại cùng lúc, kể cả hàng ở tab đang đóng và hàng nằm trong file Include.
+Designer hiện hộp thoại nói rõ có bao nhiêu hàng, bao nhiêu file trước khi ghi.
+
+Hai chỗ designer TỪ CHỐI thay vì đoán:
+
+- Gộp hai cột đang giữ hai control khác nhau — gộp là mất một cái. Bỏ một control trước.
+- Gộp đúng vào vạch mà `split` của vùng đang trỏ tới — vạch ấy biến mất, dời nó sang trái hay
+  sang phải đều là đổi bố cục theo một ý chưa ai nói ra. Đổi `split` trước.
+
+`anchor` và `split` của vùng được dời theo tự động ở mọi trường hợp còn lại: chúng là chỉ số cột,
+nên chèn hay bỏ một cột mà không dời là chúng lặng lẽ trỏ sang cột khác.
+
+## Ý nghĩa màu trên design
+
+- Cam: các mốc đo layout, số px trên blueprint và các nhãn `colspan`.
+- Xanh dương: vùng đang chọn, ô trống có thể thao tác, và các đường/khung phụ trợ của blueprint.
+- Xám: ô trống đến từ Include hoặc nguồn ngoài, thường không nên sửa như ô nội bộ.
+- Đỏ: vùng chia tách, thao tác xóa, hoặc vị trí không hợp lệ khi kéo thả.
+- Xanh lá: vị trí hợp lệ khi đang dời control.
+- Nền cam nhạt của dòng: hàng đang được chọn trong form.
+
+Lưu ý: một số màu còn bám theo theme của VS Code, nên nhìn thực tế có thể hơi khác giữa các theme sáng/tối.
+
+## Biểu tượng và nút thao tác
+
+- `+←` và `+→`: chèn control sang trái hoặc sang phải của ô đang chọn.
+- `+↑` và `+↓`: thêm một hàng mới phía trên hoặc phía dưới.
+- `×`: xóa control; nếu giữ Shift thì xóa luôn khai báo `<field>` khi thao tác đó được hỗ trợ.
+- `⚓`: mỏ neo của vùng main, kéo để đổi cột neo.
+- Vạch dọc đỏ: `split`, tức ranh giới chia vùng của bảng.
+- Tay cầm xanh ở mép ô: kéo để gộp/tách hoặc đổi biên độ của control — đổi số cột MỘT control
+  đang trải, trong danh sách biên cột có sẵn.
+- Nhãn số px trên dải thước của form: bấm vào để hiện thanh `Tách` / `Gộp◄` / `Gộp►` — đổi chính
+  DANH SÁCH BIÊN CỘT của cả vùng. Khác hẳn tay cầm xanh ở trên, xem mục dưới.
+- Tay cầm cam ở mép dưới tab: đổi chiều cao tab đang mở.
+- Nhãn số px trên blueprint: cho biết độ rộng cột, không phải số đo đã nhân theo zoom.
+
+## Sử dụng nhanh
+
+### Bắt đầu
+
+Mở project trong VS Code hoặc Cursor, mở một file controller FBO rồi chạy extension bằng F5 hoặc mở Command Palette và chạy lệnh tương ứng cho FBO Designer. Khi designer hiện ra, bật Blueprint nếu muốn kiểm tra chi tiết layout, còn khi chỉ cần sửa thì dùng thanh thao tác nổi ngay trên control đang chọn.
+
+### Các lệnh thường dùng
+
+- Mở giao diện giả lập FBO (`Ctrl+Alt+O`)
+- Khai báo filter nhanh cho grid (`Ctrl+Alt+F`)
+- Debug stylesheet và tài nguyên (`Ctrl+Alt+P`)
+- Có thêm mục trong menu chuột phải trên editor và file FBO để gọi nhanh các tiện ích
+
+### Chạy kiểm tra
 
 ```bash
 node core/test/run.mjs
 ```
 
-Không cần `npm install` — đó là điều kiện, không phải sự tiện tay. Extension chạy bằng F5
-(`Chạy FBO Designer (Extension Host)`), rồi trong cửa sổ mới gọi lệnh
-`FBO Designer: Mở panel bám theo file đang mở`.
-
-Hai cách xem, khác nhau đúng một chỗ — vẽ file nào:
-
-| Lệnh | Vẽ file nào | Dùng khi |
-|---|---|---|
-| `Mở panel bám theo file đang mở` | file đang active, đổi tab thì đổi theo | sửa XML bên trái, nhìn form bên phải |
-| `Mở designer gắn cứng vào file này` | đúng một document, không đổi | cần undo/redo và save của VS Code |
-
-Đo lại hình học khi nghi preview lệch runtime:
-
-```bash
-node tools/probe-layout.mjs --serve
-```
-
-Nó dựng bản sao shell của webview thành trang tĩnh ở `http://localhost:7391/`, chạy được trong
-trình duyệt thường nên đo được bằng devtools.
-
-Mốc đối chiếu **đo trên trang runtime thật đã lưu** (`DevWorkFlow/.temp/`), không phải suy:
-panel 575 ngoài · bảng 550 · mọi hàng 24px · ô nhập 13px · container 16px · ô Lookup 77px ·
-nhãn canh **trái**. Danh sách đầy đủ ở `extension/media/base/README.md`.
-
-## "Sao form trong Cursor nhìn nhỏ hơn trên web?"
-
-Không phải form nhỏ đi — nó dựng đúng **573px CSS**, bằng đúng con số runtime đặt inline. Cái
-khác nhau là **một px CSS được vẽ to bằng nào**:
-
-| Nguồn tỉ lệ | Ở Cursor | Ở trình duyệt |
-|---|---|---|
-| `window.zoomLevel` (`Ctrl -` / `Ctrl +`) | áp cho cả webview | không có |
-| zoom của trình duyệt (nhớ theo site) | không có | có |
-| Windows scaling 125%/150% | có | có (khác nếu khác màn hình) |
-
-Cách kiểm bằng số: nhìn dòng cuối thanh trạng thái của designer —
-`1 px CSS = M px màn hình` — rồi mở F12 trên trình duyệt gõ `devicePixelRatio`. Hai số bằng
-nhau thì hai bên đang vẽ cùng cỡ; lệch nhau thì đó chính là chênh lệch bạn đang thấy.
-
-Muốn form to hơn mà không phải zoom cả cửa sổ Cursor: dùng nút **Tỉ lệ** trên thanh trên. Nó
-chỉ đổi cách nhìn — thước blueprint vẫn ghi px khai trong XML.
-
-## Debug mode
-
-Ô **Debug** trên thanh trên mở một bảng ở vùng trạng thái:
-
-| Bảng | Trả lời câu hỏi |
-|---|---|
-| Stylesheet | file nào đang nạp, nhúng thẳng hay qua URL, có nạp được không |
-| Ảnh đang dùng | URL thật · **cỡ file** · cỡ ô vẽ · sprite cắt tại đâu |
-| Ô đang chọn | token, cột/trải/px, class, file gốc, offset, HTML nguyên văn |
-
-Bảng ảnh sinh ra từ một lỗi thật: icon Lookup hiện sai hình, và không có cách nào nhìn ra là
-do `src` trỏ nhầm file hay do webview giữ ảnh cũ. Cột **cỡ file** đo bằng cách tải riêng từng
-URL — `<img>` bị CSS ép cỡ nên nhìn trên màn hình không phân biệt được hai nguyên nhân đó.
-
-Nút **Nạp lại tài nguyên** dựng lại shell với dấu phiên bản mới trên mọi URL. Bình thường
-không cần: mọi tài nguyên đã mang `?v=<mtime>` và base pack thì nhúng thẳng với `url()` đã
-viết lại. Nó là lối thoát cho trường hợp `mtime` không đổi mà nội dung đổi.
-
-## Đóng gói .vsix
+### Đóng gói .vsix
 
 ```bash
 node tools/package-vsix.mjs
 ```
 
-Ra `dist/fbo-designer-<version>.vsix`. Cài vào VS Code hoặc Cursor: Extensions → menu `…` →
-*Install from VSIX…* (hoặc command palette → *Extensions: Install from VSIX…*), rồi reload.
+File .vsix được tạo ra để cài bằng lệnh Install from VSIX trong VS Code hoặc Cursor.
 
-Bộ đóng gói **không dùng `vsce`** — một `.vsix` chỉ là ZIP theo quy ước OPC, và `vsce` chỉ làm
-thêm những việc dự án này không có (validate marketplace, xử lý dependency npm). Đổi lại giữ
-được lời hứa không npm install.
+## Công nghệ và kiến trúc
 
-Hai điều bộ đóng gói tự lo, đã trả giá mới biết:
+FBO Designer chia thành hai phần rõ ràng:
 
-- **Tên entry phải là `/`, không phải `\`.** `ZipFile::CreateFromDirectory` trên Windows
-  PowerShell 5.1 đặt tên bằng `\`; gói vẫn mở được bằng Explorer nên nhìn tưởng xong, chỉ chết
-  lúc cài. Nên phải nén theo danh sách entry đặt tên tường minh, và tự đọc lại central
-  directory để kiểm.
-- **`core/` được chép VÀO gói.** Khi cài từ `.vsix` thì không còn package anh em bên cạnh;
-  `extension.js` thử đường dẫn trong gói trước, rồi mới tới đường dẫn repo.
+- `core/`: lõi xử lý render, encoding, item value, logic layout và model dữ liệu
+- `extension/`: phần giao diện VS Code, webview và thao tác trên file XML
 
-## Đang ở đâu
+Mục tiêu của kiểu kiến trúc này là tách phần nghiệp vụ khỏi phần giao diện, giúp dễ kiểm thử, dễ bảo trì và dễ mở rộng trong tương lai.
 
-**P1 — preview trung thực**, phần lớn đã chạy:
+## Phạm vi dùng
 
-- **Kiểu render chọn theo gốc tài liệu**, không theo thư mục: `<dir>` (tức `Dir/` **và**
-  `Filter/`) ra Form, `<grid type="Detail">` (tức `Grid/`) ra lưới Detail.
-- Form dựng đủ khung dialog của runtime — bảy lớp `UpdateDlg*` và thanh tiêu đề (có icon,
-  có gradient). Bỏ lớp nào là form hụt đúng bằng viền/padding của lớp đó; phép cộng
-  573 → 570 → 553 ⊇ 550 ghi trong `core/src/render.mjs`.
-- **CSS nền là CSS runtime THẬT**, chép nguyên văn từ một trang FBO đã lưu, không phải bản
-  mô phỏng — xem `extension/media/base/README.md`. Luật của nó: không thêm rule nào runtime
-  không có.
-- Dải nút đáy dialog cố ý không dựng: nút nào hiện là do ngữ cảnh runtime quyết, `<view>`
-  không khai gì về chúng.
-- Control thật: checkbox, select, textarea, ô Lookup có icon, ô readOnly dùng đúng bộ class
-  disabled của runtime.
-- **Phân giải entity** đầy đủ — parameter entity, marked section `<![%X;[…]]>`, first-wins.
-  Hàng đến từ Include được đánh dấu khoá; bấm vào thì nhảy về đúng `&Name;` trong file đang
-  mở (Alt-click nếu muốn mở hẳn file Include).
-- Tài nguyên program (`Css`, `Images`, `ClientScript`) suy từ chính file đang mở.
-- Base pack CSS rồi tới CSS của program, đúng thứ tự runtime.
-- **Blueprint overlay**: thước px, vạch cột theo list px ở `views > item` dòng 1, khung slot.
-  Vẽ đè, `pointer-events:none` — tắt đi thì DOM của form không đổi một thuộc tính nào.
+FBO Designer phù hợp cho những người làm với:
 
-Còn thiếu ở P1: tabs/categories, vùng footer (`categoryIndex="-1"`), Grid nhúng trong Form
-(`itemsStyle="Grid"`), toolbar. DOM của lưới chưa đối chiếu được với HTML runtime thật —
-bề rộng và thứ tự cột thì đọc thẳng từ XML nên đúng, phần chrome quanh lưới còn là ước lượng.
+- Form FBO trong hệ thống nghiệp vụ
+- Layout XML và component grid
+- Debug giao diện, hình học và CSS
+- Việc kiểm tra nhanh form trước khi triển khai hoặc QA
 
-Lộ trình tiếp: **P2** sửa qua property panel → **P3** kéo thả (slot của blueprint đã là đơn vị
-thả) → **P4** tabs/toolbar.
+## Roadmap
 
-Hai câu hỏi spike của P0 vẫn chưa có câu trả lời ghi lại (`docs/P0-QUESTIONS.md`). Câu 1 —
-Windows-1258 qua `CustomTextEditorProvider` — phải trả lời **trước P2**, vì P2 là lúc bắt đầu
-ghi file.
+Dự án đang tập trung vào trải nghiệm preview thật, tiếp theo sẽ mở rộng cho:
 
-## Ba điều phải biết trước khi sửa code
+- Property panel
+- Chỉnh sửa trực quan hơn
+- Kéo thả layout
+- Hỗ trợ nâng cao cho tabs, toolbar và các khu vực phức tạp hơn
 
-**1. Đặc tả nằm ở hub, không nằm ở đây.** `assets/skills/erp/erp-view-design/references/` của
-4AI (`reference-item-value.md`, `reference-render-pipeline.md`) là **nguồn thật**; `core/` là
-bản cài đặt. Lệch nhau thì sửa code — trừ khi phát hiện đặc tả sai so với corpus, khi đó sửa
-đặc tả trước rồi mới sửa code.
+Sinh script thêm cột database cho field mới (`FBO Designer: Sinh script thêm cột cho field mới`),
+tách/gộp biên cột của một vùng form, và đổi chỗ hai control cùng bề rộng trong một hàng (kéo thả
+lên nhau, hoặc nút `⇄←` / `⇄→`) đã thực thi xong. Các tiện ích khác đang ở giai đoạn thảo luận,
+chưa thực thi — preview theo dữ liệu mẫu, nhập liệu debug ngay trên form (Filter/Danh mục), sao
+chép source giữa các dự án khách, và tuỳ chọn Lưu ngay/Tự lưu khi sửa design.
+Xem [docs/IDEAS-FUTURE-TOOLS.md](docs/IDEAS-FUTURE-TOOLS.md).
 
-**2. Ghi ngược luôn là splice lên văn bản gốc.** Không bao giờ parse-rồi-serialize-lại cả
-file. Nguồn FBO có thể là Windows-1258 + CRLF + BOM; serialize lại là viết đè UTF-8 LF ngay
-lần lưu đầu, và hỏng im lặng. Mọi phép sửa layout trả về `{ model, splices }`; ai ghi là việc
-của `extension/`.
+Chưa có trong bản này: đổi bề rộng một cột form đã có sẵn bằng chuột. Px của cột form nằm ở danh
+sách biên dùng chung nên nó không phải thao tác của một ô — hiện vẫn sửa tay trong XML. Đường vòng
+nếu ngại mở XML: `Tách` cột đó thành `<bề rộng mới>, 0` rồi bấm `Gộp►` để nhập hai nửa lại; kết
+quả đúng bằng bề rộng mới, và pattern của mọi hàng trở lại y như trước.
 
-**3. Ô đến từ file entity thì khoá.** `&Name;` trong `item value` nghĩa là layout đó dùng
-chung nhiều controller — sửa tại controller là sửa cho tất cả. Designer khoá và chỉ sang file
-entity; muốn đổi thì phải đo `used_by` trước (tool `4ai-fbo` của hub).
+## Đóng góp
 
-## Quan hệ với DevWorkFlow
+Bạn có thể đóng góp bằng cách:
 
-DevWorkFlow (`Development/DevWorkFlow`) đã làm cùng bài toán bằng WPF + WebView2, toàn bộ bằng
-C#. Ở đây **không port code** — chỉ đối chiếu ngữ nghĩa khi nghi ngờ, và `docs/04-DESIGNER_PLATFORM.md`
-bên đó có mục *Trạng thái thực tế* ghi rõ chỗ doc đã lệch code, nên đọc kèm cảnh giác.
+- Báo lỗi hoặc sai lệch UI khi render
+- Cung cấp ví dụ FBO thực tế để kiểm thử
+- Đề xuất tính năng mới phù hợp với workflow thiết kế form
 
-## Quy ước
+## Giấy phép
 
-Văn xuôi **tiếng Việt**, identifier và tên module **tiếng Anh** — cùng quy ước với hub 4AI.
-File sinh ra: UTF-8 không BOM, LF. File nguồn FBO đọc vào: giữ nguyên y hệt.
+Xem thông tin trong package tương ứng hoặc tài liệu dự án hiện có để biết chính sách phân phối và sử dụng phù hợp với môi trường triển khai.

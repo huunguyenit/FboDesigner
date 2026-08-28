@@ -5,7 +5,7 @@
 <header class="fbo-bar">
   <span class="fbo-bar-left"><span id="fbo-file">—</span><span class="fbo-mode" id="fbo-mode" hidden></span></span>
   <span class="fbo-bar-right">
-    <label class="fbo-toggle" title="Vẽ đè thước, vạch cột theo list px ở item dòng 1, và khung slot của từng ô"><input type="checkbox" id="fbo-blueprint-toggle"> Blueprint</label>
+    <label class="fbo-toggle" hidden title="Vẽ đè thước, vạch cột theo list px ở item dòng 1, và khung slot của từng ô"><input type="checkbox" id="fbo-blueprint-toggle"> Blueprint</label>
     <label class="fbo-toggle" title="Chỉ phóng to để nhìn. Không đổi một px nào của form — thước blueprint vẫn ghi px khai trong XML.">Tỉ lệ
       <select id="fbo-zoom-select">
         <option value="1">100%</option>
@@ -33,11 +33,15 @@
     </div>
   </div>
 </main>
+<!-- Thanh dưới chỉ còn HƯỚNG DẪN THAO TÁC.
+     Trước đây nó còn ba dòng nữa — số entity đã bung, danh sách tài nguyên, và tỉ lệ nhìn.
+     Cả ba là số liệu CHẨN ĐOÁN, không phải thứ cần liếc khi đang kéo thả: chúng đẩy thanh dưới
+     cao lên ba, bốn dòng, ăn mất chiều cao của chính cái form đang xem, và dòng hướng dẫn —
+     thứ duy nhất nói cho người dùng biết bấm gì kéo gì — chìm nghỉm giữa chúng.
+     Số liệu chẩn đoán vẫn còn chỗ của nó: mã hoá/EOL/program ở thanh trên, cảnh báo XML đi vào
+     kênh Output, còn stylesheet và ảnh nằm trong panel Debug ngay dưới đây. -->
 <footer class="fbo-status">
-  <div id="fbo-nav-hint" class="fbo-ok">Bấm = chọn ô · <b>Ctrl+bấm</b> hoặc <b>bấm đúp</b> = nhảy tới khai báo trong XML (thêm <b>Alt</b> để ở lại file đang mở) · kéo mép phải ô = gộp/tách</div>
-  <div id="fbo-entities"></div>
-  <div id="fbo-assets"></div>
-  <div id="fbo-scale"></div>
+  <div id="fbo-nav-hint" class="fbo-ok">Bấm = chọn ô · <b>Ctrl+bấm</b> hoặc <b>bấm đúp</b> = nhảy tới khai báo trong XML (thêm <b>Alt</b> để ở lại file đang mở) · kéo mép phải ô = gộp/tách · <b>Del</b> = xoá control, <b>Shift+Del</b> = xoá cả nhãn/chú thích · <b>Ctrl+Z</b> = hoàn tác</div>
   <section id="fbo-debug" hidden>
     <div class="fbo-debug-head">
       <strong>Debug</strong>

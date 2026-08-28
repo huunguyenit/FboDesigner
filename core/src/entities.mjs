@@ -16,6 +16,8 @@
 //
 // Thuần: không import fs. Người gọi truyền `readFile(absPath) -> string|null`.
 
+import { commentSkipper } from './xml-comment.mjs';
+
 const TOKEN_SOURCE = [
   // 1: marked section  <![ INCLUDE | IGNORE | %Name; [
   String.raw`<!\[\s*(%[\w.\-]+;|INCLUDE|IGNORE)\s*\[`,
@@ -158,9 +160,21 @@ function markedStatus(ctx, raw, declaringFile) {
 function collect(ctx, text, file, depth, base = 0) {
   if (depth > 32) { ctx.warn(`lồng entity quá sâu tại ${file}`); return; }
 
+  /*
+   * Khai báo nằm trong `<!-- … -->` KHÔNG tồn tại.
+   *
+   * Không có chốt này thì một `<!ENTITY X "cũ">` đã bị comment vẫn được ĐĂNG KÝ, và vì luật
+   * first-wins nó còn THẮNG bản khai thật đứng sau — người viết file tưởng mình đã tắt một khai
+   * báo, designer vẫn dùng nó. Đo được trên `Dir/Customer.xml` của HOATP.
+   *
+   * Cùng luật áp cho marked section và cho tham chiếu `%X;`: một `<![%Cond;[ … ]]>` bị comment
+   * không được bật nhánh nào, và một `%X;` bị comment không được kéo file nào vào.
+   */
+  const skip = commentSkipper(text);
   const re = tokenRegex();
   let m;
   while ((m = re.exec(text)) !== null) {
+    if (skip(m.index)) continue;
     const [, marked, param, name, , system, , inline] = m;
 
     if (marked !== undefined) {
@@ -224,12 +238,29 @@ function collect(ctx, text, file, depth, base = 0) {
 function expand(ctx, text, file, baseOffset, out, segments, stack, depth) {
   if (depth > 32) { ctx.warn(`bung entity quá sâu tại ${file}`); out.push(text); return; }
 
+  /*
+   * `&Name;` nằm trong `<!-- … -->` thì KHÔNG bung.
+   *
+   * Đây mới là vế nặng của lỗi «entity đã comment vẫn bị đọc vào», và nó khác hẳn vế khai báo ở
+   * `collect`. Ca thật, `Dir/Customer.xml` của HOATP, ngay sau `<views>`:
+   *
+   *     <!-- &BI.Form.View.Customer; -->
+   *
+   * Entity ấy bung ra NGUYÊN MỘT khối `<view>`. Bung nó là chèn cả cái view đã bị tắt vào
+   * `clearText`, rồi `scanViews` nhặt phải nó và designer vẽ nhầm view — trong khi file thì rõ
+   * ràng đã comment.
+   *
+   * Giữ nguyên `&Name;` thì dấu comment còn nguyên trong `clearText`, và `scanViews` (cũng đã
+   * biết bỏ comment) đi qua nó. Hai chốt cùng một luật, ở hai tầng.
+   */
+  const skip = commentSkipper(text);
   const re = generalRefRegex();
   let last = 0;
   let m;
   while ((m = re.exec(text)) !== null) {
     const name = m[1];
     if (BUILTIN.has(name.toLowerCase())) continue;
+    if (skip(m.index)) continue;
 
     const decl = ctx.general.get(name);
     if (!decl) {
@@ -427,4 +458,52 @@ export function segmentAt(segments, offset) {
     else return s;
   }
   return null;
+}
+
+/**
+ * Dải trong clearText do MỘT tham chiếu `&Name;` sinh ra — cộng chính dải `&Name;` trong file chủ.
+ *
+ * Sinh ra cho phép «phân giải entity vào file thiết kế»: muốn thay dòng `&Name;` bằng nội dung
+ * đã bung thì phải cầm được ĐÚNG đoạn văn bản mà tham chiếu ấy đẻ ra, không nhiều hơn một ký
+ * tự. `expand` đã đóng dấu cùng MỘT object `ref` lên mọi đoạn thuộc về một lần bung (khung
+ * ngoài ghi đè khung trong), nên gom theo ĐỒNG NHẤT THAM CHIẾU (`===`) là đủ — không phải so
+ * nội dung, cũng không phải đoán theo hàng xóm.
+ *
+ * Các đoạn của cùng một `ref` luôn LIỀN NHAU trong clearText: `expand` đẩy chúng vào `segments`
+ * theo thứ tự và chỉ đóng dấu đúng khoảng `[mark, segments.length)`. Nên trải từ đoạn đầu tới
+ * đoạn cuối là ra đúng dải, không sót và không thừa.
+ *
+ * @returns {{ref:{file:string,start:number,end:number}, start:number, end:number}|null}
+ *          `start`/`end` là offset trong clearText; `ref` là dải `&Name;` trong file chủ.
+ */
+export function refResolvedSpan(segments, offset) {
+  const i = segmentIndexAt(segments, offset);
+  if (i === -1) return null;
+  const { ref } = segments[i];
+  if (!ref) return null;
+
+  let lo = i;
+  let hi = i;
+  while (lo > 0 && segments[lo - 1].ref === ref) lo--;
+  while (hi + 1 < segments.length && segments[hi + 1].ref === ref) hi++;
+  return { ref, start: segments[lo].start, end: segments[hi].end };
+}
+
+/**
+ * Dời TOÀN BỘ bản đồ đoạn đi `offset` ký tự — dùng khi chỉ một LÁT của clearText được đem đi quét.
+ *
+ * Ca thật: `Grid/Config/Initialize.xml` khai cấu hình của cả trăm controller, mỗi cái một thẻ
+ * `<group id="…">`. Người gọi cắt đúng thẻ của controller mình cần rồi quét trên lát ấy, nên mọi
+ * span do bộ quét trả về đo TỪ ĐẦU LÁT. Nhưng `segments` thì vẫn đo từ đầu file — trộn hai hệ là
+ * `sourceRange` quy một offset của lát về vị trí cùng số ấy trong file, và con trỏ nhảy tới một
+ * chỗ cách chỗ đúng đúng bằng khoảng cách từ đầu file tới thẻ `<group>`. Với `Initialize.xml`
+ * của một chương trình thật thì đó là hàng chục nghìn ký tự — nhảy sang một controller khác hẳn.
+ *
+ * Dời bản đồ thay vì dời từng span: span nằm rải trong nhiều cấu trúc lồng nhau (`attrSpans`,
+ * `columns`, `valueSpan`), còn bản đồ chỉ là một mảng phẳng. Đoạn nằm trước lát sẽ mang toạ độ
+ * âm — không sao, phép tìm nhị phân chỉ cần thứ tự tăng dần, và không ai hỏi tới chúng.
+ */
+export function shiftSegments(segments, offset) {
+  if (!Array.isArray(segments) || !offset) return segments ?? null;
+  return segments.map((s) => ({ ...s, start: s.start - offset, end: s.end - offset }));
 }

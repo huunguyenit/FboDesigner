@@ -2,10 +2,25 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Chạy FBO Designer (Extension Host)",
+      "name": "FBO Designer: Extension Host",
       "type": "extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"]
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/extension"
+      ],
+      "debugWebviews": true
+    },
+    {
+      "name": "FBO Designer: Extension Host + DevTools",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/extension",
+        "--open-devtools"
+      ],
+      "debugWebviews": true
     }
   ]
 }

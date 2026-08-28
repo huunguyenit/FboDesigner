@@ -85,7 +85,12 @@ export function parseRow(value) {
     patternRaw,
     tokens,
     tokensRaw,
-    separator: /,\s/.test(tokensRaw) ? ', ' : ',',
+    // Suy separator chỉ ĐÚNG khi có dấu phẩy để mà suy. Hàng một token không có cái nào, và
+    // bản trước rơi về `','` — nên hễ dời/thêm một control vào một hàng đơn lẻ là ra
+    // `[dia_chi],[ma_kh]` dính liền, khác hẳn mọi hàng còn lại của file. Không quan sát được
+    // thì dùng quy ước của corpus (`', '`), chỉ chốt `','` khi thấy TẬN MẮT một dấu phẩy không
+    // có khoảng trắng theo sau.
+    separator: /,(?!\s)/.test(tokensRaw) ? ',' : ', ',
     afterColon: colon !== -1 && /^\s/.test(tokensRaw) ? ' ' : '',
     hasColon: colon !== -1,
     hasEntity: RE_ENTITY_REF.test(text),
@@ -183,11 +188,21 @@ function tokenIndexOf(pattern, col) {
   return n;
 }
 
-/** Guard chung cho mọi phép sửa hàng. Trả `null` nếu sửa được. */
-function refuseEdit(row) {
-  // Hàng có `&Name;` thì văn bản đã BUNG khác hẳn văn bản trong file. Ghi bản bung đè lên
-  // nguồn là xoá sạch tham chiếu entity và nhân bản nội dung dùng chung vào một controller.
-  if (row.hasEntity) return 'hàng có entity (&…;) — sửa ở file entity, không sửa tại controller';
+/**
+ * Guard chung cho mọi phép sửa hàng. Trả `null` nếu sửa được.
+ *
+ * `allowEntity` KHÔNG phải cái công tắc "kệ, cứ ghi". Nó nói: người gọi đang thao tác trên bản
+ * parse của VĂN BẢN GỐC, chứ không phải bản đã bung — nên `t.raw` của mọi token không đụng tới
+ * vẫn đang là `[&k;]`, và `serializeRow` ghi lại đúng chuỗi ấy. Tham chiếu entity sống sót
+ * nguyên vẹn vì nó chưa từng bị thay.
+ *
+ * Ghi bản ĐÃ BUNG đè lên nguồn thì vẫn cấm, và đó mới là thứ guard này sinh ra để chặn: nó xoá
+ * sạch tham chiếu và nhân bản nội dung dùng chung vào một controller.
+ */
+function refuseEdit(row, allowEntity = false) {
+  if (row.hasEntity && !allowEntity) {
+    return 'hàng có entity (&…;) — sửa ở file entity, không sửa tại controller';
+  }
   return null;
 }
 
@@ -199,8 +214,8 @@ function refuseEdit(row) {
  *
  * @returns {{ok: true, row: object} | {ok: false, reason: string}}
  */
-export function removeCell(row, widths, cellIndex) {
-  const refuse = refuseEdit(row);
+export function removeCell(row, widths, cellIndex, { allowEntity = false } = {}) {
+  const refuse = refuseEdit(row, allowEntity);
   if (refuse) return { ok: false, reason: refuse };
 
   const { cells } = buildCells(row, widths);
@@ -226,9 +241,9 @@ export function removeCell(row, widths, cellIndex) {
  * @param side 'left' | 'right'
  * @returns {{ok: true, row: object} | {ok: false, reason: string}}
  */
-export function insertCell(row, widths, cellIndex, side, tokenRaw) {
+export function insertCell(row, widths, cellIndex, side, tokenRaw, { allowEntity = false } = {}) {
   const list = Array.isArray(tokenRaw) ? tokenRaw : [tokenRaw];
-  const refuse = refuseEdit(row);
+  const refuse = refuseEdit(row, allowEntity);
   if (refuse) return { ok: false, reason: refuse };
 
   const parsed = list.map((t) => parseToken(String(t ?? '').trim()));
@@ -261,6 +276,164 @@ export function insertCell(row, widths, cellIndex, side, tokenRaw) {
   const tokens = [...row.tokens];
   tokens.splice(ti, 0, ...parsed);
   return { ok: true, row: { ...row, pattern: chars.join(''), tokens } };
+}
+
+/**
+ * DỜI một ô sang cột khác trong CÙNG hàng — kéo thả control.
+ *
+ * Khác hẳn `insertCell`: không dựng token mới nào. Token của ô cũ đi NGUYÊN XI sang chỗ mới, kể
+ * cả khi nó viết bằng entity — `t.raw` không bị đụng vào, nên `[&k;]` vẫn là `[&k;]`. Đó cũng là
+ * lý do phép này chạy được trên hàng có entity, cùng luật với `insertCell`.
+ *
+ * SPAN ĐI THEO. Ô trải 3 cột dời sang chỗ mới vẫn trải 3 — người dùng kéo một control, họ không
+ * ngầm yêu cầu bóp nó lại. Chỗ mới không đủ 3 cột trống thì TỪ CHỐI, không tự co.
+ *
+ * Vùng đích được phép CHỒNG LÊN vùng nguồn — dời sang trái/phải một nấc là ca thường nhất. Nên
+ * phép kiểm "cột đích có trống không" phải chạy trên pattern ĐÃ XOÁ vùng nguồn; kiểm trên
+ * pattern gốc thì mọi cú dời một nấc đều tự đụng vào chính mình rồi bị từ chối.
+ *
+ * @param toCol cột đích, tính từ 0
+ * @returns {{ok: true, row: object} | {ok: false, reason: string}}
+ */
+export function moveCell(row, widths, cellIndex, toCol, { allowEntity = false } = {}) {
+  const refuse = refuseEdit(row, allowEntity);
+  if (refuse) return { ok: false, reason: refuse };
+
+  const columnCount = widths.length;
+  const { cells } = buildCells(row, widths);
+  const cell = cells[cellIndex];
+  if (!cell) return { ok: false, reason: `không có ô thứ ${cellIndex}` };
+  if (cell.empty) return { ok: false, reason: 'ô trống, không có gì để dời' };
+
+  const span = cell.span;
+  const to = Math.trunc(Number(toCol));
+  if (!Number.isFinite(to) || to < 0) return { ok: false, reason: `cột đích ${toCol} không hợp lệ` };
+  if (to + span > columnCount) {
+    return { ok: false, reason: `dời tới cột ${to + 1} thì control trải ${span} cột vượt khỏi hàng` };
+  }
+  if (to === cell.col) return { ok: false, reason: 'không có gì thay đổi' };
+
+  // Gỡ token TRƯỚC khi đổi pattern: `tokenIndexOf` đếm số `1` đứng trước, nên chỉ số cũ chỉ đọc
+  // đúng trên pattern CŨ.
+  const chars = Array.from(resolvePattern(row.pattern, columnCount).pattern);
+  const fromTi = tokenIndexOf(chars.join(''), cell.col);
+  const token = row.tokens[fromTi];
+  if (!token) return { ok: false, reason: `ô thứ ${cellIndex} không có token nào để dời` };
+
+  for (let c = cell.col; c < cell.col + span; c++) chars[c] = '-';
+  for (let c = to; c < to + span; c++) {
+    if (chars[c] !== '-') return { ok: false, reason: `cột ${c + 1} đang có control — bỏ nó trước rồi mới dời được` };
+  }
+  chars[to] = '1';
+  for (let c = to + 1; c < to + span; c++) chars[c] = '0';
+
+  const rest = row.tokens.filter((_, i) => i !== fromTi);
+  const toTi = tokenIndexOf(chars.join(''), to);
+  rest.splice(toTi, 0, token);
+  return { ok: true, row: { ...row, pattern: chars.join(''), tokens: rest } };
+}
+
+/**
+ * ĐỔI CHỖ hai control trong CÙNG một hàng — hoán vị, không phải hai phép dời nối nhau.
+ *
+ * `moveCell` TỪ CHỐI khi cột đích đang có control, và đó là thái độ đúng của nó: dời một ô lên
+ * chỗ đang có người là làm mất một khai báo mà không ai yêu cầu. Nhưng «đổi thứ tự hai field
+ * cạnh nhau» thì chẳng mất gì cả — nên nó cần phép RIÊNG, chứ không phải một cái công tắc nới
+ * lỏng `moveCell`. Trước phép này, đổi chỗ phải làm tay qua hai bước: xoá rồi thêm lại, hoặc dời
+ * vòng qua một ô trống trung gian.
+ *
+ * CHỈ CÙNG SPAN — và đó chính là thứ làm phép này rẻ tới mức không ngờ. Hai ô cùng span thì
+ * PATTERN KHÔNG ĐỔI một ký tự nào: cột bắt đầu và số cột chiếm của cả hai đều giữ nguyên, chỉ có
+ * hai token đổi chỗ cho nhau. Nhờ vậy phép này an toàn với hàng viết bằng entity ở CẢ HAI chỗ —
+ * pattern đi qua nguyên văn (kể cả `110&Split;-1`), token đi qua bằng `t.raw` nên `[&k;]` vẫn là
+ * `[&k;]`.
+ *
+ * Khác span thì TỪ CHỐI kèm lý do, không tự dồn lại hàng: ô trải 3 tráo với ô trải 1 sẽ đè lên ô
+ * thứ ba nằm giữa, và «dồn lại cả hàng» là một quyết định bố cục người dùng chưa hề nói ra.
+ * Đường vòng có sẵn và nói rõ hơn nhiều: kéo cạnh cho hai ô bằng span rồi mới đổi chỗ.
+ *
+ * @returns {{ok: true, row: object} | {ok: false, reason: string}}
+ */
+export function swapCells(row, widths, cellIndex, otherIndex, { allowEntity = false } = {}) {
+  const refuse = refuseEdit(row, allowEntity);
+  if (refuse) return { ok: false, reason: refuse };
+
+  const { cells } = buildCells(row, widths);
+  const a = cells[cellIndex];
+  const b = cells[otherIndex];
+  if (!a) return { ok: false, reason: `không có ô thứ ${cellIndex}` };
+  if (!b) return { ok: false, reason: `không có ô thứ ${otherIndex}` };
+  if (cellIndex === otherIndex) return { ok: false, reason: 'không có gì thay đổi' };
+  if (a.empty || b.empty) return { ok: false, reason: 'ô trống, không có control để đổi chỗ' };
+  if (a.span !== b.span) {
+    return {
+      ok: false,
+      reason: `hai control khác bề rộng (trải ${a.span} và ${b.span} cột)`
+        + ' — cho bằng nhau rồi mới đổi chỗ được',
+    };
+  }
+
+  // Chỉ số token = số ký tự `1` đứng trước, đọc trên pattern ĐÃ bung cho đủ cột — cùng không
+  // gian với `cell.col` mà `buildCells` vừa trả. Pattern không đổi nên chỉ số trước và sau như
+  // nhau; hoán hai phần tử là xong.
+  const { pattern } = resolvePattern(row.pattern, widths.length);
+  const ai = tokenIndexOf(pattern, a.col);
+  const bi = tokenIndexOf(pattern, b.col);
+  const tokens = [...row.tokens];
+  if (!tokens[ai] || !tokens[bi]) return { ok: false, reason: 'một trong hai ô không có token để đổi chỗ' };
+  [tokens[ai], tokens[bi]] = [tokens[bi], tokens[ai]];
+
+  // `row.pattern` đi qua NGUYÊN VĂN, không phải bản đã bung: phép này không sửa pattern, nên
+  // splice chỉ được chạm vào phần token. Ghi bản đã bung đè lên là đổi byte mà không đổi nghĩa.
+  return { ok: true, row: { ...row, tokens } };
+}
+
+/**
+ * ĐẶT một token vào ĐÚNG cột và ĐÚNG span đã cho — nguyên thuỷ của phép dời SANG HÀNG KHÁC.
+ *
+ * `insertCell` không dùng lại được cho việc này: nó đặt token *kề bên một ô đang có*, tức nó cần
+ * một ô mốc trong CHÍNH hàng ấy và tự suy ra cột. Dời từ hàng khác sang thì không có mốc nào —
+ * cái ta cầm là một cột tuyệt đối do người dùng thả chuột xuống, và một span phải giữ nguyên từ
+ * hàng cũ.
+ *
+ * Cũng khác `moveCell` ở chỗ nó KHÔNG gỡ gì đi: token đến từ một hàng khác, và việc gỡ nó khỏi
+ * hàng cũ là một splice riêng vào một `<item>` riêng — có khi ở một file riêng.
+ *
+ * Mọi cột trong dải phải TRỐNG. Đè lên control có sẵn là làm mất một khai báo không ai yêu cầu,
+ * cùng thái độ với `insertCell` và `moveCell`.
+ *
+ * @param col   cột bắt đầu, tính từ 0
+ * @param span  số cột chiếm — giữ nguyên từ hàng cũ, không tự co
+ * @param token token ĐÃ PARSE, đi nguyên xi (kể cả `t.raw` viết bằng entity)
+ * @returns {{ok: true, row: object} | {ok: false, reason: string}}
+ */
+export function placeCell(row, widths, col, span, token, { allowEntity = false } = {}) {
+  const refuse = refuseEdit(row, allowEntity);
+  if (refuse) return { ok: false, reason: refuse };
+  if (!token) return { ok: false, reason: 'không có token nào để đặt' };
+
+  const columnCount = widths.length;
+  const to = Math.trunc(Number(col));
+  const n = Math.trunc(Number(span));
+  if (!Number.isFinite(to) || to < 0) return { ok: false, reason: `cột đích ${col} không hợp lệ` };
+  if (!Number.isFinite(n) || n < 1) return { ok: false, reason: `span ${span} không hợp lệ` };
+  if (to + n > columnCount) {
+    return { ok: false, reason: `đặt tại cột ${to + 1} thì control trải ${n} cột vượt khỏi hàng (${columnCount} cột)` };
+  }
+
+  const chars = Array.from(resolvePattern(row.pattern, columnCount).pattern);
+  for (let c = to; c < to + n; c++) {
+    if (chars[c] !== '-') return { ok: false, reason: `cột ${c + 1} đang có control — bỏ nó trước rồi mới đặt được` };
+  }
+
+  // Đặt cột TRƯỚC, tính chỉ số token SAU — `tokenIndexOf` đếm số `1` đứng trước, nên phải đếm
+  // trên pattern đã đặt xong thì thứ tự token mới khớp thứ tự cột. Cùng luật với `insertCell`.
+  chars[to] = '1';
+  for (let c = to + 1; c < to + n; c++) chars[c] = '0';
+  const pattern = chars.join('');
+  const tokens = [...row.tokens];
+  tokens.splice(tokenIndexOf(pattern, to), 0, token);
+  return { ok: true, row: { ...row, pattern, tokens } };
 }
 
 /**

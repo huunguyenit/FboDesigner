@@ -16,11 +16,12 @@
 // Trang này KHÔNG phải test tự động — nó không tự khẳng định gì. Phần khẳng định được nằm ở
 // `core/test/test-render.mjs`, mục «đối chiếu runtime».
 //
-// MỘT CHỖ KHÁC webview thật, cố ý: base pack ở đây nạp bằng `<link>`, còn webview NHÚNG THẲNG
-// nó vào trang với `url()` đã viết lại thành URI có dấu phiên bản (xem `inlineBaseCss` trong
-// `render-host.js`). Không tái hiện được ở đây vì `asWebviewUri` chỉ có trong webview. Hệ quả:
-// bảng Stylesheet của debug mode ở bàn đo hiện «URL» thay vì «nhúng thẳng» — khác biệt đó là
-// của bàn đo, không phải dấu hiệu inline hỏng.
+// Base pack ở đây NHÚNG THẲNG và GẮN SCOPE `#fbo-form`, y như webview (`inlineBaseCss` trong
+// `render-host.js`) — không còn nạp bằng `<link>` như bản trước. Bắt buộc phải giống: gắn scope
+// là ĐỔI CASCADE, nên một bàn đo nạp kiểu khác sẽ đo đúng cái lỗi mà bản chạy thật đã hết.
+//
+// Chỗ duy nhất còn khác, và không tránh được: URL tài nguyên. Webview quy chúng qua
+// `asWebviewUri` kèm dấu phiên bản `?v=`; bàn đo không có API đó nên phục vụ bằng route tĩnh.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -34,6 +35,7 @@ const PORT = 7391;
 const { readSource } = await import(new URL('../core/src/encoding.mjs', import.meta.url));
 const { expandEntities } = await import(new URL('../core/src/entities.mjs', import.meta.url));
 const { renderControllerHtml } = await import(new URL('../core/src/render.mjs', import.meta.url));
+const { scopeCss, FORM_SCOPE } = await import(new URL('../core/src/css-scope.mjs', import.meta.url));
 
 const args = process.argv.slice(2);
 const serve = args.includes('--serve');
@@ -93,12 +95,27 @@ const gridConfig = (() => {
   return parts;
 })();
 
+/**
+ * VĂN BẢN CSS nền, đọc y như tầng vỏ đọc (`readBaseCss` ở `render-host.js`).
+ *
+ * Khác hẳn `baseCss` phía dưới — cái đó là danh sách thẻ `<link>` để nạp vào TRANG. Cái này là
+ * nội dung để CORE đọc, vì icon nút toolbar quyết định theo CSS quy tắc chung. Không truyền thì
+ * mọi nút ra chỉ-chữ, và bàn đo lại đo một cái toolbar khác cái đang chạy.
+ */
+const BASE_CSS_DIR = path.join(REPO, 'extension', 'media', 'base', 'css');
+const baseCssText = fs.readdirSync(BASE_CSS_DIR)
+  .filter((f) => f.toLowerCase().endsWith('.css'))
+  .sort()
+  .map((f) => fs.readFileSync(path.join(BASE_CSS_DIR, f), 'utf8'))
+  .join('\n');
+
 const result = renderControllerHtml(expanded.clearText, {
   segments: expanded.segments,
   hostFile: target,
   titleMode: folder.toLowerCase() === 'filter' ? 'plain' : 'add',
   loadDetail,
   gridConfig,
+  baseCss: baseCssText,
 });
 
 /** `<program>` suy từ chính file đang đo — `<program>/App_Data/Controllers/<Folder>/x.f`. */
@@ -123,9 +140,23 @@ function programCssUrls(css) {
   });
 }
 
-const baseCss = fs.readdirSync(path.join(REPO, 'extension/media/base/css'))
+/*
+ * Base pack NHÚNG THẲNG và GẮN SCOPE, đúng như webview làm (`inlineBaseCss` ở `render-host.js`).
+ *
+ * Trước đây bàn đo nạp bằng `<link>` và đầu file ghi rõ đó là chỗ CỐ Ý khác. Nay không cố ý
+ * được nữa: gắn scope là ĐỔI CASCADE — `#fbo-form .X` thắng `div.X` của program — nên một bàn
+ * đo còn nạp bằng `<link>` sẽ đo đúng cái lỗi mà bản chạy thật đã hết.
+ *
+ * `url(../image/…)` quy về route `/extension/media/base/image/…` của bàn đo, thay cho
+ * `asWebviewUri` mà ở đây không có.
+ */
+const baseCss = fs.readdirSync(BASE_CSS_DIR)
   .filter((f) => f.toLowerCase().endsWith('.css')).sort()
-  .map((f) => `<link rel="stylesheet" href="/extension/media/base/css/${f}" data-fbo-css="base/${f}">`)
+  .map((f) => {
+    const scoped = scopeCss(fs.readFileSync(path.join(BASE_CSS_DIR, f), 'utf8'), FORM_SCOPE)
+      .replace(/url\(\s*(['"]?)\.\.\/image\/([^'")]+)\1\s*\)/g, 'url("/extension/media/base/image/$2")');
+    return `<style data-fbo-css="base/${f}">\n${scoped}\n</style>`;
+  })
   .join('\n');
 
 const payload = {
@@ -135,7 +166,9 @@ const payload = {
   // Cùng một khoá với `buildPayload` của webview thật — bàn đo phải đo đúng cái đang chạy.
   fitWidth: result.fitWidth === true,
   modeLabel: `${folder} → ${result.mode === 'grid' ? (result.model?.type || 'Grid') : 'Form'}`,
-  controllerCss: programCssUrls(result.css || ''),
+  // Gắn scope y như webview (`buildPayload`): `<css>` của controller phải đứng TRÊN base pack,
+  // nếu không thì bàn đo lại đo một cascade khác cái đang chạy.
+  controllerCss: scopeCss(programCssUrls(result.css || ''), FORM_SCOPE),
   columns: result.model?.widths ?? [],
   warnings: result.warnings,
   encoding: src.encoding,

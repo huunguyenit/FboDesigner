@@ -78,6 +78,10 @@ body {
 #fbo-stage { position: relative; display: inline-block; }
 body.bp-on #fbo-stage { margin-top: 26px; }
 
+/* Footer cần một dải riêng cho ruler khi bật blueprint.
+  Khoảng này chỉ bật trong bp-on để không đổi bố cục khi tắt blueprint. */
+body.bp-on .FormTable[data-fbo-region-table="footer"] { margin-top: 24px; }
+
 /* Tỉ lệ NHÌN. `zoom` (không phải `transform: scale`) vì nó tham gia layout, nên vùng cuộn
    biết form đang chiếm bao nhiêu chỗ. Đặt Ở NGOÀI `#fbo-stage`: mọi thứ bên trong stage —
    form lẫn lớp blueprint — phải cùng nằm trong một phép nhân, nếu không thì vạch trôi khỏi ô.
@@ -100,6 +104,9 @@ body.fbo-fit-width #fbo-stage { display: block; }
   color: var(--vscode-errorForeground);
 }
 
+/* Chỉ còn MỘT dòng hướng dẫn (xem `shell.html`), nên không cần `max-height` với `overflow` cho
+   ca "nhiều dòng cảnh báo" nữa — ca ấy không còn tồn tại. Panel Debug thì vẫn cần, và nó có
+   luật riêng ngay dưới. */
 .fbo-status {
   flex: 0 0 auto;
   max-height: 30%;
@@ -109,8 +116,6 @@ body.fbo-fit-width #fbo-stage { display: block; }
   background: var(--vscode-editorWidget-background);
   font-size: 0.85em;
 }
-
-.fbo-status ul { margin: 4px 0 0; padding-left: 1.2em; }
 .fbo-ok { opacity: 0.7; }
 .fbo-warn { color: var(--vscode-editorWarning-foreground); }
 
@@ -158,14 +163,6 @@ tr.DwfColRow > th { height: 0; padding: 0; border: 0; line-height: 0; }
 /* Dấu của designer — CHỈ màu, không đụng hình học. `FormRequiredLabel` không có ở runtime. */
 .FormRequiredLabel { color: #b45309; }
 .FormCellInvalid { color: var(--vscode-errorForeground); }
-
-/* Hàng thật ra nằm ở file khác (Include dùng chung): nhìn là biết không sửa tại chỗ được.
-   Đánh dấu theo CHỦ SỞ HỮU THẬT sau khi bung entity, không theo việc chuỗi có chứa `&…;` —
-   một hàng có thể đến từ Include mà bản thân nó không còn dấu vết entity nào.
-   Chỉ dùng `background`: border hay padding ở đây là đẩy lệch cả bảng. */
-tr[data-fbo-foreign="1"] > td,
-th[data-fbo-foreign="1"],
-td[data-fbo-foreign="1"] { background: rgba(56, 139, 253, 0.13); }
 
 .FormRow:hover > td { background: rgba(56, 139, 253, 0.08); }
 
@@ -242,6 +239,59 @@ body:not(.bp-on) #fbo-blueprint { display: none; }
   border-left: none;
   border-right: 1px solid rgba(234, 88, 12, 0.45);
 }
+
+/* Blueprint is always on: show grid width labels inside header cells instead of overlay ticks. */
+body.bp-on .GridTabPanel td.HeaderCellDefault[data-fbo-width] {
+  position: relative;
+}
+
+body.bp-on .GridTabPanel td.HeaderCellDefault[data-fbo-width]::after {
+  content: attr(data-fbo-width) 'px';
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  font-size: 10px;
+  line-height: 10px;
+  font-weight: 700;
+  color: #b3400a;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff;
+  pointer-events: none;
+}
+
+/* Con số của FORM THẬT bấm được — mở thanh lệnh tách/gộp BIÊN cột.
+   Lưới KHÔNG có class này: cột lưới mang `width` riêng ở `<field>`, không có biên chung nào để
+   tách hay gộp, nên ở đó con số chỉ để đọc. TAB toàn lưới cũng KHÔNG có: dải px ở đó trải gần
+   hết bề ngang panel ngay dưới `.DwfTabList` (thanh nút đổi tab) — bật bấm ở đây là con số che
+   mất, chặn luôn cú bấm đổi tab. Cả hai loại trừ ở nguồn (`drawRegion` gắn `region: null`), nên
+   `bp-tick-pick`/`pointer-events:auto` chỉ tồn tại đúng ở nơi nó thật sự an toàn.
+
+   Vùng bắt chuột nới rộng bằng `padding` + `margin` âm chứ không bằng `height`: một cột 25px
+   cao 15px là mục tiêu bấm rất nhỏ, mà tăng `height` thì con số tụt xuống khỏi mốc cột nó đang
+   đo. Padding nới vùng nhạy mà giữ nguyên chỗ chữ đứng. */
+.bp-tick-pick {
+  pointer-events: auto;
+  cursor: pointer;
+  padding: 3px 0;
+  margin: -3px 0;
+}
+
+/* `:not(.bp-tick-on)` — cột ĐANG CHỌN đã có nền xanh; để hover đổi màu chữ sang xanh nữa là
+   chữ xanh trên nền xanh, đọc không ra đúng lúc người dùng đang nhắm vào nó. */
+.bp-tick-pick:not(.bp-tick-on):hover { color: #0b6bcb; border-left-color: rgba(11, 107, 203, 0.9); }
+
+/* Cột đang chọn: tô nền hẳn, không chỉ đổi màu chữ. Thanh lệnh nổi lên cách đó vài px và không
+   dính vào cột nào cả — không đánh dấu thì nhìn vào thanh không biết nó đang nói về cột nào. */
+.bp-tick-on {
+  color: #fff;
+  text-shadow: none;
+  background: rgba(11, 107, 203, 0.9);
+  border-radius: 2px;
+  border-left-color: rgba(11, 107, 203, 0.9);
+}
+
+/* Thanh lệnh của BIÊN CỘT. Viền đậm hơn thanh của ô (`.bp-bar`) vì nó sửa thứ DÙNG CHUNG cho cả
+   vùng — hai thanh trông giống hệt nhau thì bấm nhầm là sửa nhầm cấp. */
+.bp-bar.bp-bar-cols { border-color: rgba(11, 107, 203, 0.9); border-width: 2px; }
 
 /* Ô KHÔNG dùng: gạch chéo. Đây là chỗ còn thả control vào được, và gạch chéo nói ra điều đó
    ngay cả khi ô nằm lọt giữa hai control — viền đứt thôi thì ở form dày đặc nhìn không ra. */
@@ -334,6 +384,12 @@ body:not(.bp-on) #fbo-blueprint { display: none; }
 /* Nút mờ vẫn ở nguyên chỗ chứ không biến mất: thanh lệnh mà đổi số nút theo từng ô thì vị trí
    các nút còn lại nhảy, và tay đã quen bấm chỗ nào lại bấm nhầm sang việc khác. */
 .bp-act:disabled { opacity: 0.35; cursor: default; }
+
+.bp-act.bp-swap { color: rgba(126, 34, 206, 0.95); }
+.bp-act.bp-swap:hover:not(:disabled) {
+  background: rgba(147, 51, 234, 0.16);
+  border-color: rgba(147, 51, 234, 0.6);
+}
 
 .bp-act.bp-del { color: rgba(185, 28, 28, 0.95); }
 .bp-act.bp-del:hover:not(:disabled) {
@@ -450,3 +506,362 @@ body.fbo-dragging-move * { cursor: move !important; user-select: none; }
 
 body.fbo-dragging-v,
 body.fbo-dragging-v * { cursor: row-resize !important; user-select: none; }
+
+/* Nhãn colspan của blueprint — số cột mà một control đang chiếm.
+   `pointer-events:none` là bắt buộc: nhãn nằm đè lên góc ô, nhận chuột là nuốt mất cú bấm chọn
+   ô ngay dưới nó. `translate(-100%, 0)` neo nhãn vào mép PHẢI của ô, chỗ ít đè lên nhãn control
+   nhất. Chỉ hiện khi blueprint bật — `#fbo-blueprint` đã bị ẩn cả khối khi tắt. */
+.bp-span {
+  position: absolute;
+  transform: translate(-100%, 0);
+  pointer-events: none;
+  min-width: 14px;
+  padding: 0 3px;
+  border-radius: 0 0 0 3px;
+  background: rgba(234, 88, 12, 0.9);
+  color: #fff;
+  font: 700 9px/13px Verdana, sans-serif;
+  text-align: center;
+}
+
+/* Bóng mờ của control đang được DỜI — chỗ nó sắp đáp xuống.
+   Khác `.bp-slot` (ô trống tĩnh) ở chỗ nó bám mốc cột theo con trỏ. Đỏ = chỗ đích không nhận
+   được: vượt khỏi hàng, hoặc đang có control. Nói trước bằng màu rẻ hơn thả tay rồi đọc một câu
+   từ chối. `pointer-events:none` để bóng không chắn chính cú thả. */
+.bp-move {
+  position: absolute;
+  pointer-events: none;
+  border: 2px solid rgba(22, 163, 74, 0.9);
+  background: rgba(22, 163, 74, 0.14);
+  border-radius: 2px;
+}
+.bp-move.bp-move-bad {
+  border-color: rgba(185, 28, 28, 0.9);
+  background: rgba(185, 28, 28, 0.14);
+}
+/* ĐỔI CHỖ — màu thứ BA, không phải một sắc độ của màu «dời được».
+   Thả xuống đây làm đổi HAI control chứ không phải một, và đó là điều duy nhất người dùng cần
+   phân biệt trước khi buông tay. Vạch đứt để thấy ngay cả khi bóng nằm khít lên control kia. */
+.bp-move.bp-move-swap {
+  border-style: dashed;
+  border-color: rgba(147, 51, 234, 0.95);
+  background: rgba(147, 51, 234, 0.14);
+}
+
+/* Con trỏ khi rê lên một ô ĐANG CHỌN mà không ở cạnh — dấu hiệu duy nhất nói "kéo được". */
+#fbo-form td[data-fbo-cell].fbo-selected:not(.DwfEmptyCell) { cursor: move; }
+
+/* ── Hai NGUỒN, hai màu ────────────────────────────────────────────────────
+   Xanh — khai ở FILE KHÁC file đang mở: Include, entity. Sửa được, nhưng sửa là đổi cho mọi
+          controller dùng chung file ấy, nên designer hỏi trước.
+   Hổ phách — khai ở một file `.f`, tức BẢN CHUẨN CỦA SẢN PHẨM. Designer từ chối ghi vào đó
+          (`productFileBlocks`), và bản nâng cấp sau của Fast sẽ ghi đè. Đường đi đúng là tạo
+          bản customize `.xml` cùng tên.
+
+   Một hàng có thể là CẢ HAI (Include nằm trong cây sản phẩm). Khi ấy giữ nền xanh và thêm một
+   vạch hổ phách bên trái — chồng hai nền lên nhau ra một màu thứ ba không nói gì cả. */
+tr[data-fbo-product="1"] > td,
+th[data-fbo-product="1"],
+td[data-fbo-product="1"] { background: rgba(217, 119, 6, 0.13); }
+
+tr[data-fbo-foreign="1"] > td,
+th[data-fbo-foreign="1"],
+td[data-fbo-foreign="1"] { background: rgba(56, 139, 253, 0.13); }
+
+tr[data-fbo-foreign="1"][data-fbo-product="1"] > td:first-child,
+th[data-fbo-foreign="1"][data-fbo-product="1"],
+td[data-fbo-foreign="1"][data-fbo-product="1"] {
+  background: rgba(56, 139, 253, 0.13);
+  box-shadow: inset 3px 0 0 0 rgba(217, 119, 6, 0.75);
+}
+
+/* ── Cột đến từ CẤU HÌNH ẨN của lưới ───────────────────────────────────────
+   `data-fbo-foreign` chỉ nói «khai ở file khác», mà ba nguồn rất khác nhau cùng rơi vào đó:
+   Include kéo qua entity, `Grid/Config/Fields/<Tên>.xml`, và `<group>` dùng chung trong
+   `Grid/Config/Initialize.xml`. Diện ảnh hưởng của chúng khác hẳn nhau — sửa một cột của
+   `<group>` là đổi cho MỌI controller cùng nhóm — nên chúng phải phân biệt được bằng mắt.
+
+   Tím: bản riêng của controller (`Config/Fields`). Hồng đậm hơn: `<group>` dùng chung.
+   Ghi đè nền xanh của `foreign` bằng đặc hiệu cao hơn, và giữ nguyên lối "chỉ đổi background"
+   — border hay padding ở đây là đẩy lệch cả bảng. */
+td[data-fbo-config="fields"],
+th[data-fbo-config="fields"] { background: rgba(139, 92, 246, 0.15); }
+
+td[data-fbo-config="initialize"],
+th[data-fbo-config="initialize"] { background: rgba(219, 39, 119, 0.15); }
+
+/* Cột của cấu hình ẩn mà lại nằm trong cây sản phẩm `.f`: giữ nền của nguồn cấu hình, thêm vạch
+   hổ phách như mọi ca "vừa là cái này vừa là cái kia" ở trên. */
+td[data-fbo-config][data-fbo-product="1"],
+th[data-fbo-config][data-fbo-product="1"] {
+  box-shadow: inset 3px 0 0 0 rgba(217, 119, 6, 0.75);
+}
+
+/* ReadOnly/External markers: only on the actual input element, not the table cell. */
+td.FormCell[data-fbo-readonly="1"] input {
+  border: 0.6px solid rgba(156, 163, 175, 0.10) !important;                 /* xóa hết viền cũ */
+  border-bottom: 1px solid rgba(156, 163, 175, 0.42);
+  box-shadow: none !important;             /* bỏ box-shadow cũ */
+  border-radius: 0;       
+}
+
+td.FormCell[data-fbo-external="1"] input {
+  border: 0.6px solid rgba(96, 165, 250, 0.10) !important;                 /* xóa hết viền cũ */
+  border-bottom: 1px solid rgba(96, 165, 250, 0.42) !important;
+  box-shadow: none !important;             /* bỏ box-shadow cũ */
+  border-radius: 0;                        /* nếu muốn thẳng */
+}
+
+td.FormCell[data-fbo-readonly="1"][data-fbo-external="1"] input {
+  border: 0.6px solid rgba(168, 85, 247, 0.10) !important;   /* 3 cạnh nhạt */
+  border-bottom: 1px solid rgba(168, 85, 247, 0.42) !important; /* cạnh dưới đậm */
+  box-shadow: none !important;
+  border-radius: 0;
+}
+
+/* ── Mục 8: control trong preview KHÔNG nhận chuột ─────────────────────────
+   `<select>` là phần tử thật: bấm vào nó là mở danh sách xổ xuống, và cú bấm KHÔNG bao giờ tới
+   được `<td>` — nên ô chứa dropdownlist (`status` ở `Dir/SOTran`) không chọn được, kéo không
+   được, gộp/tách không được. Checkbox và ô nhập cũng nuốt chuột theo kiểu riêng của chúng.
+
+   Designer chỉ VẼ, không nhập liệu — không có gì để mất khi tắt chuột trên control, và tắt rồi
+   thì mọi cú bấm rơi đúng vào ô, tức mọi thao tác sửa layout áp cho MỌI loại control như nhau.
+   Ô lọc nhanh của lưới đã `readonly` từ trước, nay cũng đi chung một luật. */
+#fbo-form input,
+#fbo-form select,
+#fbo-form textarea,
+#fbo-form .CellImgLookup,
+#fbo-form .CellImgCalendar { pointer-events: none; }
+
+/* ── Hộp thoại phủ trên form ─────────────────────────────────────────────────
+ *
+ * Toàn bộ màu lấy từ token `--vscode-*`, không có mã hex nào: hộp thoại phải đổi theo theme
+ * người dùng đang dùng, y như phần còn lại của designer. Mỗi token đều kèm giá trị dự phòng
+ * sau dấu phẩy — theme tối giản có thể không khai đủ, và khi thiếu thì `var()` trả về rỗng,
+ * tức nền trong suốt và chữ vô hình chứ không phải "màu hơi lệch".
+ */
+
+.fbo-dlg-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.44);
+}
+
+.fbo-dlg {
+  display: flex;
+  flex-direction: column;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 40px);
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 6px;
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+  box-shadow: 0 8px 24px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size, 13px);
+  outline: none;
+}
+
+.fbo-dlg-small { width: 380px; }
+.fbo-dlg-medium { width: 500px; }
+.fbo-dlg-large { width: 640px; }
+
+/* Sắc thái theo loại — đặt trên nền, để cả icon lẫn viền trên cùng đọc một biến. */
+.fbo-dlg-backdrop[data-type="info"] { --fbo-dlg-accent: var(--vscode-textLink-foreground, #3794ff); }
+.fbo-dlg-backdrop[data-type="success"] { --fbo-dlg-accent: var(--vscode-testing-iconPassed, #2ea043); }
+.fbo-dlg-backdrop[data-type="warning"] { --fbo-dlg-accent: var(--vscode-editorWarning-foreground, #cca700); }
+.fbo-dlg-backdrop[data-type="error"] { --fbo-dlg-accent: var(--vscode-editorError-foreground, #f14c4c); }
+
+.fbo-dlg-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+}
+
+/* Chữ cái trong vòng tròn, KHÔNG phải `$(info)`: cú pháp codicon chỉ sống trong UI của
+   workbench, webview in ra đúng bảy ký tự đó. */
+.fbo-dlg-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 1.5px solid var(--fbo-dlg-accent);
+  color: var(--fbo-dlg-accent);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.fbo-dlg-titles { flex: 1 1 auto; min-width: 0; }
+
+.fbo-dlg-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--vscode-foreground);
+}
+
+.fbo-dlg-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+}
+
+.fbo-dlg-x {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fbo-dlg-x:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2)); }
+.fbo-dlg-x:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+
+.fbo-dlg-body {
+  overflow: auto;
+  padding: 12px;
+  line-height: 1.55;
+}
+
+.fbo-dlg-block + .fbo-dlg-block { margin-top: 10px; }
+
+.fbo-dlg-list ul,
+.fbo-dlg-list ol { margin: 0; padding-left: 18px; }
+.fbo-dlg-list li + li { margin-top: 3px; }
+
+/* Bảng khoá–giá trị: khoá bám trái, giá trị chiếm phần còn lại. Không dùng bề rộng cố định —
+   khoá ở đây là tên file (`ElNoteViews.xml`), dài ngắn tuỳ khách. */
+.fbo-dlg-details {
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.fbo-dlg-row {
+  display: grid;
+  grid-template-columns: minmax(90px, max-content) minmax(0, 1fr);
+  gap: 12px;
+  padding: 7px 10px;
+}
+
+.fbo-dlg-row + .fbo-dlg-row { border-top: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); }
+.fbo-dlg-key { color: var(--vscode-descriptionForeground, var(--vscode-foreground)); font-weight: 600; }
+.fbo-dlg-val { word-break: break-word; }
+
+.fbo-dlg-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--fbo-dlg-accent);
+  border-radius: 10px;
+  color: var(--fbo-dlg-accent);
+  font-weight: 600;
+}
+
+.fbo-dlg-code {
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.fbo-dlg-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+}
+
+.fbo-dlg-lang {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+}
+
+.fbo-dlg-copy {
+  padding: 2px 7px;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 3px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.fbo-dlg-pre {
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.fbo-dlg-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+}
+
+.fbo-dlg-btn {
+  min-width: 72px;
+  padding: 5px 12px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font-family: var(--vscode-font-family);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.fbo-dlg-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.fbo-dlg-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+.fbo-dlg-btn.primary {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+.fbo-dlg-btn.primary:hover { background: var(--vscode-button-hoverBackground, var(--vscode-button-background)); }
+
+.fbo-dlg-btn.secondary,
+.fbo-dlg-btn.ghost {
+  background: var(--vscode-button-secondaryBackground, transparent);
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  border-color: var(--vscode-widget-border, var(--vscode-panel-border));
+}
+.fbo-dlg-btn.secondary:hover,
+.fbo-dlg-btn.ghost:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground, transparent)); }
+
+/* Nút phá huỷ mượn nền nút thường + chữ đỏ của theme, thay vì bịa một sắc đỏ riêng: theme sáng
+   và theme tối có hai màu lỗi khác hẳn nhau, gắn cứng một mã là sai ở một trong hai. */
+.fbo-dlg-btn.danger {
+  background: var(--vscode-button-secondaryBackground, transparent);
+  color: var(--vscode-errorForeground, #f14c4c);
+  border-color: var(--vscode-errorForeground, #f14c4c);
+  font-weight: 600;
+}
+.fbo-dlg-btn.danger:hover { background: var(--vscode-inputValidation-errorBackground, var(--vscode-button-secondaryHoverBackground, transparent)); }

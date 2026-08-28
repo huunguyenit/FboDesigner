@@ -12,7 +12,9 @@ const { pathToFileURL } = require('node:url');
 const { FboDesignerProvider } = require('./designer-editor');
 const { PreviewPanel } = require('./preview-panel');
 const { isControllerDocument, config, panelColumn } = require('./render-host');
-const { probeEncodingRoundTrip } = require('./probe-encoding');
+const { declareFilter } = require('./filter-host');
+const { addColumns } = require('./add-column-host');
+const { initDialogs } = require('./dialog/dialog-service');
 
 /**
  * Core nằm ở hai chỗ khác nhau tuỳ cách chạy, và đó là chuyện cố ý:
@@ -42,6 +44,10 @@ async function activate(context) {
   const output = vscode.window.createOutputChannel('FBO Designer');
   context.subscriptions.push(output);
 
+  // Phải đứng TRƯỚC mọi registerCommand: `edit-host.js` và `filter-host.js` lấy hộp thoại qua
+  // `dialogs()`, và chúng chạy được ngay khi người dùng bấm lệnh đầu tiên.
+  const dialogService = initDialogs(context);
+
   context.subscriptions.push(FboDesignerProvider.register(context, core, output));
 
   // Lệnh mặc định mở PANEL bám theo file đang gõ, không mở custom editor. Đó là cái người ta
@@ -58,22 +64,33 @@ async function activate(context) {
     }),
   );
 
-  // Muốn gắn cứng vào một file (để sửa, để undo/redo) thì mở bằng lệnh này.
+  // Panel đã được VS Code khôi phục từ phiên trước vẫn cần nối lại event của extension,
+  // nếu không webview còn hình cũ nhưng không nhận render/edit mới.
   context.subscriptions.push(
-    vscode.commands.registerCommand('fboDesigner.openEditor', async () => {
-      const uri = vscode.window.activeTextEditor?.document.uri;
-      if (!uri) {
-        vscode.window.showWarningMessage('FBO Designer: chưa mở file nào.');
-        return;
-      }
-      // Cùng luật vị trí với panel (`fboDesigner.panelPosition`) — hai lối mở mà rơi vào hai
-      // chỗ khác nhau thì người dùng đổi setting xong vẫn thấy designer mọc chỗ cũ.
-      await vscode.commands.executeCommand('vscode.openWith', uri, 'fboDesigner.form', panelColumn(config()));
+    vscode.window.registerWebviewPanelSerializer('fboDesigner.preview', {
+      async deserializeWebviewPanel(webviewPanel) {
+        PreviewPanel.revive(context, core, output, webviewPanel);
+      },
     }),
   );
 
+  // Lọc nhanh đứng RIÊNG một lệnh, không nằm trong menu chuột phải của designer: nó vừa sửa XML
+  // vừa sinh script chạy trên database của khách, tức nặng hơn hẳn mọi thao tác kéo thả khác.
   context.subscriptions.push(
-    vscode.commands.registerCommand('fboDesigner.probeEncodingRoundTrip', () => probeEncodingRoundTrip(core, output)),
+    vscode.commands.registerCommand('fboDesigner.declareFilter', () => declareFilter(core, output)),
+  );
+
+  // Thêm cột đứng RIÊNG một lệnh, cùng lý do với lọc nhanh: nó sinh script chạy trên database
+  // của khách, tức nặng hơn hẳn mọi thao tác kéo thả khác. Khác lọc nhanh ở chỗ KHÔNG sửa XML.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('fboDesigner.addColumns', () => addColumns(core, output)),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('fboDesigner.showDialogDemo', async () => {
+      const result = await dialogService.demo();
+      output.appendLine(`Dialog demo result: ${JSON.stringify(result)}`);
+    }),
   );
 }
 

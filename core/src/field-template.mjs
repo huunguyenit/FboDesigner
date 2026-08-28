@@ -87,9 +87,10 @@ export function isValidFieldName(name) {
  * @param kindId  một trong `FIELD_KINDS[].id`
  * @param name    tên field
  * @param label   nhãn tiếng Việt; `labelEn` không có thì dùng luôn nhãn Việt
+ * @param opts    `{width}` — bề rộng px cho CỘT LƯỚI; form không dùng (xem dưới)
  * @returns {{ok:true, xml:string, tokens:string[]}|{ok:false, reason:string}}
  */
-export function buildField(kindId, name, label, labelEn) {
+export function buildField(kindId, name, label, labelEn, opts = {}) {
   const kind = FIELD_KINDS.find((k) => k.id === kindId);
   if (!kind) return { ok: false, reason: `kiểu control không biết: ${kindId}` };
 
@@ -101,6 +102,20 @@ export function buildField(kindId, name, label, labelEn) {
   const v = String(label ?? '').trim() || trimmed;
   const e = String(labelEn ?? '').trim() || v;
 
+  /*
+   * `width` CHỈ có nghĩa với cột lưới, và nó đứng NGAY SAU `name` — đúng chỗ corpus đặt nó
+   * (`<field name="ma_bp0" width="100">` trong `Grid/APDetail.f`).
+   *
+   * Form thì không: ô của form không có bề rộng riêng, nó lấy px từ list cột của vùng
+   * (`<item value="100, 60, …">`). Sinh `width` cho một field của form là khai một con số mà
+   * runtime bỏ qua, và người đọc file sau này sẽ tin vào nó.
+   *
+   * Lưới thì ngược lại — cột KHÔNG khai `width` là cột runtime tự cho 100px, nên bỏ trống là
+   * đẩy một quyết định về bề rộng sang chỗ không ai nhìn thấy.
+   */
+  const px = Number(opts.width);
+  const widthAttr = Number.isFinite(px) && px >= 0 ? ` width="${Math.round(px)}"` : '';
+
   const attrs = Object.entries(kind.attrs)
     .map(([k, val]) => ` ${k}="${esc(val)}"`)
     .join('');
@@ -108,7 +123,22 @@ export function buildField(kindId, name, label, labelEn) {
   const inner = [`<header v="${esc(v)}" e="${esc(e)}"/>`];
   if (kind.items) inner.push(`<items style="${kind.items}"/>`);
 
-  const xml = `<field name="${esc(trimmed)}"${attrs}>${inner.join('')}</field>`;
+  /*
+   * MỘT thẻ con thì viết một dòng; NHIỀU hơn thì xuống dòng và thụt vào — đúng như corpus viết.
+   *
+   * Đây không phải sở thích trình bày. Đo trên `Dir/Customer.xml`: field chỉ có `<header>` luôn
+   * nằm gọn một dòng (`<field name="ngay_ct" type="DateTime"><header …/></field>`), còn field
+   * có thêm `<items>` hay `<footer>` thì luôn tách dòng. Sinh ra một dòng dài
+   * `<field …><header …/><items …/></field>` là thứ không giống bất kỳ dòng nào quanh nó, và
+   * người đọc file nhận ra ngay «cái này do máy nhét vào».
+   *
+   * Thụt lề ở đây tính từ mốc 0; `planAddField` kê lại theo thụt lề thật của file đích — nó là
+   * bên duy nhất biết file dùng mấy dấu cách.
+   */
+  const open = `<field name="${esc(trimmed)}"${widthAttr}${attrs}>`;
+  const xml = inner.length === 1
+    ? `${open}${inner[0]}</field>`
+    : [open, ...inner.map((t) => `  ${t}`), '</field>'].join('\n');
 
   // Checkbox: ô tick trước, nhãn sau — xem ghi chú ở `FIELD_KINDS`.
   const tokens = kind.labelAfter

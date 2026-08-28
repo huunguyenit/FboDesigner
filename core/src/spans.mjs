@@ -11,6 +11,8 @@
 // Phạm vi P0: `<view>` và `<item>` con của nó, cộng `<field>` trong `<fields>`. CST đầy đủ
 // là việc của P2 — đừng dùng file này để khẳng định "XML well-formed".
 
+import { commentSkipper } from './xml-comment.mjs';
+
 const RE_VIEW_OPEN = /<view\b([^>]*)>/gi;
 const RE_ITEM = /<item\b([^>]*?)(\/?)>/gi;
 const RE_FIELD_OPEN = /<field\b([^>]*?)(\/?)>/gi;
@@ -54,9 +56,19 @@ function findViewClose(text, openEnd) {
  */
 export function scanViews(text) {
   const views = [];
+  /*
+   * Thẻ nằm trong `<!-- … -->` KHÔNG được tính. Bộ quét chạy bằng regex trên văn bản thô nên
+   * mặc định nó không phân biệt được — và một `<item>` đã bị comment vẫn hiện ra thành một hàng
+   * trên màn hình, đúng lỗi đo được ở `Dir/Customer.xml` của HOATP.
+   *
+   * Bỏ khớp chứ KHÔNG cắt văn bản: mọi offset ở đây là chỗ để ghi ngược, cắt một ký tự là lệch
+   * hết phần sau.
+   */
+  const skip = commentSkipper(text);
   RE_VIEW_OPEN.lastIndex = 0;
   let v;
   while ((v = RE_VIEW_OPEN.exec(text)) !== null) {
+    if (skip(v.index)) continue;
     const innerStart = v.index + v[0].length;
     const innerEnd = findViewClose(text, innerStart);
     const { attrs, spans } = parseAttrs(v[1], v.index + v[0].length - v[1].length - 1);
@@ -67,6 +79,7 @@ export function scanViews(text) {
     let it;
     while ((it = RE_ITEM.exec(inner)) !== null) {
       const start = innerStart + it.index;
+      if (skip(start)) continue;
       const attrOffset = start + it[0].length - it[1].length - (it[2] ? 2 : 1);
       const parsed = parseAttrs(it[1], attrOffset);
       const value = parsed.attrs.value ?? null;
@@ -88,6 +101,7 @@ export function scanViews(text) {
     let cf;
     while ((cf = RE_FIELD_OPEN.exec(inner)) !== null) {
       const start = innerStart + cf.index;
+      if (skip(start)) continue;
       const attrOffset = start + cf[0].length - cf[1].length - (cf[2] ? 2 : 1);
       const parsed = parseAttrs(cf[1], attrOffset);
       if (!parsed.attrs.name) continue;
@@ -168,10 +182,13 @@ function viewRanges(text) {
 export function scanFields(text) {
   const fields = [];
   const inView = viewRanges(text);
+  // Khai báo bị comment thì KHÔNG tồn tại — xem `scanViews`.
+  const skip = commentSkipper(text);
   RE_FIELD_OPEN.lastIndex = 0;
   let f;
   while ((f = RE_FIELD_OPEN.exec(text)) !== null) {
     const start = f.index;
+    if (skip(start)) continue;
     if (inView.some((r) => start >= r.start && start < r.end)) continue;
     const attrOffset = start + f[0].length - f[1].length - (f[2] ? 2 : 1);
     const { attrs, spans } = parseAttrs(f[1], attrOffset);

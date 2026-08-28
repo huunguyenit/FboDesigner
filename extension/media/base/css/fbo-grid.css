@@ -24,11 +24,15 @@
 .GridTable { border-collapse: collapse; }
 .GridHeader { background-color: #fff; }
 
+/* Nét ĐÁY vẽ bằng `box-shadow: inset`, cùng lý do với `.CellDefault`: `border-bottom` cộng thêm
+   1px vào hàng tiêu đề, và hàng tiêu đề là số hạng trong phép cộng chiều cao cả khối
+   (`renderGridHtml`). Đo được: 30 → 31, và 60 → 61 khi có dải lọc. Phép cộng
+   `toolbar 30 + header 30 + grid 212 + split 8 + cuộn 22 = 302` chỉ đúng nếu 30 là 30 thật. */
 .HeaderCellDefault,
 .IndexCellHeader {
-  border-bottom: 1px solid #d2d6d9;
   border-left: 1px solid #d2d6d9;
   border-right: 1px solid #d2d6d9;
+  box-shadow: inset 0 -1px 0 0 #d2d6d9;
   height: 30px;
 }
 .HeaderCellContainer {
@@ -134,9 +138,24 @@
   background-image: url('data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQAgMAAABinRfyAAAADFBMVEUAAAD///85VY6XlrLs8/GUAAAAA3RSTlMAABIJz7WWAAAANklEQVR4XmMIYGAQhRDx//9fZSgNDS1kqP///yNDaYGBIZRlWgoVK4CzKoAsiA4GkN5QIAATANnpHyg0NzXcAAAAAElFTkSuQmCC');
 }
 
+/* Ô dữ liệu có viền ĐỦ BỐN CẠNH, theo lời chủ hệ thống — mà bước hàng vẫn phải đúng 22px.
+   Hai yêu cầu ấy đá nhau nếu vẽ bằng `border`, và đây là chỗ phải đo chứ không suy.
+
+   Đo trên bàn đo, bảng `border-collapse: collapse`, 4 hàng:
+
+     border trên+dưới    bước 23px · tổng 93   ← mỗi hàng dày thêm đúng 1px
+     box-shadow inset    bước 22px · tổng 88
+
+   `box-sizing: border-box` KHÔNG cứu được: trong chế độ collapse, viền thuộc về bảng chứ không
+   thuộc ô, nên trình duyệt bỏ qua nó ở đây. Thử rồi, vẫn ra 23.
+
+   Nên hai nét ngang vẽ bằng `box-shadow: inset` — nó tô bên trong hộp và KHÔNG tham gia layout,
+   nên không cộng px nào. Hai nét dọc vẫn là `border` thật, giữ nguyên như runtime: bỏ chúng đi
+   là mỗi cột hụt 2px và tổng bề rộng bảng lệch khỏi `data-fbo-col-widths`. */
 .CellDefault {
   border-left: 1px solid #d2d6d9;
   border-right: 1px solid #d2d6d9;
+  box-shadow: inset 0 1px 0 0 #d2d6d9, inset 0 -1px 0 0 #d2d6d9;
   height: 22px;
 }
 .IndexCellBody { border-left: 1px solid #d2d6d9; border-right: 1px solid #d2d6d9; }
@@ -198,10 +217,9 @@
    rộng như ô dữ liệu phía trên, chỉ không vẽ nét. Đổi thành `border:0` là hàng tổng hụt 2px mỗi
    cột và lệch dần khỏi cột nó đang tổng.
 
-   `.SplitStyle` của runtime còn có một ảnh tay nắm đặt tại `25px 0`; ảnh đó chưa trích ra được
-   nên ở đây chỉ có phần hình học. Thiếu một cái tay nắm thì nhìn ra ngay; tự vẽ một băng xám
-   thay vào chỗ nó thì không. */
-.SplitStyle { border: 0; }
+  `.SplitStyle` của runtime có ảnh tay nắm đặt tại `25px 0`; ảnh này đã được đưa vào
+  `base/image/Split.gif` và gắn lại đúng vị trí. */
+.SplitStyle { border: 0; background: url('../image/Split.gif') 25px 0 no-repeat; }
 .FooterStyle { border: 0; }
 .GridFooter { border: 0; background-color: transparent; }
 .FooterCellDefault,

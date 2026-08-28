@@ -15,6 +15,13 @@ import './test-entities.mjs';
 import './test-render.mjs';
 import './test-grid.mjs';
 import './test-edit.mjs';
+import './test-move-free.mjs';
+import './test-columns.mjs';
+import './test-xml-comment.mjs';
+import './test-css-scope.mjs';
+import './test-filter-declare.mjs';
+import './test-add-column.mjs';
+import './test-sql-config.mjs';
 import { summary } from './harness.mjs';
 
 summary();

@@ -14,7 +14,7 @@
 // `DevWorkFlow.UI/Config`), cấu trúc lồng là suy ra. Bề rộng cột và thứ tự cột là thứ đọc
 // thẳng từ XML nên đúng; phần chrome quanh lưới còn là ước lượng.
 
-import { renderGridControl, isDisabled, resolveLocaleName } from './control.mjs';
+import { renderGridControl, isDisabled, resolveLocaleName, alignOf } from './control.mjs';
 import { sourceRange, hostRefAt } from './entities.mjs';
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
@@ -31,6 +31,14 @@ const INDEX_COL_PX = 24;
  * không mang `height` inline nào và rơi về 30px của `.HeaderCellDefault`.
  */
 const HEADER_ROW_FILTER_PX = 60;
+
+/**
+ * Chiều cao hàng tiêu đề khi KHÔNG có dải lọc — mức nền của `.HeaderCellDefault`.
+ *
+ * `<field rows="N">` chia đôi thành `divHeader` + `divGrid`, nên con số này là thứ trừ ra để
+ * biết phần cuộn còn cao bao nhiêu. Xem phép cộng đầy đủ ở `renderGridHtml`.
+ */
+const HEADER_ROW_PX = 30;
 
 /**
  * `<grid type="…">` nào là MÀN HÌNH DANH SÁCH đứng riêng, rộng bằng khung nhìn.
@@ -157,25 +165,29 @@ export function toolbarButton(button, vi) {
 }
 
 /**
- * Những class nút mà BASE PACK có sẵn ô sprite. Nguồn: khối «Vị trí sprite NHẬP TỪ RUNTIME»
- * trong `extension/media/base/css/fbo-toolbar.css`, tức chính CSS runtime.
+ * Nút này có icon thật không — hỏi CSS, không hỏi một danh sách chép tay.
  *
- * Vì sao core phải biết chuyện của CSS: `.ToolbarBackgroundImage` gắn sprite cho MỌI nút mang
- * class đó, mặc định cắt tại `0 0` — ô đầu tiên, icon của lệnh «Mới». Nút của khách
- * (`PurOrgDeclaration`, `APTranImport`…) không có ô nào trong sprite, nên nó hiện icon «Mới»
- * ở bên trái, cộng thêm `text-indent:22px` chừa chỗ cho cái icon không có thật — ra đúng cảnh
- * chữ đè lên một icon sai.
+ * `.ToolbarBackgroundImage` gắn sprite cho MỌI nút mang class đó và mặc định cắt tại `0 0` —
+ * ô đầu tiên, icon lệnh «Mới». Nên nút nào không có rule riêng đều hiện icon «Mới» ở bên trái,
+ * cộng `text-indent:22px` chừa chỗ cho cái icon không có thật.
  *
- * Runtime không gặp chuyện này vì ở đó nút của khách luôn có `<css>` riêng khai icon cho nó.
- * Nên luật ở đây là: có ô sprite HOẶC có `<css>` khai → giữ nguyên nút có icon; không có gì cả
- * → nút CHỈ CHỮ. Thà thiếu icon còn hơn hiện icon của lệnh khác.
+ * Bản trước hỏi một `Set` 27 tên lệnh chép tay, và nó sai theo HAI hướng cùng lúc — vì nó so
+ * TÊN LỆNH trong khi CSS khai theo TÊN CLASS, mà hai thứ đó khác nhau ở nút có chữ
+ * (`Export` → class `TextExport`):
+ *
+ *   `Export` `Freeze` `Save` `Cancel` `Option` `Page` `Preview` `Aggregate` `GroupToolbarPrint`
+ *   có trong Set, nên nút CÓ CHỮ của chúng giữ `ToolbarBackgroundImage`; nhưng CSS chung không
+ *   khai `.TextExport`, `.TextFreeze`… nên sprite rơi về `0 0`. Đo trên trình duyệt:
+ *   `.TextExport` cho `fbo-toolbar.png @ 0px 0px`, y hệt icon «Mới» — chín lệnh cùng một icon sai.
+ *
+ *   `Download` và `ImportData` KHÔNG có trong Set, nhưng CSS chung khai đủ cho chúng (ảnh riêng
+ *   `fbo-download.png` / `fbo-upload.png`). Danh sách chép tay bỏ sót là nút mất icon thật.
+ *
+ * Nên luật đúng — và đây là luật chủ hệ thống đã nói: **dù toolbar khai ở đâu thì icon cũng
+ * theo CSS quy tắc chung**. Hỏi thẳng CSS, bằng ĐÚNG cái class sắp phát ra, gộp CSS nền của
+ * base pack với `<css>` riêng của program. Danh sách chép tay không còn, nên cũng không còn
+ * chỗ để nó trôi khỏi CSS.
  */
-const SPRITE_COMMANDS = new Set([
-  'Aggregate', 'Cancel', 'Clone', 'Delete', 'Down', 'Edit', 'Export', 'Freeze',
-  'GroupPrint', 'GroupRetrieve', 'GroupToolbarPrint', 'Grow', 'InformationIcon', 'Insert',
-  'New', 'Option', 'Page', 'Preview', 'Print', 'QuestionIcon', 'Remove', 'Retrieve',
-  'Retrive', 'Save', 'Search', 'View', 'WarningIcon',
-]);
 
 /**
  * `<css>` của program có khai kiểu cho class này không.
@@ -260,8 +272,20 @@ function renderToolbar(buttons, vi, css = '') {
     // 30px chứ không 22 — chỗ thừa ra là để mũi tên xổ xuống.
     if (!label) {
       const w = group ? 30 : 22;
+      /*
+       * Nút CHỈ ICON cũng phải qua đúng phép hỏi ấy, và trước đây nó không qua gì cả.
+       *
+       * Nút không chữ mà class không có rule nào thì `ToolbarBackgroundImage` vẫn dán sprite và
+       * cắt tại `0 0` — ra một ô vuông mang icon «Mới». `Compose` của `Grid/SOTran.f` là ca
+       * thật, đo được: `.ToolbarBackgroundImage.Compose` cho `fbo-toolbar.png @ 0px 0px`, đúng
+       * bằng icon lệnh «Mới».
+       *
+       * Không có icon thì để ô TRỐNG, giữ nguyên 22px. Tooltip vẫn còn nên nút vẫn nói được nó
+       * là lệnh gì; một ô trống nói «chưa có icon», còn một icon sai thì nói dối.
+       */
+      const iconCls = cssDeclaresClass(css, cls) ? `ToolbarBackgroundImage ${cls}` : 'ToolbarNoIcon';
       cells.push(`<td nowrap style="width:${w}px;">`
-        + `<div class="ToolbarBackgroundImage ${cls}" data-fbo-command="${cmd}"`
+        + `<div class="${iconCls}" data-fbo-command="${cmd}"`
         + ` style="height:22px;width:${w}px;border-width:0px;" title="${esc(title)}"></div>`
         + menuHtml(menu, vi) + '</td>');
       continue;
@@ -294,7 +318,7 @@ function renderToolbar(buttons, vi, css = '') {
      * `PurOrgDeclaration` của `CustomerPurchasingDetail.f` là ca thật: bản chuẩn `.f` không kèm
      * `<css>` khai `div.PurOrgDeclaration`, nên nút ấy vừa mang icon sai vừa mất chữ.
      */
-    const hasIcon = SPRITE_COMMANDS.has(b.command) || cssDeclaresClass(css, cls);
+    const hasIcon = cssDeclaresClass(css, cls);
     const iconCls = hasIcon ? `ToolbarBackgroundImage ${cls} ` : '';
     const noIcon = hasIcon ? '' : ' ToolbarNoIcon';
     cells.push('<td nowrap>'
@@ -303,9 +327,26 @@ function renderToolbar(buttons, vi, css = '') {
       + menuHtml(menu, vi) + '</td>');
   }
 
+  /*
+   * KHÔNG `overflow:hidden` trên dải nút, và đó là chỗ vừa phải sửa.
+   *
+   * Menu xổ xuống của nút group (`<ul class="ToolbarGroupMenu">`) nằm TRONG `<td>` của chính
+   * nút, tức trong dải nút. Dải mà `overflow:hidden` thì menu bị cắt ngay mép dưới — rê chuột
+   * vào chỉ thấy một vạch, đúng triệu chứng «popup bị đè ở dưới». Runtime không gặp chuyện này
+   * vì nó chèn popup vào cuối `<body>` bằng JS, thứ ta không chạy.
+   *
+   * `position:relative` + `z-index` để menu vẽ ĐÈ LÊN lưới: lưới đứng sau trong DOM nên mặc
+   * định nó phủ lên menu. Hai thuộc tính này là keo dán của designer, không phải của runtime —
+   * runtime không cần vì popup của nó không nằm ở đây.
+   */
   return [
     '<div class="ToolbarStyle Green" data-fbo-region="toolbar"',
-    ' style="overflow:hidden;display:inline-block;height:26px;width:100%;vertical-align:middle;padding-top:2px;">',
+    // `sticky` chứ không `relative`: bảng lưới rộng hơn khung thì tổ tiên cuộn ngang, và dải nút
+    // trôi đi theo dữ liệu trong khi tiêu đề cột lại bám dữ liệu bằng `scrollLeft` riêng của nó.
+    // `sticky` neo dải nút tại mép trái vùng nhìn thấy. Nó vẫn tạo tầng riêng nên menu group
+    // vẫn vẽ đè lên lưới như cũ.
+    ' style="position:sticky;left:0;z-index:5;display:inline-block;height:26px;width:100%;'
+      + 'vertical-align:middle;padding-top:2px;">',
     '<table cellpadding="0" cellspacing="0"><tr nowrap>',
     cells.join(''),
     '</tr></table></div>',
@@ -413,6 +454,8 @@ export function buildGridModel(view, fields, {
       ? hostRefAt(src.segments, col.start, hostFile)
       : null;
     const foreign = origin !== null && hostFile !== '' && origin.file !== hostFile;
+    // Cột khai trong một file `.f` — bản chuẩn của sản phẩm. Xem ghi chú ở `render.mjs`.
+    const product = /\.f$/i.test(origin?.file ?? hostFile ?? '');
 
     columns.push({
       index: columns.length,
@@ -452,6 +495,18 @@ export function buildGridModel(view, fields, {
         : null,
       hostRef,
       foreign,
+      product,
+      /*
+       * Cột này đến từ MẢNH CẤU HÌNH ẨN nào — `initialize`, `fields`, hoặc `null` nếu chính
+       * controller khai nó.
+       *
+       * `foreign` đã nói «khai ở file khác», nhưng nó gộp chung ba thứ rất khác nhau: Include
+       * kéo qua entity, `Config/Fields/<Tên>.xml`, và `<group>` dùng chung trong
+       * `Initialize.xml`. Ba nguồn ấy sửa ở ba chỗ và ảnh hưởng tới ba diện khác nhau — cột của
+       * `<group>` là dùng chung cho cả nhóm controller, sửa nó là đổi cho tất cả. Một màu cho
+       * cả ba thì người dùng không có cách nào biết mình đang đứng trước cái nào.
+       */
+      configKind: col.source?.kind ?? null,
     });
   });
 
@@ -476,7 +531,24 @@ export function buildGridModel(view, fields, {
     title,
     warnings,
     foreignRows: columns.filter((c) => c.foreign).length,
+    productColumns: columns.filter((c) => c.product).length,
   };
+}
+
+/**
+ * Tooltip của ô tiêu đề: tên cột · bề rộng · và NGUỒN nếu nó không nằm trong file lưới.
+ *
+ * Màu nền đã nói ra rằng cột này đến từ chỗ khác, nhưng màu không nói được CHỖ NÀO — mà đó mới
+ * là thứ quyết định sửa ở đâu và sửa xong ảnh hưởng tới ai. Không có tooltip thì bảng màu cần
+ * một chú giải, và chú giải thì không có chỗ nào để đặt trong một cái lưới.
+ */
+function headerTitle(col, label) {
+  const base = `${label} · ${col.width}px`;
+  if (!col.configKind || !col.range?.file) return base;
+  const file = col.range.file.split(/[\\/]/).pop();
+  return col.configKind === 'initialize'
+    ? `${base} · từ ${file} (nhóm dùng chung — sửa là đổi cho mọi controller cùng nhóm)`
+    : `${base} · từ ${file} (bản riêng của controller này)`;
 }
 
 function anchorAttrs(col) {
@@ -484,7 +556,9 @@ function anchorAttrs(col) {
     ? ` data-fbo-file="${esc(col.range.file)}" data-fbo-src-start="${col.range.start}" data-fbo-src-end="${col.range.end}"`
     : '';
   const hostRef = col.hostRef ? ` data-fbo-host-start="${col.hostRef.start}" data-fbo-host-end="${col.hostRef.end}"` : '';
-  return origin + hostRef + (col.foreign ? ' data-fbo-foreign="1"' : '');
+  return origin + hostRef + (col.foreign ? ' data-fbo-foreign="1"' : '')
+    + (col.product ? ' data-fbo-product="1"' : '')
+    + (col.configKind ? ` data-fbo-config="${esc(col.configKind)}"` : '');
 }
 
 /**
@@ -580,7 +654,7 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null } = 
     if (c.frozen) cls.push('GridFrozen');
     return `<td nowrap class="${cls.join(' ')}" style="${cellStyle(c)}"${colAttrs(c)}`
       + `${c.filterable ? ' data-fbo-filter="1"' : ''}`
-      + ` data-fbo-token="[${esc(c.name)}]"${anchorAttrs(c)} title="${esc(localName(c))} · ${c.width}px">`
+      + ` data-fbo-token="[${esc(c.name)}]"${anchorAttrs(c)} title="${esc(headerTitle(c, localName(c)))}">`
       + `<div align="center" class="HeaderCellContainer"`
       + ` style="${headerContainerStyle(c)}">`
       + `${esc(c.header)}</div>${filterPanel(c)}</td>`;
@@ -588,10 +662,21 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null } = 
 
   // Hàng 1 mang control thật để thấy loại ô; các hàng sau để trống — nhân bản control chỉ tạo
   // ra id trùng nhau mà không nói thêm điều gì.
-  const dataCell = (c, inner) => `<td nowrap class="CellDefault${c.frozen ? ' GridFrozen' : ''}"`
-    + ` style="${cellStyle(c)}"${colAttrs(c)}${anchorAttrs(c)}>`
-    + `<div class="RowCellContainer" style="height:14px;width:${c.hidden ? 0 : c.width}px;vertical-align:middle;">`
-    + `${inner}</div></td>`;
+  /*
+   * `text-align` đặt trên CẢ container lẫn control.
+   *
+   * Trên control để chữ trong ô nhập canh đúng phía; trên container vì `<input type="checkbox">`
+   * KHÔNG nghe `text-align` — nó là một hộp cỡ cố định, chỉ dịch khi thứ bọc nó canh nó. Thiếu
+   * vế container là cột `type="Boolean"` vĩnh viễn dính lề trái. Xem `alignOf`.
+   */
+  const dataCell = (c, inner) => {
+    const align = alignOf(c.field);
+    return `<td nowrap class="CellDefault${c.frozen ? ' GridFrozen' : ''}"`
+      + ` style="${cellStyle(c)}"${colAttrs(c)}${anchorAttrs(c)}>`
+      + `<div class="RowCellContainer" style="height:14px;width:${c.hidden ? 0 : c.width}px;`
+      + `vertical-align:middle;${align ? `text-align:${align};` : ''}">`
+      + `${inner}</div></td>`;
+  };
 
   const firstRow = model.columns
     .map((c) => dataCell(c, c.hidden ? '' : renderGridControl(c.field, { vi: model.vi, cellWidth: c.width })))
@@ -615,38 +700,49 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null } = 
     ? ''
     : `<div class="HeaderStyle UpdateDlgTitleText">${esc(caption)}</div>`;
 
-  const toolbar = renderToolbar(model.toolbar, model.vi, model.css ?? '');
+  const toolbar = renderToolbar(model.toolbar, model.vi, model.toolbarCss ?? model.css ?? '');
 
   /*
-   * `<field rows="N">` là chiều cao của CẢ KHỐI dưới toolbar, không phải của riêng phần cuộn.
+   * `<field rows="N">` = divHeader + divGrid. KHÔNG gồm toolbar, divSplit, hay dải cuộn.
    *
-   * Đo từ HTML runtime của chính màn hình này: `rows="242"` cho ra `divGrid` cao **212px**,
-   * `divSplit` 8px, `divFooter` 22px — cộng lại đúng 242. Gán thẳng 242 cho phần cuộn là lưới
-   * cao hơn thật 30px, và trong một tab đã bị ghim chiều cao thì phần thừa đó đẩy footer khuất
-   * xuống dưới.
+   * Bản trước đọc `rows` là «divGrid + divSplit + divFooter» và ra CÙNG một con số cho ca
+   * thường (242 − 8 − 22 = 212 = 242 − 30), nên nó trông như đúng. Hai cách đọc chỉ tách ra khi
+   * hàng tiêu đề KHÔNG cao 30 — tức đúng lúc lưới có dải lọc nhanh, hàng tiêu đề 60px. Khi ấy
+   * cách đọc cũ cho divGrid 212 trong khi chỗ thật chỉ còn 182, và cả khối cao hơn tab 30px.
+   *
+   * Phép cộng đầy đủ, theo lời chủ hệ thống, cho `<view height="302">` và `<field rows="242">`:
+   *
+   *   toolbar    30   cố định, KHÔNG nằm trong `rows`
+   *   divHeader  30   (60 nếu có dải lọc nhanh)
+   *   divGrid   212   = rows − divHeader
+   *   divSplit    8   tay nắm kéo, một icon
+   *   cuộn       22
+   *   ────────────
+   *   view       302  = chiều cao vùng main (thân tab), KHÔNG gồm thanh nhãn tab
+   *
+   * `blockPx` là chiều cao CẢ KHỐI — thứ phải so với `view@height` để biết một `rows` có khai
+   * vượt vùng main hay không.
    */
+  const TOOLBAR_PX = 30;
   const SPLIT_PX = 8;
   const FOOTER_PX = 22;
-  const scrollPx = bodyHeight !== null && bodyHeight > SPLIT_PX + FOOTER_PX
-    ? bodyHeight - SPLIT_PX - FOOTER_PX
+  const headerPx = showFilter ? HEADER_ROW_FILTER_PX : HEADER_ROW_PX;
+  const scrollPx = bodyHeight !== null && bodyHeight > headerPx
+    ? bodyHeight - headerPx
     : null;
+  const blockPx = bodyHeight === null
+    ? null
+    : TOOLBAR_PX + bodyHeight + SPLIT_PX + FOOTER_PX;
   /*
-   * `divGrid` là chỗ DUY NHẤT được mọc thanh cuộn ngang trong cả cái tab.
+   * Theo HTML runtime chuẩn của tab lưới:
+   *   divGrid  -> cuộn dọc
+   *   divFooter -> cuộn ngang
+   *   divHeader -> đứng yên, chỉ nhận scrollLeft đồng bộ
    *
-   * Trước đây có ba cái chồng lên nhau — thân lưới, footer, và panel của tab — mà cả ba cuộn
-   * cùng một thứ. Hai cái kia là tai nạn, không phải thiết kế:
-   *
-   *   footer khai `overflow-y:hidden` mà bỏ trống trục x. Theo CSS, một trục khác `visible` thì
-   *   trục còn lại tự tính thành `auto` — nên nó mọc ra một thanh cuộn không ai gọi. Nay khai
-   *   thẳng `overflow:hidden` cho cả hai trục; nó vẫn trượt theo thân bằng `scrollLeft`.
-   *
-   *   panel của tab thì xem `renderViewHtml`.
-   *
-   * `auto` chứ không `scroll`: cột hẹp vừa đủ chỗ thì không có thanh nào hiện ra cả — đúng yêu
-   * cầu «chỉ khi cột chưa hiển thị đủ».
+   * `auto` chứ không `scroll` để thanh chỉ hiện khi thật sự thiếu chỗ.
    */
   const bodyStyle = embedded || fitWidth
-    ? ` style="${scrollPx === null ? '' : `height:${scrollPx}px;`}overflow-x:auto;overflow-y:auto;"`
+    ? ` style="${scrollPx === null ? '' : `height:${scrollPx}px;`}overflow-x:hidden;overflow-y:auto;"`
     : '';
 
   // Lưới đứng riêng bị ghim bề rộng để đối chiếu với runtime. Lưới nhúng thì KHÔNG: ô chứa nó
@@ -713,7 +809,27 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null } = 
     .join('');
 
   return [
-    `<div class="${panelClass}" data-fbo-mode="grid"${panelStyle}>`,
+    // `data-fbo-block` = chiều cao CẢ KHỐI theo phép cộng ở trên. Đây là con số phải so với
+    // `view@height` để biết một `<field rows>` có khai vượt vùng main hay không — soi được từ
+    // DOM, không phải tính lại bằng tay.
+    /*
+     * `data-fbo-grid` = TÊN CONTROLLER của chính lưới này, và nó phải nằm trên panel.
+     *
+     * Trước đây dấu này chỉ được gắn ở một chỗ duy nhất: ô `<td class="FormCellGrid">` của FORM
+     * chứa lưới nhúng (`renderEmbeddedGrid`). Nên mở thẳng một `Grid/X.xml` ra thì trên cả trang
+     * không có `data-fbo-grid` nào — `gridColTarget` ở webview tra ngược không thấy, trả `null`,
+     * và cú `mousedown` kéo giãn cột thoát ra ngay từ dòng đầu. Nhìn ra ngoài đúng như «cột lưới
+     * không kéo được», và với lưới đứng riêng thì KHÔNG phép sửa cột nào chạy: chèn, xoá, kéo
+     * giãn đều đi qua cùng một hàm tra tên ấy.
+     *
+     * Gắn trên panel thì cả hai lối cùng chạy. Lưới nhúng có thêm một dấu nữa trên ô của form —
+     * không sao, `closest` lấy cái GẦN NHẤT, tức chính panel này, và hai dấu mang cùng một tên.
+     */
+    `<div class="${panelClass}" data-fbo-mode="grid"${model.controller ? ` data-fbo-grid="${esc(model.controller)}"` : ''}`
+      // Ngăn bằng `|`: đường dẫn Windows không bao giờ chứa ký tự này, nên tách lại ở webview
+      // không cần biết gì về cú pháp đường dẫn.
+      + `${(model.relatedFiles ?? []).length > 1 ? ` data-fbo-related="${esc(model.relatedFiles.join('|'))}"` : ''}`
+      + `${blockPx === null ? '' : ` data-fbo-block="${blockPx}"`}${panelStyle}>`,
     heading,
     toolbar,
     '<div class="HeaderStyle divHeader" style="overflow:hidden;position:relative;">',
@@ -730,7 +846,7 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null } = 
     '</table>',
     '</div>',
     `<div class="SplitStyle divSplit" style="height:${SPLIT_PX}px;"></div>`,
-    `<div class="FooterStyle divFooter" style="overflow:hidden;height:${FOOTER_PX}px;">`,
+    `<div class="FooterStyle divFooter" style="overflow-x:auto;overflow-y:hidden;height:${FOOTER_PX}px;">`,
     table(''),
     `<tr class="GridFooter">${indexCell('IndexCellFooter', '')}${footerCells}</tr>`,
     '</table>',
@@ -859,7 +975,30 @@ function mergeGridConfig(view, fields, config, warnings) {
   const seen = new Set(outColumns.map((c) => c.name));
   let arrangement = '';
 
-  for (const part of config) {
+  /*
+   * THỨ TỰ CỘT, từ mạnh tới yếu — bốn nguồn, và ba trong số đó nằm ngoài file controller:
+   *
+   *   1. `Grid/<Tên>`                      view của chính controller: cột nào khai ở đây đứng
+   *                                        trước, đúng thứ tự khai
+   *   2. `Grid/Config/Fields/<Tên>`        thuộc tính `arrangement` — luật neo `%a()`/`%b()`/`%l0`
+   *                                        chạy SAU CÙNG nên nó nói lời cuối về vị trí
+   *   3. `Grid/Config/Fields/<Tên>`        các cột file ấy khai thêm
+   *   4. `Grid/Config/Initialize.xml`      cột của `<group>` dùng chung
+   *
+   * Bản trước xếp 4 TRƯỚC 3 (chỉ vì `loadGridConfig` đẩy `Initialize` vào mảng trước), nên cột
+   * dùng chung của cả nhóm chen lên trước cột khai riêng cho chính controller này — ngược hẳn
+   * mức độ cụ thể của hai nguồn.
+   *
+   * Xếp bằng `rank` chứ không dựa vào thứ tự mảng người gọi đưa vào: thứ tự ấy là chi tiết cài
+   * đặt của tầng vỏ, còn luật ưu tiên là quy ước của FBO. Sắp ỔN ĐỊNH để hai mảnh cùng hạng giữ
+   * nguyên thứ tự đọc file.
+   */
+  const ordered = [...config]
+    .map((p, i) => ({ p, i }))
+    .sort((x, y) => (x.p.rank ?? 1) - (y.p.rank ?? 1) || x.i - y.i)
+    .map((x) => x.p);
+
+  for (const part of ordered) {
     // Nguồn đóng dấu lên TỪNG field, không suy từ nguồn của cột: một cột của mảnh A hoàn toàn có
     // thể trỏ vào `<field>` khai trong controller. Suy chéo là quy offset của file này về file kia.
     const source = { segments: part.segments ?? null, file: part.file ?? '' };
@@ -872,11 +1011,19 @@ function mergeGridConfig(view, fields, config, warnings) {
     for (const c of part.columns ?? []) {
       if (seen.has(c.name)) continue;
       seen.add(c.name);
-      outColumns.push({ ...c, source: { segments: part.segments ?? null, file: part.file ?? '' } });
+      outColumns.push({
+        ...c,
+        source: { segments: part.segments ?? null, file: part.file ?? '', kind: part.kind ?? null },
+      });
     }
-    // Mảnh sau khai `arrangement` thì thắng — `Config/Fields/<Tên>.xml` là bản riêng của
-    // controller, nên nó nói lời cuối.
-    if (part.arrangement) arrangement = part.arrangement;
+    /*
+     * `arrangement` lấy từ mảnh CỤ THỂ NHẤT — mảnh hạng cao nhất khai nó.
+     *
+     * `ordered` đã xếp `Config/Fields/<Tên>.xml` (hạng 1) trước `Initialize.xml` (hạng 2), nên
+     * "mảnh đầu tiên khai" chính là mảnh riêng của controller. Bản trước lấy mảnh CUỐI, thứ chỉ
+     * đúng nhờ thứ tự mảng cũ — đảo thứ tự ấy là `Initialize` lặng lẽ giành mất quyền sắp xếp.
+     */
+    if (part.arrangement && arrangement === '') arrangement = part.arrangement;
   }
 
   return {
@@ -895,8 +1042,51 @@ export function renderGrid(views, fields, opts = {}) {
   const model = buildGridModel(view, merged.fields, opts);
   model.warnings.push(...configWarnings);
   model.toolbar = opts.toolbar ?? [];
-  // `<css>` của program — chỗ duy nhất khai icon cho nút riêng của khách. Xem `SPRITE_COMMANDS`.
+  /*
+   * CSS mà `renderToolbar` hỏi để biết nút nào có icon = CSS NỀN + `<css>` của program.
+   *
+   * Hai lớp, và thiếu lớp nào cũng ra một loại sai riêng:
+   *   `baseCss`  base pack (`fbo-toolbar.css`) — nguồn của mọi icon chuẩn. Thiếu nó thì KHÔNG
+   *              nút chuẩn nào có icon.
+   *   `css`      `<css>` của controller/program — nguồn duy nhất của icon nút riêng của khách
+   *              (`div.APTranImport` với ảnh base64 của chính nó). Thiếu nó thì nút riêng mất icon.
+   *
+   * Core không đọc đĩa, nên `baseCss` do tầng vỏ truyền vào (xem `inlineBaseCss` ở
+   * `render-host.js` và `tools/probe-layout.mjs`).
+   */
+  /*
+   * Tên controller của lưới — khoá mà tầng edit dùng để tìm lại đúng file cần ghi.
+   *
+   * Lưới NHÚNG biết tên từ `<items controller="X"/>` của form, nên `renderEmbeddedGrid` truyền
+   * thẳng vào. Lưới ĐỨNG RIÊNG thì không ai nói cho nó biết — tên nó chính là tên file đang mở,
+   * và `hostFile` là thứ duy nhất mang thông tin ấy. Cắt bằng chuỗi, không bằng `path`: core
+   * không được phụ thuộc vào module của Node (ADR-0002), và ở đây chỉ cần bỏ thư mục với đuôi.
+   */
+  model.controller = opts.controller
+    ?? String(opts.hostFile ?? '').split(/[\\/]/).pop().replace(/\.(xml|f)$/i, '');
+  /*
+   * MỌI file cùng góp cột vào lưới này — file lưới cộng từng mảnh cấu hình ẩn.
+   *
+   * Tầng vỏ dùng nó cho `fboDesigner.revealRelatedFiles = "all"`: một cột có thể được khai ở
+   * tới bốn chỗ, và câu hỏi ngay sau «nó khai ở đâu» thường là «còn chỗ nào khác nói về nó
+   * nữa». Danh sách lấy từ chính các mảnh đã gộp, không đoán theo quy ước thư mục — mảnh nào
+   * thật sự được đọc mới có tên ở đây.
+   */
+  model.relatedFiles = [...new Set([
+    opts.hostFile ?? '',
+    ...(opts.config ?? []).map((p) => p.file ?? ''),
+  ].filter(Boolean))];
+  model.baseCss = opts.baseCss ?? '';
   model.css = opts.css ?? '';
+  model.toolbarCss = [model.baseCss, model.css].filter(Boolean).join('\n');
+  // Không có CSS nền mà vẫn có nút: mọi nút sẽ ra chỉ-chữ. Nói ra, đừng để người đọc tự đoán.
+  if (model.toolbar.length > 0 && model.baseCss === '') {
+    model.warnings.push({
+      item: -1,
+      message: 'không nhận được CSS nền (baseCss) — mọi nút toolbar vẽ dạng chỉ chữ,'
+        + ' vì icon quyết định theo CSS quy tắc chung',
+    });
+  }
   if (model.columns.length === 0) {
     return {
       html: '<p class="FboEmpty">View của lưới không khai cột nào (&lt;field name="…"/&gt;), hoặc mọi cột đều hidden.</p>',

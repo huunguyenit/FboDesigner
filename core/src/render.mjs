@@ -18,7 +18,15 @@
 
 import { scanViews, scanFields, scanTitle, scanRoot, scanToolbar, scanCss } from './spans.mjs';
 import { classifyItem, parseWidths, parseRow, buildCells } from './item-value.mjs';
-import { renderControl, containerClass, isTextArea, CELL_PADDING_PX } from './control.mjs';
+import {
+  renderControl,
+  containerClass,
+  isTextArea,
+  alignOf,
+  CELL_PADDING_PX,
+  resolveLocaleName,
+  fieldHint,
+} from './control.mjs';
 import { sourceRange, hostRefAt } from './entities.mjs';
 import { renderGrid } from './grid.mjs';
 
@@ -170,6 +178,7 @@ function isRequired(field) {
  */
 const REGION_HEADER = 0;
 const REGION_FOOTER = -1;
+const isTrue = (v) => String(v ?? '').toLowerCase() === 'true';
 
 /**
  * `view@height` — chiều cao CỐ ĐỊNH của vùng main (vùng tab), tính bằng px.
@@ -194,7 +203,7 @@ export function evaluateHeight(expr) {
 }
 
 /** Tên field → `categoryIndex`. Chỉ giữ field CÓ khai — "không khai" khác hẳn "khai bằng 0". */
-function fieldCategories(fields) {
+export function fieldCategories(fields) {
   const map = new Map();
   for (const f of fields) {
     const n = Number.parseInt(f.attrs?.categoryIndex, 10);
@@ -204,7 +213,7 @@ function fieldCategories(fields) {
 }
 
 /** Vùng của một hàng = field đầu tiên trong hàng có khai `categoryIndex`. Không có → main. */
-function rowCategoryIndex(row, categoryByField) {
+export function rowCategoryIndex(row, categoryByField) {
   if (categoryByField.size === 0) return REGION_HEADER;
   for (const t of row.tokens) {
     if (t.field !== null && categoryByField.has(t.field)) return categoryByField.get(t.field);
@@ -323,6 +332,7 @@ export function buildViewModel(view, fields, {
   hostFile = '',
   loadDetail = null,
   pageCss = '',
+  baseCss = '',
 } = {}) {
   // Kèm luôn vị trí NGUỒN của `rows="N"` và của chính thẻ `<field`, để tầng edit kéo được
   // chiều cao tab mà không phải quét lại file. `attrSpans` đo trên clearText nên phải quy đổi.
@@ -415,7 +425,21 @@ export function buildViewModel(view, fields, {
     // trôi xuống giữa ô cao hai dòng và lệch hẳn so với runtime.
     const multiline = cells.some((c) => c.token?.kind === 'input' && isTextArea(fieldByName.get(c.token.field)));
     const foreign = origin !== null && hostFile !== '' && origin.file !== hostFile;
-    return { ...r, cells, categoryIndex, widths, origin, range, itemRange, hostRef, foreign, valign: multiline ? 'top' : 'middle' };
+    /*
+     * Hàng này đến từ BẢN CHUẨN CỦA SẢN PHẨM (`.f`) hay từ bản customize của khách (`.xml`)?
+     *
+     * Khác hẳn `foreign`, và đó là lý do phải là hai cờ chứ không một: `foreign` nói «khai ở
+     * file KHÁC file đang mở» — tức Include hay entity. `product` nói «khai ở một file `.f`» —
+     * tức thứ designer TỪ CHỐI ghi vào (xem `productFileBlocks`), và bản nâng cấp sau của Fast
+     * sẽ ghi đè. Một hàng có thể là cả hai, một trong hai, hoặc không cái nào.
+     */
+    // Nguồn hiệu lực: file khai ra hàng này; không có `segments` thì chính file đang mở.
+    // Thiếu vế fallback là mở thẳng một `Dir/X.f` mà không hàng nào được tô — đúng ca hay gặp nhất.
+    const product = /\.f$/i.test(origin?.file ?? hostFile ?? '');
+    return {
+      ...r, cells, categoryIndex, widths, origin, range, itemRange, hostRef, foreign, product,
+      valign: multiline ? 'top' : 'middle',
+    };
   });
 
   const duplicateCategories = [];
@@ -463,6 +487,9 @@ export function buildViewModel(view, fields, {
     loadDetail,
     // `<css>` của chính controller này — lưới nhúng cần nó để biết nút nào thật sự có icon.
     pageCss,
+    // CSS NỀN của base pack — nguồn của MỌI icon chuẩn. Đi kèm model vì lưới nhúng trong tab
+    // được vẽ muộn hơn (`renderEmbeddedGrid`) và không thấy `opts` gốc nữa.
+    baseCss,
     // `<css>` của từng lưới Detail nhúng, gom trong lúc vẽ.
     detailCss: [],
     warnings,
@@ -507,11 +534,17 @@ function renderEmbeddedGrid(cell, field, model, td) {
     // `<css>` của CẢ HAI file: nút riêng của khách có thể được khai kiểu ở lưới, mà cũng có thể
     // ở controller chủ — cả hai đều nạp vào cùng một trang, nên cả hai đều tính.
     css: [model.pageCss ?? '', detailCss ?? ''].filter(Boolean).join('\n'),
+    // CSS NỀN đi tiếp xuống lưới nhúng: icon của nó cũng quyết định theo CSS quy tắc chung,
+    // không truyền là mọi nút trong tab thành chỉ-chữ.
+    baseCss: model.baseCss ?? '',
     root: scanRoot(detail.text),
     title: scanTitle(detail.text),
     toolbar: scanToolbar(detail.text),
     segments: detail.segments ?? null,
     hostFile: detail.file ?? '',
+    // Tên mà FORM gọi lưới này (`<items controller="X"/>`) — nói thẳng thay vì để lưới tự suy
+    // từ tên file: file có thể là `X.f` (bản chuẩn) trong khi khoá tra cứu vẫn là `X`.
+    controller: name,
     embedded: true,
     // `<field rows="242">` — chiều cao phần thân lưới, do FORM khai chứ không phải lưới khai.
     bodyHeight: intOrNull(field.attrs?.rows),
@@ -519,9 +552,16 @@ function renderEmbeddedGrid(cell, field, model, td) {
   return gridTd(built.html);
 }
 
-/** Div bọc nội dung ô — runtime luôn có một cái, và chính nó ghim chiều cao 13px của nhãn. */
-function container(cls, valign, capped, inner) {
-  const style = `width:100%;${capped ? 'max-height:13px;' : ''}overflow:hidden;vertical-align:${valign};`;
+/**
+ * Div bọc nội dung ô — runtime luôn có một cái, và chính nó ghim chiều cao 13px của nhãn.
+ *
+ * `align` đặt ở ĐÂY chứ không chỉ trên `<input>`: `text-align` trên một
+ * `<input type="checkbox">` không làm gì cả — checkbox là hộp cỡ cố định, nó chỉ dịch khi thứ
+ * BỌC nó canh nó. Thiếu vế này là ô `type="Boolean"` vĩnh viễn dính lề trái. Xem `alignOf`.
+ */
+function container(cls, valign, capped, inner, align = null) {
+  const style = `width:100%;${capped ? 'max-height:13px;' : ''}overflow:hidden;`
+    + `vertical-align:${valign};${align ? `text-align:${align};` : ''}`;
   return `<div class="${cls}" style="${style}">${inner}</div>`;
 }
 
@@ -539,16 +579,22 @@ function renderCell(cell, row, model, cellIndex) {
   if (cell.empty) return td('FormCell DwfEmptyCell', '');
 
   const tokenAttr = ` data-fbo-token="${esc(token?.raw ?? '')}"`;
+  const fieldMeta = field
+    ? ` data-field-name="${esc(resolveLocaleName(field.name, model.vi))}"`
+      + ` title="${esc(fieldHint(field, model.vi))}"`
+      + (isTrue(field.attrs?.readOnly) ? ' data-fbo-readonly="1"' : '')
+      + (isTrue(field.attrs?.external) ? ' data-fbo-external="1"' : '')
+    : '';
 
   if (token?.kind === 'label') {
     // `FormRequiredLabel` KHÔNG có ở runtime — nó là dấu của designer, và chỉ được phép đổi
     // màu. Cho nó đổi font-weight là nhãn `nowrap` dài ra, cột 1 tràn, và preview nói dối.
     const required = isRequired(field) ? ' FormRequiredLabel' : '';
-    return td(`FormCell${required}`, container('FormContainer', row.valign, true, sanitizeLabelHtml(labelOf(field, model.vi))), tokenAttr);
+    return td(`FormCell${required}`, container('FormContainer', row.valign, true, sanitizeLabelHtml(labelOf(field, model.vi))), tokenAttr + fieldMeta);
   }
   if (token?.kind === 'description' || token?.kind === 'footer') {
     const text = field ? sanitizeLabelHtml(descriptionOf(field, model.vi)) : '';
-    return td('FormCell', container('FormContainer', row.valign, true, text), tokenAttr);
+    return td('FormCell', container('FormContainer', row.valign, true, text), tokenAttr + fieldMeta);
   }
   if (token?.kind === 'unknown') {
     return td('FormCell FormCellInvalid', container('FormContainer', row.valign, true, esc(token.raw)), `${tokenAttr} title="kind không hợp lệ"`);
@@ -568,7 +614,8 @@ function renderCell(cell, row, model, cellIndex) {
   // đây là chỗ duy nhất biết nó.
   const control = renderControl(field, { vi: model.vi, cellWidth: cell.width });
   const required = isRequired(field) ? ' Required' : '';
-  return td(`FormCell${required}`, container(containerClass(field), row.valign, false, control), tokenAttr);
+  return td(`FormCell${required}`,
+    container(containerClass(field), row.valign, false, control, alignOf(field)), tokenAttr + fieldMeta);
 }
 
 function titleText(model) {
@@ -630,10 +677,12 @@ export function renderViewHtml(model) {
    * «scroll render dư» đang phải sửa. Tab không có lưới thì ngược lại: bảng của vùng rộng đúng
    * bằng `<category columns>` và có thể rộng hơn form, nên panel phải là chỗ cuộn nó.
    */
-  const panelStyleOf = (t) => (model.mainHeight === null
-    ? ''
-    : ` style="height:${model.mainHeight}px;box-sizing:border-box;`
-      + `overflow-y:auto;overflow-x:${gridFieldOf(t, model) === null ? 'auto' : 'hidden'};"`);
+  const panelStyleOf = (t) => {
+    const hasGrid = gridFieldOf(t, model) !== null;
+    if (model.mainHeight === null) return '';
+    return ` style="height:${model.mainHeight}px;box-sizing:border-box;`
+      + `overflow-y:${hasGrid ? 'hidden' : 'auto'};overflow-x:${hasGrid ? 'hidden' : 'auto'};"`;
+  };
 
   const mainHtml = tabs.length === 0 ? '' : [
     `<div class="DwfTabs FormRegion" data-dwf-region="main" data-fbo-region="main">`,
@@ -698,8 +747,9 @@ function renderRow(r, model) {
     ? ` data-fbo-host-start="${r.hostRef.start}" data-fbo-host-end="${r.hostRef.end}"`
     : '';
   const foreign = r.foreign ? ' data-fbo-foreign="1"' : '';
+  const product = r.product ? ' data-fbo-product="1"' : '';
 
-  return `<tr class="FormRow" data-fbo-item="${r.index}" data-fbo-start="${span?.start ?? ''}" data-fbo-end="${span?.end ?? ''}"${entity}${origin}${hostRef}${foreign}>${cells}</tr>`;
+  return `<tr class="FormRow" data-fbo-item="${r.index}" data-fbo-start="${span?.start ?? ''}" data-fbo-end="${span?.end ?? ''}"${entity}${origin}${hostRef}${foreign}${product}>${cells}</tr>`;
 }
 
 /**
@@ -762,6 +812,9 @@ function scanGridConfig(parts) {
       arrangement: view?.attrs?.arrangement ?? '',
       segments: p.segments ?? null,
       file: p.file ?? '',
+      // `kind` để tô màu và để nói ra nguồn; `rank` để xếp thứ tự cột. Xem `mergeGridConfig`.
+      kind: p.kind ?? null,
+      rank: Number.isFinite(p.rank) ? p.rank : 1,
     };
   });
 }
@@ -808,6 +861,7 @@ export function renderControllerHtml(text, opts = {}) {
 
   const model = buildViewModel(views[0], fields, { ...opts, title: scanTitle(text), pageCss: css });
   model.foreignRows = model.rows.filter((r) => r.foreign).length;
+  model.productRows = model.rows.filter((r) => r.product).length;
   model.root = root;
   // CSS gửi ra = của controller + của mọi lưới Detail nhúng trong nó.
   const html = renderViewHtml(model);
