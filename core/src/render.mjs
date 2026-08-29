@@ -325,7 +325,14 @@ function buildRegions(built, categories, view, regionWidths, duplicateCategories
   }
 
   const footer = byIndex.get(REGION_FOOTER);
-  if (footer && footer.length > 0) regions.push(region('footer', REGION_FOOTER, null, footer, null));
+  if (footer && footer.length > 0) {
+    // Footer không có thẻ riêng thì dùng view@anchor/split. Có `<category index="-1">` thì
+    // attrs của category ghi đè — nhưng thiếu anchor/split vẫn thừa kế từ view, không để null
+    // (trước đây truyền `null` nên dải đáy không bao giờ hiện mỏ neo).
+    const footerCat = categoryByIndex.get(REGION_FOOTER);
+    const footerAttrs = { ...(view.attrs || {}), ...(footerCat?.attrs || {}) };
+    regions.push(region('footer', REGION_FOOTER, null, footer, footerAttrs));
+  }
 
   return regions;
 }
@@ -597,7 +604,15 @@ function renderCell(cell, row, model, cellIndex) {
   const td = (cls, inner, extra = '') =>
     `<td class="${cls}" nowrap style="${CELL_STYLE}" colspan="${cell.span}"${data}${rowMeta}${extra}>${inner}</td>`;
 
-  if (cell.empty) return td('FormCell DwfEmptyCell', '');
+  if (cell.empty) {
+    // Hàng toàn `-` / nửa split trống không có ô nhập cạnh → `<td>` rỗng chỉ còn padding ~8px,
+    // thấp hơn slot trống cạnh control (~24px). Chèn FormContainer + &nbsp; cùng cỡ ô nhập
+    // (13px) để chiều cao khớp slot trống bình thường — không dùng FormContainerInput kẻo
+    // hiện gạch chân giả trên ô trống.
+    return td('FormCell DwfEmptyCell',
+      container('FormContainer', row.valign, false,
+        '<div style="height:13px;line-height:13px;font-size:11px;overflow:hidden;">&nbsp;</div>'));
+  }
 
   const tokenAttr = ` data-fbo-token="${esc(token?.raw ?? '')}"`;
   const fieldFile = field?.tagStart?.file ?? null;
@@ -719,12 +734,18 @@ export function renderViewHtml(model) {
       `<button type="button" class="DwfTabButton" role="tab" aria-selected="${i === 0}"`
       + ` data-target="fbo-tab-${t.index}">${esc(pick(t.header, model.vi) || `Tab ${t.index}`)}</button>`).join(''),
     '</div>',
-    tabs.map((t, i) =>
-      `<section id="fbo-tab-${t.index}" class="DwfTabPanel${i === 0 ? ' DwfActive' : ''}" role="tabpanel"`
-      + ` data-fbo-region="cat:${t.index}" data-fbo-category="${t.index}"`
-      + (gridFieldOf(t, model) === null ? '' : ` data-fbo-rows-field="${esc(gridFieldOf(t, model))}"`)
-      + `${panelStyleOf(t)}>\n`
-      + `${renderRegionTable(t, model)}\n</section>`).join('\n'),
+    tabs.map((t, i) => {
+      const gf = gridFieldOf(t, model);
+      const rowsVal = gf ? intOrNull(model.fieldByName.get(gf)?.attrs?.rows) : null;
+      return `<section id="fbo-tab-${t.index}" class="DwfTabPanel${i === 0 ? ' DwfActive' : ''}" role="tabpanel"`
+        + ` data-fbo-region="cat:${t.index}" data-fbo-category="${t.index}"`
+        + (gf === null ? '' : ` data-fbo-rows-field="${esc(gf)}"`)
+        // `data-fbo-rows` = đúng con số khai `field@rows` (NSD quan tâm), KHÔNG gồm chrome 60px.
+        + (rowsVal === null ? '' : ` data-fbo-rows="${rowsVal}"`)
+        + (model.mainHeight === null ? '' : ` data-fbo-view-height="${model.mainHeight}"`)
+        + `${panelStyleOf(t)}>\n`
+        + `${renderRegionTable(t, model)}\n</section>`;
+    }).join('\n'),
     '</div>',
   ].join('\n');
 
@@ -753,15 +774,87 @@ export function renderViewHtml(model) {
 }
 
 /**
+ * `view@split` / `category@split` hợp lệ — chia bảng SAU cột thứ k (chỉ số từ 1).
+ * Trả số cột bên trái (= k), hoặc `null` khi không chia.
+ */
+function splitColCount(region, gridOnly) {
+  if (gridOnly) return null;
+  const k = region.split;
+  if (k === null || k === undefined) return null;
+  if (!Number.isFinite(k) || k <= 0 || k >= region.widths.length) return null;
+  return k;
+}
+
+/**
+ * Cắt ô vào nửa cột `[colStart, colEnd)`. Giữ nguyên `data-fbo-cell` (index trong mảng ô
+ * đầy đủ) — phép sửa vẫn nhắm đúng ô model, dù ô đang nằm ở bảng trái hay phải.
+ */
+function clipCellToHalf(cell, colStart, colEnd, widths) {
+  const start = Math.max(cell.col, colStart);
+  const end = Math.min(cell.col + cell.span, colEnd);
+  if (end <= start) return null;
+  let width = 0;
+  for (let c = start; c < end; c++) width += widths[c] ?? 0;
+  return { ...cell, col: start, span: end - start, width };
+}
+
+/**
+ * Ô của một nửa split: CHỈ nhận ô BẮT ĐẦU trong nửa đó (tránh nhân đôi control khi span
+ * vượt vạch split). Cột bị nửa kia “ăn” sang → ô trống để tổng colspan khớp số `<th>`.
+ */
+function halfCellPieces(rowCells, colStart, colEnd, widths) {
+  const starters = rowCells
+    .map((c, i) => ({ c, i }))
+    .filter(({ c }) => c.col >= colStart && c.col < colEnd)
+    .sort((a, b) => a.c.col - b.c.col);
+
+  const pieces = [];
+  let col = colStart;
+  for (const { c, i } of starters) {
+    while (col < c.col) {
+      const existing = rowCells.findIndex((x) => x.empty && x.col === col && x.span === 1);
+      pieces.push({
+        cell: existing >= 0
+          ? rowCells[existing]
+          : { col, span: 1, width: widths[col] ?? 0, token: null, empty: true },
+        index: existing >= 0 ? existing : -1,
+      });
+      col += 1;
+    }
+    const clipped = clipCellToHalf(c, colStart, colEnd, widths);
+    if (!clipped) continue;
+    pieces.push({ cell: clipped, index: i });
+    col = clipped.col + clipped.span;
+  }
+  while (col < colEnd) {
+    const existing = rowCells.findIndex((x) => x.empty && x.col === col && x.span === 1);
+    pieces.push({
+      cell: existing >= 0
+        ? rowCells[existing]
+        : { col, span: 1, width: widths[col] ?? 0, token: null, empty: true },
+      index: existing >= 0 ? existing : -1,
+    });
+    col += 1;
+  }
+  return pieces;
+}
+
+/**
  * MỘT hàng `<tr class="FormRow">` — cùng một hàm cho cả bảng đầy đủ lẫn bản vá cục bộ.
  *
  * Vì sao phải là cùng một hàm: bản vá cục bộ (gộp/tách ô) thay đúng một `<tr>` trong DOM đang
  * có. Nếu nó dựng bằng một đoạn code chép riêng thì hai đường sinh HTML bắt đầu trôi khỏi nhau,
  * và triệu chứng sẽ là "gộp ô xong nhìn khác lúc mở lại file" — loại lệch khó thấy nhất, vì mỗi
  * bên nhìn riêng đều đúng.
+ *
+ * `half` (tuỳ chọn): `{ colStart, colEnd, widths }` — chỉ vẽ ô bắt đầu trong nửa đó. Dùng khi
+ * vùng có `split`: mỗi nửa một `<tr>` cùng `data-fbo-item`, patch cục bộ thay cả hai.
  */
-function renderRow(r, model) {
-  const cells = r.cells.map((c, i) => renderCell(c, r, model, i)).join('');
+function renderRow(r, model, half = null) {
+  const cells = half
+    ? halfCellPieces(r.cells, half.colStart, half.colEnd, half.widths)
+      .map(({ cell, index }) => renderCell(cell, r, model, index)).join('')
+    : r.cells.map((c, i) => renderCell(c, r, model, i)).join('');
   const entity = r.row.hasEntity ? ' data-fbo-entity="1"' : '';
   const span = r.item.valueSpan;
 
@@ -776,8 +869,16 @@ function renderRow(r, model) {
     : '';
   const foreign = r.foreign ? ' data-fbo-foreign="1"' : '';
   const product = r.product ? ' data-fbo-product="1"' : '';
+  const side = half
+    ? (half.colStart === 0 ? ' data-fbo-split-side="left"' : ' data-fbo-split-side="right"')
+    : '';
 
-  return `<tr class="FormRow" data-fbo-item="${r.index}" data-fbo-start="${span?.start ?? ''}" data-fbo-end="${span?.end ?? ''}"${entity}${origin}${hostRef}${foreign}${product}>${cells}</tr>`;
+  return `<tr class="FormRow" data-fbo-item="${r.index}" data-fbo-start="${span?.start ?? ''}" data-fbo-end="${span?.end ?? ''}"${side}${entity}${origin}${hostRef}${foreign}${product}>${cells}</tr>`;
+}
+
+/** Vùng chứa hàng — để `renderRowHtml` biết có split hay không. */
+function regionOfRow(model, row) {
+  return model.regions.find((reg) => reg.rows.some((r) => r.index === row.index)) ?? null;
 }
 
 /**
@@ -787,35 +888,140 @@ function renderRow(r, model) {
  * cả form cho một thay đổi như thế là ném đi vị trí cuộn, tab đang mở và ô đang chọn — ba thứ
  * người dùng vừa mất công đặt vào đúng chỗ.
  *
+ * Khi vùng có `split`, trả HAI `<tr>` (trái rồi phải) — `patchRow` thay cả hai chỗ cùng
+ * `data-fbo-item`.
+ *
  * Trả `null` khi hàng không còn (bị xoá, hoặc index lệch) — người gọi phải hiểu đó là tín hiệu
  * "vá không được, vẽ lại cả form" chứ không phải "không có gì đổi".
  */
 export function renderRowHtml(model, item) {
   if (!model || model.mode !== 'form') return null;
   const row = model.rows.find((r) => r.index === item);
-  return row ? renderRow(row, model) : null;
+  if (!row) return null;
+  const region = regionOfRow(model, row);
+  const gridOnly = region ? regionIsEmbeddedGridOnly(region, model) : false;
+  const split = region ? splitColCount(region, gridOnly) : null;
+  if (split === null) return renderRow(row, model);
+  return [
+    renderRow(row, model, { colStart: 0, colEnd: split, widths: region.widths }),
+    renderRow(row, model, { colStart: split, colEnd: region.widths.length, widths: region.widths }),
+  ].join('\n');
 }
 
-/** Một vùng = một `<table class="FormTable">` đo bằng list px CỦA VÙNG đó. */
-function renderRegionTable(region, model) {
-  const cols = region.widths.map((w, i) => `<th style="width:${w}px;" data-fbo-col="${i}"></th>`).join('');
-  const rows = region.rows.map((r) => renderRow(r, model)).join('\n');
+/** Hàng tiêu đề cột ẩn — `data-fbo-col` là chỉ số CỘT TOÀN VÙNG (không reset về 0 ở bảng phải). */
+function renderColHeader(widths, colOffset) {
+  return widths.map((w, i) => {
+    const col = colOffset + i;
+    return `<th style="width:${w}px;" data-fbo-col="${col}"${w === 0 ? ` data-fbo-zero-col="1" title="cột ${col + 1} · 0px"` : ''}></th>`;
+  }).join('');
+}
 
-  // `anchor` / `split` chỉ ĐI KÈM, không đổi cách vẽ bảng — blueprint đọc rồi vẽ mỏ neo và
-  // vạch đỏ đè lên trên. Bảng thật của runtime cũng không có gì ở đây.
-  // List px đi kèm bảng để blueprint kẻ vạch theo ĐÚNG con số khai trong XML của vùng này.
-  // Mỗi vùng một list khác nhau (`<category columns>`), nên vạch phải đọc từ bảng chứ không
-  // dùng chung list của view — dùng chung là vạch trong tab lệch hết.
-  const meta = ` data-fbo-col-widths="${region.widths.join(',')}"`
-    + (region.anchor === null ? '' : ` data-fbo-anchor="${region.anchor}"`)
-    + (region.split === null ? '' : ` data-fbo-split="${region.split}"`);
+/**
+ * Một nửa FormTable (trái hoặc phải khi có split, hoặc cả vùng khi không).
+ *
+ * `meta` mang list px CỦA NỬA này (để blueprint đo zoom / vạch cục bộ). `anchor`/`split` và list
+ * px ĐẦY ĐỦ nằm ở bọc ngoài khi có split — xem `renderRegionTable`.
+ */
+function renderFormTable(region, model, {
+  widths, colOffset, half, side, gridOnly, includeRegionMeta,
+}) {
+  const cols = renderColHeader(widths, colOffset);
+  const rows = region.rows.map((r) => renderRow(r, model, half)).join('\n');
+  const total = widths.reduce((a, b) => a + b, 0);
+  const meta = ` data-fbo-col-widths="${widths.join(',')}"`
+    + ` data-fbo-col-offset="${colOffset}"`
+    + (side ? ` data-fbo-split-side="${side}"` : '')
+    + (includeRegionMeta && !gridOnly && region.anchor !== null ? ` data-fbo-anchor="${region.anchor}"` : '')
+    + (includeRegionMeta && !gridOnly && region.split !== null ? ` data-fbo-split="${region.split}"` : '')
+    + (gridOnly ? ' data-fbo-grid-only="1"' : '');
 
   return [
-    `<table class="FormTable" cellpadding="0" cellspacing="0" style="width:${region.totalWidth}px;table-layout:fixed;" data-fbo-region-table="${region.id}"${meta}>`,
+    `<table class="FormTable" cellpadding="0" cellspacing="0" style="width:${total}px;table-layout:fixed;" data-fbo-region-table="${region.id}"${meta}>`,
     `<tr class="FormRow DwfColRow">${cols}</tr>`,
     rows,
     '</table>',
   ].join('\n');
+}
+
+/**
+ * Một vùng = một (hoặc hai) `<table class="FormTable">` đo bằng list px CỦA VÙNG đó.
+ *
+ * Runtime khi `split=k`: bảng cha 2 cột → trái `formTable` (cột 1..k) + phải `formTablesplit`
+ * (cột k+1..hết). Designer giữ cấu trúc ấy để preview khớp form thật; blueprint đọc
+ * `data-fbo-region-root` (list px đầy đủ + split/anchor) và từng nửa FormTable.
+ */
+function renderRegionTable(region, model) {
+  // Tab/vùng CHỈ chứa ô lưới Detail: không gắn anchor/split — chúng vô nghĩa trên một ô nhúng
+  // lưới, và blueprint kéo chúng là ghi số vào `<category>`/`<view>` không liên quan layout lưới.
+  const gridOnly = regionIsEmbeddedGridOnly(region, model);
+  const split = splitColCount(region, gridOnly);
+
+  if (split === null) {
+    return renderFormTable(region, model, {
+      widths: region.widths,
+      colOffset: 0,
+      half: null,
+      side: null,
+      gridOnly,
+      includeRegionMeta: true,
+    });
+  }
+
+  const leftW = region.widths.slice(0, split);
+  const rightW = region.widths.slice(split);
+  const leftTotal = leftW.reduce((a, b) => a + b, 0);
+  const rightTotal = rightW.reduce((a, b) => a + b, 0);
+  const fullMeta = ` data-fbo-region-root="${region.id}" data-fbo-region-table="${region.id}"`
+    + ` data-fbo-col-widths="${region.widths.join(',')}"`
+    + (region.anchor !== null ? ` data-fbo-anchor="${region.anchor}"` : '')
+    + ` data-fbo-split="${region.split}"`
+    + (gridOnly ? ' data-fbo-grid-only="1"' : '');
+
+  const left = renderFormTable(region, model, {
+    widths: leftW,
+    colOffset: 0,
+    half: { colStart: 0, colEnd: split, widths: region.widths },
+    side: 'left',
+    gridOnly,
+    includeRegionMeta: false,
+  });
+  const right = renderFormTable(region, model, {
+    widths: rightW,
+    colOffset: split,
+    half: { colStart: split, colEnd: region.widths.length, widths: region.widths },
+    side: 'right',
+    gridOnly,
+    includeRegionMeta: false,
+  });
+
+  return [
+    `<div class="FormSplit"${fullMeta} style="width:${region.totalWidth}px;">`,
+    `<table class="FormParentTable" cellpadding="0" cellspacing="0" style="border-collapse:collapse;table-layout:fixed;width:${region.totalWidth}px;">`,
+    `<tr><th style="width:${leftTotal}px;"></th><th style="width:${rightTotal}px;"></th></tr>`,
+    '<tr style="vertical-align:top;">',
+    `<td>${left}</td>`,
+    `<td>${right}</td>`,
+    '</tr>',
+    '</table>',
+    '</div>',
+  ].join('\n');
+}
+
+/**
+ * Mọi ô có token trong vùng đều là lưới Detail (`<items style="Grid"/>`).
+ * Vùng rỗng → false (không gắn cờ grid-only).
+ */
+function regionIsEmbeddedGridOnly(region, model) {
+  let saw = false;
+  for (const r of region.rows ?? []) {
+    for (const c of r.cells ?? []) {
+      if (c.empty || !c.token?.field) continue;
+      const field = model.fieldByName?.get(c.token.field);
+      if (String(field?.items?.style ?? '').toLowerCase() !== 'grid') return false;
+      saw = true;
+    }
+  }
+  return saw;
 }
 
 /**
@@ -892,7 +1098,8 @@ export function renderControllerHtml(text, opts = {}) {
   model.productRows = model.rows.filter((r) => r.product).length;
   model.root = root;
   // CSS gửi ra = của controller + của mọi lưới Detail nhúng trong nó.
-  const html = renderViewHtml(model);
+  // `skipHtml`: tầng edit chỉ cần model — bỏ renderViewHtml.
+  const html = opts.skipHtml ? '' : renderViewHtml(model);
   return {
     html,
     model,

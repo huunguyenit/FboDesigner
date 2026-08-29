@@ -789,15 +789,16 @@ const farSwap = planRowEdit(swapModel.model, { kind: 'swap', item: swapRow.index
 ok('đổi chỗ ô đầu với ô cuối được', farSwap.ok);
 eq('token đầu và cuối hoán vị', farSwap.splice.text, '1-1-1: [ngay_ct], [ten_kh], [&k;]');
 
-section('đổi chỗ — khác span thì TỪ CHỐI, không tự dồn lại hàng');
+section('đổi chỗ — khác span vẫn được: pattern đứng yên, chỉ hoán token');
 /*
- * `10--1`: ô 0 trải 2 cột, ô 3 (cột 4) trải 1. Tráo chúng thì ô trải 2 đè lên cột 5 không có
- * thật, hoặc phải dồn lại cả hàng — cả hai đều là quyết định bố cục người dùng chưa nói ra.
+ * `10--1`: ô 0 trải 2 cột, ô 3 (cột 4) trải 1. Pattern không đổi — mỗi slot giữ kích thước,
+ * chỉ hai token đổi chỗ (đúng «giữ slot, đổi input»).
  */
 const diffSpan = planRowEdit(moveModel.model, { kind: 'swap', item: moveRow.index, cell: 0, other: 3 }, MOVE);
-ok('từ chối', !diffSpan.ok);
-ok('nói rõ hai bề rộng', diffSpan.reason.includes('trải 2 và 1 cột'));
-ok('chỉ đường ra', diffSpan.reason.includes('cho bằng nhau'));
+ok('đổi chỗ khác span được', diffSpan.ok, diffSpan.reason);
+eq('PATTERN không đổi', diffSpan.ok ? diffSpan.splice.text.split(':')[0] : null, '10--1');
+eq('hai token hoán vị, slot giữ nguyên', diffSpan.ok ? diffSpan.splice.text : null,
+  '10--1: [ten_kh], [&k;].Label');
 
 section('đổi chỗ — ô trống và chính nó thì TỪ CHỐI');
 const swapEmpty = swapCells(swapRow.row, swapRow.widths, 0, 1, { allowEntity: true });

@@ -199,7 +199,7 @@ function rereadRegion(model, field) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
- * 4. Cụm .Label đi theo khi qua vùng; nằm ở hàng khác thì TỪ CHỐI.
+ * 4. Dời một ô = một field (span 1); multi qua `targets`; không gom cụm tự động.
  * ══════════════════════════════════════════════════════════════════════════ */
 
 const CLUSTER = [
@@ -218,35 +218,83 @@ const CLUSTER = [
   '</dir>',
 ].join(NL);
 
-section('qua vùng khác — cụm .Label CÙNG HÀNG đi theo, giữ khoảng cách tương đối');
+section('qua vùng — kéo Input chỉ dời Input (Label ở lại), span đặt = 1');
 const clu = build(CLUSTER);
 const cluHead = rowOf(clu, 'ma_kh');
 const cluTab = rowOf(clu, 'ma_nvbh');
 const inputCell = cluTab.cells.findIndex((c) => c.token?.field === 'ma_nvbh' && c.token.kind === 'input');
+const labelCell = cluTab.cells.findIndex((c) => c.token?.field === 'ma_nvbh' && c.token.kind === 'label');
 
-// Ô Input ở cột 1, nhãn ở cột 0. Thả Input xuống cột 2 → nhãn phải rơi vào cột 1.
 const withLabel = planMoveControl(clu, { item: cluTab.index, cell: inputCell, toItem: cluHead.index, toCol: 2 },
   () => CLUSTER);
-ok('dời được cả cụm', withLabel.ok, withLabel.reason);
+ok('dời được một ô Input', withLabel.ok, withLabel.reason);
+eq('đúng một control', withLabel.moved, 1);
 const afterClu = applyFor(CLUSTER, withLabel.edits);
-ok('nhãn và ô nhập sang cùng nhau, đúng thứ tự',
-  /value="1-11: \[ma_kh\], \[ma_nvbh\]\.Label, \[ma_nvbh\]"/.test(afterClu), afterClu);
-ok('hàng nguồn rỗng nên thẻ <item> bị bỏ', !afterClu.includes('[ma_nvbh].Label,') || !/value="11--"/.test(afterClu));
+ok('chỉ Input sang header; Label còn ở tab',
+  /value="1-1-: \[ma_kh\], \[ma_nvbh\]"/.test(afterClu)
+  && /\[ma_nvbh\]\.Label/.test(afterClu), afterClu);
 
-section('qua vùng khác — cụm nằm ở HÀNG KHÁC thì TỪ CHỐI, nói rõ hàng nào');
+section('multi `targets` — dời Label + Input cùng lúc, mỗi cái span 1');
+const multi = planMoveControl(clu, {
+  item: cluTab.index,
+  cell: inputCell,
+  toItem: cluHead.index,
+  toCol: 2,
+  targets: [
+    { item: cluTab.index, cell: labelCell },
+    { item: cluTab.index, cell: inputCell },
+  ],
+}, () => CLUSTER);
+ok('dời được multi', multi.ok, multi.reason);
+eq('hai control', multi.moved, 2);
+const afterMulti = applyFor(CLUSTER, multi.edits);
+ok('Label rồi Input liền cột từ toCol',
+  /value="1-11: \[ma_kh\], \[ma_nvbh\]\.Label, \[ma_nvbh\]"/.test(afterMulti), afterMulti);
+
+section('kéo ô span>1 → đặt lại span 1');
+const NUDGE = [
+  '<?xml version="1.0" encoding="utf-8"?>',
+  '<dir table="ct">',
+  '  <fields>',
+  '    <field name="ma_kh"><header v="Mã" e="Code"/></field>',
+  '    <field name="ma_thue" categoryIndex="1"><header v="Thuế" e="Tax"/></field>',
+  '    <field name="thue_suat" categoryIndex="1"><header v="Suất" e="Rate"/></field>',
+  '  </fields>',
+  '  <view id="Dir">',
+  '    <item value="30, 30, 30, 30, 30, 30, 30, 30"/>',
+  '    <item value="110-----: [ma_kh].Label, [ma_kh]"/>',
+  '    <item value="1101----: [ma_thue].Label, [ma_thue], [thue_suat]"/>',
+  '    <category index="1" header="Thuế"/>',
+  '  </view>',
+  '</dir>',
+].join(NL);
+const nudge = build(NUDGE);
+const nudgeFrom = rowOf(nudge, 'ma_kh');
+const nudgeTo = rowOf(nudge, 'ma_thue');
+const nudgeInput = nudgeFrom.cells.findIndex((c) => c.token?.field === 'ma_kh' && c.token.kind === 'input');
+const nudged = planMoveControl(nudge,
+  { item: nudgeFrom.index, cell: nudgeInput, toItem: nudgeTo.index, toCol: 4 },
+  () => NUDGE);
+ok('dời được (chỉ Input, span 1)', nudged.ok, nudged.reason);
+eq('neo đúng cột thả', nudged.dropAnchor, 4);
+const afterNudge = applyFor(NUDGE, nudged.edits);
+ok('chỉ [ma_kh] ở cột 5; Label nguồn ở lại; không kéo theo cụm',
+  /value="11011---: \[ma_thue\]\.Label, \[ma_thue\], \[thue_suat\], \[ma_kh\]"/.test(afterNudge)
+  && /\[ma_kh\]\.Label/.test(afterNudge),
+  afterNudge);
+
+section('qua vùng — Label/Input tách hàng vẫn dời được từng ô');
 const SPLIT_CLUSTER = CLUSTER
   .replace('<item value="11--: [ma_nvbh].Label, [ma_nvbh]"/>',
     '<item value="1---: [ma_nvbh]"/>' + NL + '    <item value="1---: [ma_nvbh].Label"/>');
 const sc = build(SPLIT_CLUSTER);
 const scTab = sc.rows.find((r) => r.row.tokens.some((t) => t.field === 'ma_nvbh' && t.kind === 'input'));
-const scRefuse = planMoveControl(sc,
+const scMove = planMoveControl(sc,
   { item: scTab.index, cell: cellOf(scTab, 'ma_nvbh'), toItem: rowOf(sc, 'ma_kh').index, toCol: 2 },
   () => SPLIT_CLUSTER);
-ok('từ chối', !scRefuse.ok);
-ok('nói rõ là còn ô .label ở hàng khác', scRefuse.reason.includes('.label'), scRefuse.reason);
-ok('chỉ đường ra', scRefuse.reason.includes('dời nó sang trước'), scRefuse.reason);
+ok('dời Input dù Label ở hàng khác', scMove.ok, scMove.reason);
 
-section('trong CÙNG vùng thì KHÔNG gom cụm — kéo một ô là một ô');
+section('trong cùng hàng — kéo một ô là một ô, span đặt = 1');
 const sameRegion = planMoveControl(clu,
   { item: cluTab.index, cell: inputCell, toItem: cluTab.index, toCol: 3 }, () => CLUSTER);
 ok('dời trong cùng hàng vẫn chạy', sameRegion.ok, sameRegion.reason);

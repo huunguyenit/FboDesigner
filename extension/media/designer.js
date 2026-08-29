@@ -31,6 +31,10 @@ const RULER_H = 20;
 const RULER_GAP = 4;
 
 let selected = null;
+/** Ô đang multi-select (Shift+click). Luôn chứa `selected` khi size ≥ 1. */
+let multiSelected = new Set();
+/** Neo cho Shift+click range (ô click thường gần nhất). */
+let selectAnchor = null;
 let layout = null; // { widths: number[], mode: string }
 
 const saved = vscode.getState() || {};
@@ -234,6 +238,8 @@ window.addEventListener('message', (event) => {
   reportWarnings(msg.warnings);
   focused = null;
   selected = null;
+  multiSelected.clear();
+  selectAnchor = null;
   // File vừa vẽ lại: số cột có thể đã khác (chính phép tách/gộp này đổi nó), nên giữ lại chỉ số
   // cột cũ là trỏ vào một cột khác hẳn.
   colPick = null;
@@ -246,11 +252,14 @@ window.addEventListener('message', (event) => {
 });
 
 /**
- * RENDER CỤC BỘ: thay đúng một `<tr>`, giữ nguyên phần còn lại của trang.
+ * RENDER CỤC BỘ: thay đúng một `<tr>` (hoặc hai khi vùng có split), giữ phần còn lại của trang.
  *
  * Chỉ gộp/tách ô đi đường này (host quyết, xem `preview-panel.js`). Cái được giữ lại mới là lý
  * do nó tồn tại: vị trí cuộn, tab đang mở, và trạng thái cuộn ngang của mọi lưới nhúng — dựng
  * lại `innerHTML` là mất sạch cả ba, và mất đúng vào lúc người dùng đang kéo cho vừa một hàng.
+ *
+ * Vùng có `split` → cùng `data-fbo-item` có HAI `<tr>` (trái + phải). `msg.html` mang đúng hai
+ * hàng; thay từng cặp theo `data-fbo-split-side`, không chỉ cái đầu tiên.
  *
  * Ô đang chọn được CHỌN LẠI theo chỉ số, không giữ tham chiếu cũ: `<td>` cũ đã rời khỏi cây
  * DOM, và cầm tiếp nó thì thanh lệnh vẽ theo một hình chữ nhật không còn tồn tại.
@@ -258,29 +267,44 @@ window.addEventListener('message', (event) => {
  * Không tìm thấy hàng thì im lặng — host đã tự vẽ lại toàn bộ trong trường hợp đó.
  */
 function patchRow(msg) {
-  const old = formLayer.querySelector(`tr.FormRow[data-fbo-item="${msg.item}"]`);
-  if (!old) return;
+  const olds = [...formLayer.querySelectorAll(`tr.FormRow[data-fbo-item="${msg.item}"]`)];
+  if (olds.length === 0) return;
 
   const holder = document.createElement('tbody');
   holder.innerHTML = msg.html;
-  const fresh = holder.querySelector('tr');
-  if (!fresh) return;
+  const fresh = [...holder.querySelectorAll('tr')];
+  if (fresh.length === 0) return;
 
-  const wasSelected = old.classList.contains('fbo-row-selected');
-  old.replaceWith(fresh);
-  // Chỉ nối listener cho hàng MỚI. Nối lại cho cả `formLayer` là chồng thêm một bộ listener lên
-  // mọi ô cũ, và sau mười lần gộp thì một cú bấm gửi đi mười thông điệp.
-  wireSelection(fresh);
+  const bySide = (rows, side) => rows.find((tr) => tr.dataset.fboSplitSide === side);
+  const pairs = olds.length === fresh.length && olds.some((tr) => tr.dataset.fboSplitSide)
+    ? olds.map((old) => {
+      const side = old.dataset.fboSplitSide;
+      return { old, next: (side && bySide(fresh, side)) || fresh[olds.indexOf(old)] };
+    })
+    : olds.map((old, i) => ({ old, next: fresh[Math.min(i, fresh.length - 1)] }));
 
-  if (wasSelected) {
+  let selectedFresh = null;
+  for (const { old, next } of pairs) {
+    if (!next) continue;
+    const wasSelected = old.classList.contains('fbo-row-selected');
+    old.replaceWith(next);
+    // Chỉ nối listener cho hàng MỚI. Nối lại cho cả `formLayer` là chồng thêm một bộ listener lên
+    // mọi ô cũ, và sau mười lần gộp thì một cú bấm gửi đi mười thông điệp.
+    wireSelection(next);
+    if (wasSelected) selectedFresh = next;
+  }
+
+  if (selectedFresh) {
     // Sau phép DỜI, control nằm ở CỘT khác và chỉ số ô đã đổi theo (ô trống bị ăn mất). Chọn
     // lại theo cột mới; chỉ số ô chỉ đúng cho gộp/tách/thêm/xoá, nơi ô không đi đâu cả.
+    // Ô có thể nằm ở nửa trái hoặc nửa phải — tìm trên mọi hàng vừa vá.
+    const allFresh = pairs.map((p) => p.next).filter(Boolean);
     const byCol = msg.col === undefined || msg.col === null
       ? null
-      : fresh.querySelector(`td[data-fbo-col="${msg.col}"]`);
+      : allFresh.map((tr) => tr.querySelector(`td[data-fbo-col="${msg.col}"]`)).find(Boolean);
     const cell = byCol
-      || fresh.querySelector(`td[data-fbo-cell="${msg.cell}"]`)
-      || fresh.querySelector('td[data-fbo-cell]');
+      || allFresh.map((tr) => tr.querySelector(`td[data-fbo-cell="${msg.cell}"]`)).find(Boolean)
+      || selectedFresh.querySelector('td[data-fbo-cell]');
     if (cell) selectCell(cell);
   }
   reportWarnings(msg.warnings);
@@ -352,6 +376,8 @@ function restoreTab(list) {
 function showIdle(msg) {
   layout = null;
   selected = null;
+  multiSelected.clear();
+  selectAnchor = null;
   blueprint.innerHTML = '';
   formLayer.innerHTML = '';
   const p = document.createElement('p');
@@ -442,9 +468,25 @@ function wireSelection(root) {
      * Chặn ở đây cho ra đúng hai hành vi mong muốn: bấm vào cột → tới khai báo cột trong file
      * lưới; bấm vào vùng trống / toolbar của tab → nổi lên ô form và tới `<item>` của nó.
      */
+    cell.addEventListener('mousedown', (ev) => {
+      // Shift+click mở rộng vùng chọn ô — trình duyệt mặc định bôi đen chữ giữa hai điểm
+      // (đặc biệt nhãn Label). Chặn từ mousedown, trước khi selection bắt đầu.
+      if (ev.shiftKey) {
+        ev.preventDefault();
+        try { window.getSelection()?.removeAllRanges(); } catch { /* ignore */ }
+      }
+    });
+
     cell.addEventListener('click', (ev) => {
       ev.stopPropagation();
-      selectCell(cell);
+      if (ev.shiftKey) {
+        ev.preventDefault();
+        try { window.getSelection()?.removeAllRanges(); } catch { /* ignore */ }
+      }
+      selectCell(cell, { additive: ev.shiftKey === true });
+      if (ev.shiftKey) {
+        try { window.getSelection()?.removeAllRanges(); } catch { /* ignore */ }
+      }
       if (ev.ctrlKey || ev.metaKey) revealCell(cell, ev);
     });
 
@@ -458,22 +500,119 @@ function wireSelection(root) {
   }
 }
 
-/** Đánh dấu ô + cả hàng chứa nó, rồi vẽ lại những thứ bám theo ô đang chọn. */
-function selectCell(cell) {
-  if (selected) selected.classList.remove('fbo-selected');
-  // Cả DÒNG được đánh dấu, không chỉ ô: người dùng đang chọn một hàng khai báo, và hàng mới
-  // là đơn vị họ sửa (`<item value>`). Đánh dấu mỗi ô thì ở form dày đặc nhìn không ra.
+/** Đánh dấu ô (+ multi nếu Shift), rồi vẽ lại những thứ bám theo ô đang chọn. */
+function selectCell(cell, { additive = false } = {}) {
+  colPick = null;
+  if (!cell) return;
+  const empty = cell.classList.contains('DwfEmptyCell');
+  // Ô trống ĐƯỢC chọn (để hiện nút + thêm field). Không multi-select ô trống.
+  if (empty && additive) return;
+
+  if (additive) {
+    const anchor = selectAnchor || selected || cell;
+    const range = contiguousCellRange(anchor, cell);
+    if (!range) return;
+    for (const c of multiSelected) c.classList.remove('fbo-selected');
+    multiSelected.clear();
+    for (const c of range) {
+      multiSelected.add(c);
+      c.classList.add('fbo-selected');
+    }
+    selected = cell;
+    focused = cell;
+    for (const r of formLayer.querySelectorAll('tr.fbo-row-selected')) r.classList.remove('fbo-row-selected');
+    const items = new Set([...multiSelected].map((c) => c.closest('tr')?.dataset.fboItem).filter((v) => v !== undefined && v !== ''));
+    for (const item of items) {
+      for (const tr of formLayer.querySelectorAll(`tr.FormRow[data-fbo-item="${item}"]`)) {
+        tr.classList.add('fbo-row-selected');
+      }
+    }
+    renderDebug();
+    drawBlueprint();
+    return;
+  }
+
+  for (const c of multiSelected) {
+    if (c !== cell) c.classList.remove('fbo-selected');
+  }
+  multiSelected.clear();
+  if (selected && selected !== cell) selected.classList.remove('fbo-selected');
   for (const r of formLayer.querySelectorAll('tr.fbo-row-selected')) r.classList.remove('fbo-row-selected');
   const ownRow = cell.closest('tr');
-  if (ownRow) ownRow.classList.add('fbo-row-selected');
+  if (ownRow) {
+    const item = ownRow.dataset.fboItem;
+    // Vùng split: cùng item có hai `<tr>` (trái/phải) — tô cả hai để hàng nhìn liền.
+    if (item !== undefined && item !== '') {
+      for (const tr of formLayer.querySelectorAll(`tr.FormRow[data-fbo-item="${item}"]`)) {
+        tr.classList.add('fbo-row-selected');
+      }
+    } else {
+      ownRow.classList.add('fbo-row-selected');
+    }
+  }
   cell.classList.add('fbo-selected');
+  multiSelected.add(cell);
   selected = cell;
   focused = cell;
-  // Chọn một Ô thì bỏ chọn BIÊN CỘT: hai thanh lệnh cùng hiện là hai họ thao tác ở hai cấp
-  // khác nhau nằm cạnh nhau, và bấm nhầm giữa chúng là sửa nhầm cả vùng thay vì một hàng.
-  colPick = null;
+  selectAnchor = cell;
   renderDebug();
   drawBlueprint();
+}
+
+/**
+ * Vùng chữ nhật liền kề từ ô A → B trong CÙNG bảng form.
+ * Chỉ lấy ô có token (không trống). Khác bảng / khác vùng → null.
+ */
+function contiguousCellRange(a, b) {
+  const tableA = a.closest('table[data-fbo-col-widths]');
+  const tableB = b.closest('table[data-fbo-col-widths]');
+  if (!tableA || tableA !== tableB) return null;
+  if (tableA.closest('.GridTabPanel')) return null;
+
+  const rows = [...tableA.querySelectorAll('tr.FormRow[data-fbo-item]')]
+    .filter((tr) => !tr.classList.contains('DwfColRow'));
+  const ia = rows.indexOf(a.closest('tr.FormRow'));
+  const ib = rows.indexOf(b.closest('tr.FormRow'));
+  if (ia < 0 || ib < 0) return null;
+
+  const ca = Number(a.dataset.fboCol) || 0;
+  const cb = Number(b.dataset.fboCol) || 0;
+  const r0 = Math.min(ia, ib);
+  const r1 = Math.max(ia, ib);
+  const c0 = Math.min(ca, cb);
+  const c1 = Math.max(ca, cb);
+
+  const out = [];
+  for (let ri = r0; ri <= r1; ri++) {
+    for (const td of rows[ri].querySelectorAll('td[data-fbo-cell]:not(.DwfEmptyCell)')) {
+      if (td.closest('table[data-fbo-col-widths]') !== tableA) continue;
+      const col = Number(td.dataset.fboCol) || 0;
+      const span = Number(td.dataset.fboSpan) || 1;
+      // Ô giao với [c0, c1] theo cột bắt đầu nằm trong khoảng, hoặc phủ overlap
+      if (col <= c1 && col + span - 1 >= c0) out.push(td);
+    }
+  }
+  return out.length > 0 ? out : null;
+}
+
+/** Các item index trong multi-select, đã sort — null nếu không liền kề trên bảng. */
+function selectedItemBlock() {
+  const cells = [...multiSelected];
+  if (cells.length === 0) return null;
+  const table = cells[0].closest('table[data-fbo-col-widths]');
+  if (!table || cells.some((c) => c.closest('table[data-fbo-col-widths]') !== table)) return null;
+  const rows = [...table.querySelectorAll('tr.FormRow[data-fbo-item]')]
+    .filter((tr) => !tr.classList.contains('DwfColRow'));
+  const indexes = [...new Set(cells.map((c) => rows.indexOf(c.closest('tr.FormRow'))))]
+    .filter((i) => i >= 0)
+    .sort((a, b) => a - b);
+  if (indexes.length === 0) return null;
+  for (let i = 1; i < indexes.length; i++) {
+    if (indexes[i] !== indexes[i - 1] + 1) return null; // non-contiguous rows
+  }
+  const items = indexes.map((i) => Number(rows[i].dataset.fboItem));
+  if (items.some((n) => !Number.isFinite(n))) return null;
+  return { items, table, rowCount: indexes.length };
 }
 
 /** Đưa con trỏ trong file XML tới đúng khai báo sinh ra ô này. */
@@ -529,10 +668,32 @@ function revealCell(cell, ev) {
  * hết nói được gì.
  */
 function drawBlueprint() {
-  blueprint.innerHTML = '';
-  if (!blueprintOn || !layout) return;
+  if (!blueprintOn || !layout) {
+    blueprint.innerHTML = '';
+    return;
+  }
 
   const stageBox = stage.getBoundingClientRect();
+  // metaDrag cần vẽ lại split/anchor theo value mới — không dùng đường nhẹ.
+  const light = !!(drag || moveDrag) && !metaDrag;
+
+  /*
+   * Đường NHẸ khi đang kéo: giữ thước/slot đã vẽ, chỉ thay bóng. Xóa cả blueprint mỗi
+   * mousemove là nguồn giật chính so với WinForms.
+   */
+  if (light && blueprint.childNodes.length > 0) {
+    for (const node of [...blueprint.querySelectorAll('.bp-drag, .bp-move, .bp-move-bad, .bp-move-swap, .bp-bar, .bp-focus, .bp-grip, .bp-span, .bp-row-add, .bp-slot-add')]) {
+      node.remove();
+    }
+    const frag = document.createDocumentFragment();
+    drawHandles(frag, stageBox);
+    drawDragShadow(frag, stageBox);
+    drawMoveShadow(frag, stageBox);
+    blueprint.appendChild(frag);
+    return;
+  }
+
+  blueprint.innerHTML = '';
   const frag = document.createDocumentFragment();
 
   for (const table of formLayer.querySelectorAll('table[data-fbo-col-widths]')) {
@@ -542,6 +703,7 @@ function drawBlueprint() {
   drawSpanBadges(frag, stageBox);
   drawTabHeightHandles(frag, stageBox);
   drawHandles(frag, stageBox);
+  drawRowAddButtons(frag, stageBox);
   drawColumnHandles(frag, stageBox);
   drawDragShadow(frag, stageBox);
   drawMoveShadow(frag, stageBox);
@@ -549,42 +711,125 @@ function drawBlueprint() {
   blueprint.appendChild(frag);
 }
 
+/** Gộp nhiều mousemove vào một frame — tránh drawBlueprint chạy 2–3 lần / frame. */
+let bpRaf = 0;
+function drawBlueprintSoon() {
+  if (bpRaf) return;
+  bpRaf = requestAnimationFrame(() => {
+    bpRaf = 0;
+    drawBlueprint();
+  });
+}
+
 /**
- * Tay cầm kéo chiều cao — MỘT cái cho tab đang mở, nhìn thấy được.
+ * Tay cầm kéo chiều cao — có thể HAI thanh trên cùng một tab:
  *
- * Trước đây chỗ kéo là "dải 6px sát mép dưới panel", không có dấu hiệu gì. Mà mép dưới panel
- * của một tab có lưới lại nằm ngay dưới dải footer của lưới, nên thao tác duy nhất tìm được
- * bằng mắt là "kéo cái footer lên" — trông như đang kéo lưới, trong khi con số bị sửa lại là
- * chiều cao TAB. Nay dải ấy được vẽ ra, có màu, có tooltip nói thẳng nó sửa thuộc tính nào.
+ *   hổ phách (`.bp-hheight-view`) → `view@height` — dùng chung vùng main
+ *   vàng     (`.bp-hheight-grid`) → `field@rows`  — riêng tab lưới, ĐÚNG số khai (144),
+ *                                                   không gồm chrome 60px (toolbar+split+footer)
  *
- * Mỗi tab một chiều cao riêng, và nguồn con số khác nhau — đây là chỗ dễ sửa nhầm nhất:
- *   tab CÓ lưới    → `field@rows` của chính field mang `<items style="Grid">`; RIÊNG tab đó
- *   tab KHÔNG lưới → `view@height`; DÙNG CHUNG cho mọi tab không có lưới
- * Tooltip nói rõ cái nào, vì kéo nhầm loại thứ hai là mọi tab khác cùng co lại theo.
+ * Hai thanh độc lập: kéo cái này không đổi cái kia. Con số neo MÉP PHẢI vùng main
+ * (cạnh line y), không nằm trên thanh kéo ở đáy.
  *
- * Chỉ vẽ cho tab ĐANG MỞ: panel ẩn đo ra 0×0, và một tay cầm trôi về góc trên bên trái thì tệ
- * hơn là không có tay cầm nào.
+ * Chỉ vẽ cho tab ĐANG MỞ: panel ẩn đo ra 0×0.
  */
+/** Chrome ngoài `field@rows`: toolbar 30 + divSplit 8 + divFooter 22. */
+const GRID_OUTER_CHROME_PX = 60;
+
+function readDeclaredRows(panel) {
+  const raw = Number(panel.dataset.fboRows);
+  if (Number.isFinite(raw) && raw >= 0) return raw;
+  const grid = panel.querySelector('.GridTabPanel');
+  const fromGrid = Number(grid?.dataset.fboRows);
+  if (Number.isFinite(fromGrid) && fromGrid >= 0) return fromGrid;
+  const block = Number(grid?.dataset.fboBlock);
+  if (Number.isFinite(block) && block >= GRID_OUTER_CHROME_PX) return block - GRID_OUTER_CHROME_PX;
+  return null;
+}
+
+function readDeclaredViewHeight(panel) {
+  const raw = Number(panel.dataset.fboViewHeight);
+  if (Number.isFinite(raw) && raw >= 0) return raw;
+  return Math.round(panel.getBoundingClientRect().height);
+}
+
+function appendHeightBar(frag, {
+  left, top, width, kind, title, onDown,
+}) {
+  const bar = el('div', `bp-hheight bp-hheight-${kind}`, {
+    left: px(left),
+    top: px(top),
+    width: px(width),
+  });
+  bar.title = title;
+  bar.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onDown(e);
+  });
+  frag.appendChild(bar);
+}
+
+/** Nhãn chiều cao neo MÉP PHẢI vùng main (bên trong line y) — không nằm trên thanh kéo ở đáy. */
+function appendHeightSideLabel(frag, { right, top, kind, value }) {
+  const label = el('div', `bp-hheight-label bp-hheight-label-${kind}`, {
+    left: px(right + 46),
+    top: px(top),
+  });
+  label.textContent = `${value}`;
+  frag.appendChild(label);
+}
+
 function drawTabHeightHandles(frag, stageBox) {
   for (const panel of formLayer.querySelectorAll('.DwfTabPanel.DwfActive')) {
     const box = panel.getBoundingClientRect();
     if (box.width === 0 && box.height === 0) continue;
 
-    const field = panel.dataset.fboRowsField;
-    const bar = el('div', 'bp-hheight', {
-      left: px(box.left - stageBox.left),
-      top: px(box.bottom - stageBox.top - 3),
-      width: px(box.width),
+    const field = panel.dataset.fboRowsField || null;
+    const viewH = readDeclaredViewHeight(panel);
+    const rows = field ? readDeclaredRows(panel) : null;
+    const left = box.left - stageBox.left;
+    const width = box.width;
+    const panelTop = box.top - stageBox.top;
+    const panelBottom = box.bottom - stageBox.top;
+    const right = left + width;
+
+    // Thanh view (hổ phách) — luôn có. Nằm sát mép dưới panel.
+    appendHeightBar(frag, {
+      left, top: panelBottom - 3, width,
+      kind: 'view',
+      title: `Kéo đổi view@height = ${viewH} — dùng chung vùng main`,
+      onDown: (e) => startHeightDrag(panel, e.clientY, 'view'),
     });
-    bar.title = field
-      ? `Kéo đổi chiều cao tab này — rows của [${field}], riêng tab này`
-      : 'Kéo đổi chiều cao — view@height, dùng chung cho mọi tab không có lưới';
-    bar.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      startHeightDrag(panel, e.clientY);
-    });
-    frag.appendChild(bar);
+
+    // Thanh grid (vàng) — chỉ khi tab có lưới. Đặt phía trên thanh view để không chồng.
+    let gridBottom = panelBottom;
+    if (field) {
+      const grid = panel.querySelector('.GridTabPanel');
+      const gbox = grid?.getBoundingClientRect();
+      gridBottom = gbox && gbox.height > 0
+        ? gbox.bottom - stageBox.top
+        : panelBottom;
+      // Nếu lưới kín panel, xếp vàng ngay trên hổ phách (cách 8px).
+      const overlap = Math.abs(gridBottom - panelBottom) < 4;
+      const top = (overlap ? panelBottom - 3 - 8 : gridBottom - 3);
+      const rowsVal = rows ?? 0;
+      appendHeightBar(frag, {
+        left, top, width: gbox && gbox.width > 0 ? gbox.width : width,
+        kind: 'grid',
+        title: `Kéo đổi rows của [${field}] = ${rowsVal} — riêng tab này`,
+        onDown: (e) => startHeightDrag(panel, e.clientY, 'rows'),
+      });
+    }
+
+    // Con số chiều cao: mép phải vùng main (giữa theo chiều dọc), xếp dọc rows rồi view.
+    const midY = panelTop + (panelBottom - panelTop) / 2;
+    if (field && rows !== null) {
+      appendHeightSideLabel(frag, { right, top: midY - 14, kind: 'grid', value: rows });
+      appendHeightSideLabel(frag, { right, top: midY + 2, kind: 'view', value: viewH });
+    } else {
+      appendHeightSideLabel(frag, { right, top: midY - 6, kind: 'view', value: viewH });
+    }
   }
 }
 
@@ -701,34 +946,35 @@ function drawRegion(frag, table, stageBox) {
    * Đòi MỌI ô có nội dung đều là ô lưới, không chỉ "có một cái lưới đâu đó": tab trộn lưới với
    * vài hàng form thường thì anchor/split vẫn nói về mấy hàng ấy, và tắt đi là lấy mất một
    * thao tác đang đúng.
-   */
-  const gridCells = table.querySelectorAll('td.FormCellGrid').length;
-  /*
-   * `td[data-fbo-col]` KHÔNG CHỈ nói về ô của BẢNG NÀY.
    *
-   * `colAttrs` trong `grid.mjs` gắn CÙNG một tên thuộc tính `data-fbo-col` lên ô tiêu đề của
-   * chính LƯỚI nhúng — `td.FormCellGrid` chứa cả một `<table data-fbo-col-widths>` con bên
-   * trong nó, và `querySelectorAll` đi xuyên qua ranh giới bảng lồng nhau. Đếm mù bằng
-   * `data-fbo-col` cộng luôn mấy ô tiêu đề của lưới con vào, nên `gridCells === filledCells`
-   * (1 ô `FormCellGrid` so với 1 + N ô tiêu đề lưới) không bao giờ khớp — `isGridTab` LUÔN
-   * `false` dù tab đó chỉ có một cái lưới, và đúng cái lỗi vừa bắt được: split/merge vẫn mọc
-   * ra trên một tab toàn lưới.
-   *
-   * Lọc bằng `closest('table[data-fbo-col-widths]') === table`: chỉ nhận ô mà bảng gần nhất
-   * bao nó CHÍNH LÀ bảng đang xét, không phải một bảng lưới lồng bên trong.
+   * `data-fbo-grid-only` do core gắn khi mọi token trong vùng là `<items style="Grid"/>` —
+   * nguồn sự thật phía XML. Heuristic DOM là lớp dự phòng khi cờ thiếu sau patch cục bộ.
    */
-  const filledCells = [...table.querySelectorAll('td[data-fbo-col]:not(.DwfEmptyCell)')]
+  const gridCells = [...table.querySelectorAll('td.FormCellGrid')]
     .filter((td) => td.closest('table[data-fbo-col-widths]') === table).length;
-  const isGridTab = gridCells > 0 && gridCells === filledCells;
+  const contentCells = [...table.querySelectorAll('td[data-fbo-col]:not(.DwfEmptyCell)')]
+    .filter((td) => td.closest('table[data-fbo-col-widths]') === table
+      && !td.closest('tr.DwfColRow'));
+  const isGridTab = table.dataset.fboGridOnly === '1'
+    || (gridCells > 0 && contentCells.length > 0
+      && contentCells.every((td) => td.classList.contains('FormCellGrid')));
 
   if (!isGrid) {
     offsets.forEach((o, i) => {
-      const edge = i === 0 || i === offsets.length - 1;
-      frag.appendChild(el('div', `bp-guide${edge ? ' bp-edge' : ''}`, {
+      const atEnd = i === offsets.length - 1;
+      const edge = i === 0 || atEnd;
+      // Cột width=0: vẫn vẽ vạch cùng kiểu/màu cột thường (hai mốc trùng — không nới bảng).
+      const zeroCol = i > 0 && widths[i - 1] === 0;
+      const guide = el('div', `bp-guide${edge ? ' bp-edge' : ''}`, {
         left: px(x0 + o),
         top: px(y0),
         height: px(bottom - y0),
-      }));
+      });
+      // Mép phải: border-left nằm đúng `left` nên dễ bị cắt sát cạnh stage (`inset:0`).
+      // Kéo 1px vào trong để vạch vẫn thấy khi cột cuối width>0 (không có tick "0" che).
+      if (atEnd) guide.style.marginLeft = '-1px';
+      if (zeroCol) guide.title = `cột ${i} · 0px (neo/đệm — vẫn là một cột trong pattern)`;
+      frag.appendChild(guide);
     });
     // Vạch cột vẫn vẽ cho tab lưới — chúng nói về list px, thứ tab lưới vẫn dùng thật.
     if (!isGridTab) drawAnchorAndSplit(frag, table, { offsets, x0, y0, height: bottom - y0 });
@@ -780,6 +1026,7 @@ function drawRegion(frag, table, stageBox) {
      *              hoàn toàn trong suốt với chuột, tab bấm được như chưa từng có blueprint.
      */
     region: (isGrid || isGridTab) ? null : (table.dataset.fboRegionTable || null),
+    colOffset: tableColOffset(table),
   });
 }
 
@@ -821,21 +1068,36 @@ function gridTicks(table, widths, stageBox) {
 const GRID_TICK_H = 10;
 
 /**
+ * Gốc vùng form — khi có `split` là `.FormSplit` (list px đầy đủ + split/anchor);
+ * không thì chính bảng FormTable.
+ */
+function regionRootOf(el) {
+  return el?.closest?.('[data-fbo-region-root]') || el?.closest?.('table[data-fbo-col-widths]') || null;
+}
+
+/** List px ĐẦY ĐỦ của vùng (không phải nửa trái/phải). */
+function regionWidthsOf(el) {
+  const root = regionRootOf(el);
+  if (!root) return [];
+  return (root.dataset.fboColWidths || '').split(',').map(Number).filter((n) => Number.isFinite(n));
+}
+
+/** Chỉ số cột đầu của nửa bảng trong vùng (0 với bảng trái / không split). */
+function tableColOffset(table) {
+  return Number(table?.dataset?.fboColOffset) || 0;
+}
+
+/**
  * `view@anchor` và `view@split` — hai con số của vùng main mà không có gì trên form nói ra.
  *
- * Cả hai là CHỈ SỐ CỘT tính từ 1, không phải px. Chúng không đổi cách bảng được vẽ, nên nếu
- * blueprint không vẽ chúng thì chúng vô hình hoàn toàn: người đọc phải mở XML mới biết form có
- * khai hay không, và khai ở cột nào.
- *
- * Cách vẽ và cả hai công thức chỉ số lấy từ bản DWF (`DesignWebViewHost.xaml.cs`,
- * `splitAndAnchor`), kể cả chỗ hai bên đánh chỉ số LỆCH NHAU một nấc — đây là bẫy thật:
+ * Cả hai là CHỈ SỐ CỘT tính từ 1, không phải px. Runtime chia bảng làm hai FormTable khi có
+ * split; blueprint vẫn vẽ vạch/mỏ neo theo cùng công thức DWF:
  *
  *   split  → vạch tại `offsets[split]`, tức MÉP PHẢI của cột `split`; ranh giới nằm SAU cột đó
  *   anchor → mỏ neo tại `offsets[anchor] - 14`, tức nép vào mép phải của CHÍNH cột `anchor`
  *
- * Đọc lướt thì trông như cùng một phép tính, nhưng một cái nói về ranh giới còn cái kia nói về
- * bản thân cột. Lấy nhầm là marker lệch đúng một cột — sai kiểu nhìn không ra, vì nó vẫn nằm
- * ngay ngắn trên một mốc cột nào đó.
+ * Khi vùng đã tách thành hai bảng, vạch split vẽ trên mép phải bảng trái; mỏ neo chỉ vẽ trên
+ * nửa chứa cột `anchor`. Metadata đọc từ `.FormSplit` (hoặc chính bảng nếu không split).
  *
  * Cả hai KÉO ĐƯỢC: thả ra thì chỉ số cột mới được ghi vào đúng thẻ đã khai vùng đó — `<view>`
  * cho dải header, `<category index="n">` cho một tab. Core chọn thẻ (`planRegionMetadata`), nên
@@ -843,32 +1105,54 @@ const GRID_TICK_H = 10;
  */
 function drawAnchorAndSplit(frag, table, { offsets, x0, y0, height }) {
   const last = offsets.length - 1;
-  const region = table.dataset.fboRegionTable || '';
+  const root = regionRootOf(table) || table;
+  const region = root.dataset.fboRegionTable || table.dataset.fboRegionTable || '';
+  const side = table.dataset.fboSplitSide || '';
+  const colOffset = tableColOffset(table);
 
-  const split = Number(table.dataset.fboSplit);
-  if (Number.isFinite(split) && split > 0 && split < last) {
-    const at = metaDrag && metaDrag.attr === 'split' && metaDrag.region === region ? metaDrag.value : split;
+  // List px ĐẦY ĐỦ — khi đang kéo split, vạch có thể trượt sang nửa phải; offsets cục bộ
+  // của bảng trái không đủ. `x0` của bảng trái = mép trái vùng, nên cộng fullOffsets là đúng.
+  const fullWidths = regionWidthsOf(table);
+  const fullOffsets = [0];
+  for (const w of fullWidths) fullOffsets.push(fullOffsets[fullOffsets.length - 1] + w);
+  const fullLast = fullOffsets.length - 1;
+
+  // Split: chỉ vẽ một lần trên bảng trái (hoặc bảng đơn).
+  const splitHere = !side || side === 'left';
+  const split = Number(root.dataset.fboSplit);
+  if (splitHere && Number.isFinite(split) && split > 0 && fullLast > 0) {
+    const at = metaDrag && metaDrag.attr === 'split' && metaDrag.region === region
+      ? metaDrag.value
+      : split;
+    const clamped = Math.min(Math.max(at, 0), fullLast);
     const line = el('div', 'bp-split', {
-      left: px(x0 + offsets[Math.min(Math.max(at, 0), last)]),
+      left: px(x0 + fullOffsets[clamped]),
       top: px(y0),
       height: px(height),
     });
-    line.title = `split = ${at} — bảng chia làm hai sau cột ${at}. Kéo ngang để đổi.`;
-    line.addEventListener('mousedown', (e) => startMetaDrag(e, table, 'split', offsets, x0));
+    line.title = `split = ${clamped} — bảng chia làm hai sau cột ${clamped}. Kéo ngang để đổi.`;
+    line.addEventListener('mousedown', (e) => startMetaDrag(e, table, 'split', fullOffsets, x0));
     frag.appendChild(line);
   }
 
-  const anchor = Number(table.dataset.fboAnchor);
-  if (Number.isFinite(anchor) && anchor > 0 && anchor <= last) {
-    const at = metaDrag && metaDrag.attr === 'anchor' && metaDrag.region === region ? metaDrag.value : anchor;
-    const icon = el('div', 'bp-anchor', {
-      left: px(x0 + offsets[Math.min(Math.max(at, 0), last)] - 14),
-      top: px(y0 - 15),
-    });
-    icon.textContent = '⚓';
-    icon.title = `anchor = ${at} — cột ${at} là cột được neo. Kéo ngang để đổi.`;
-    icon.addEventListener('mousedown', (e) => startMetaDrag(e, table, 'anchor', offsets, x0));
-    frag.appendChild(icon);
+  const anchor = Number(root.dataset.fboAnchor);
+  if (Number.isFinite(anchor) && anchor > 0) {
+    const at = metaDrag && metaDrag.attr === 'anchor' && metaDrag.region === region
+      ? metaDrag.value
+      : anchor;
+    const localAt = at - colOffset;
+    // Mỏ neo chỉ hiện trên nửa đang chứa cột đó (hoặc bảng đơn).
+    if (localAt > 0 && localAt <= last) {
+      const icon = el('div', 'bp-anchor', {
+        left: px(x0 + offsets[Math.min(localAt, last)] - 14),
+        top: px(y0 - 15),
+      });
+      icon.textContent = '⚓';
+      icon.title = `anchor = ${at} — cột ${at} là cột được neo. Kéo ngang để đổi.`;
+      // Anchor kéo trên offsets cục bộ + colOffset (startMetaDrag cộng lại).
+      icon.addEventListener('mousedown', (e) => startMetaDrag(e, table, 'anchor', offsets, x0));
+      frag.appendChild(icon);
+    }
   }
 }
 
@@ -887,18 +1171,27 @@ let metaDrag = null;
 function startMetaDrag(e, table, attr, offsets, x0) {
   e.preventDefault();
   e.stopPropagation();
-  const region = table.dataset.fboRegionTable || '';
-  const from = Number(attr === 'anchor' ? table.dataset.fboAnchor : table.dataset.fboSplit);
-  metaDrag = { region, attr, offsets, x0, from, value: from, table };
+  const root = regionRootOf(table) || table;
+  const region = root.dataset.fboRegionTable || table.dataset.fboRegionTable || '';
+  // split/anchor nằm trên `.FormSplit` khi vùng đã chia đôi — không đọc từ nửa FormTable.
+  const from = Number(attr === 'anchor' ? root.dataset.fboAnchor : root.dataset.fboSplit);
+  // split kéo trên offsets ĐẦY ĐỦ (xem drawAnchorAndSplit) → colOffset = 0.
+  // anchor kéo trên offsets cục bộ của nửa bảng → cộng offset của nửa đó.
+  const colOffset = attr === 'split' ? 0 : tableColOffset(table);
+  metaDrag = { region, attr, offsets, x0, from, value: from, table, colOffset, root };
   // Lớp riêng, không dùng chung với `fbo-dragging` của gộp/tách: mỏ neo và vạch chia được DỜI
   // sang cột khác, không phải co giãn ra — con trỏ phải nói đúng chuyện đang xảy ra.
   document.body.classList.add('fbo-dragging-move');
 }
 
-/** Mốc cột gần con trỏ nhất, tính bằng hệ layout của chính bảng đang kéo. */
+/** Mốc cột gần con trỏ nhất — trả CHỈ SỐ CỘT tuyệt đối của vùng (cộng `colOffset` của nửa bảng). */
 function columnIndexAt(clientX) {
   const stageBox = stage.getBoundingClientRect();
-  const box = metaDrag.table.getBoundingClientRect();
+  // Đo bề rộng vùng ĐẦY ĐỦ khi kéo split (offsets là full); nửa bảng thì đo chính bảng đó.
+  const measure = metaDrag.attr === 'split'
+    ? (metaDrag.root || regionRootOf(metaDrag.table) || metaDrag.table)
+    : metaDrag.table;
+  const box = measure.getBoundingClientRect();
   const total = metaDrag.offsets[metaDrag.offsets.length - 1];
   const k = total > 0 && box.width > 0 ? box.width / total : 1;
   const x = (clientX - stageBox.left) / k - metaDrag.x0;
@@ -909,7 +1202,7 @@ function columnIndexAt(clientX) {
     const gap = Math.abs(o - x);
     if (gap < bestGap) { bestGap = gap; best = i; }
   });
-  return best;
+  return best + (metaDrag.colOffset || 0);
 }
 
 window.addEventListener('mousemove', (e) => {
@@ -917,7 +1210,7 @@ window.addEventListener('mousemove', (e) => {
   const next = columnIndexAt(e.clientX);
   if (next === metaDrag.value) return;
   metaDrag.value = next;
-  drawBlueprint();
+  drawBlueprintSoon();
 });
 
 window.addEventListener('mouseup', () => {
@@ -959,26 +1252,43 @@ function clipRangeOf(table, stageBox, lay) {
  * người đọc mất đúng con số họ cần. Chỉ cột 0px là thật sự không có gì để ghi — đó là cột khoá
  * kỹ thuật (`stt_rec`), runtime cũng không vẽ.
  */
-function drawWidthStrip(frag, { ticks, top, isGrid, clip, region }) {
+function drawWidthStrip(frag, { ticks, top, isGrid, clip, region, colOffset = 0 }) {
   // Grid column widths are now shown directly in header cells.
   if (isGrid) return;
   ticks.forEach(({ left, width, label }, i) => {
-    // Cột khai 0px là cột khoá kỹ thuật (`stt_rec`, `line_nbr`) — runtime không vẽ nó, và
-    // không có con số nào đáng ghi cho một cột không tồn tại trên màn hình.
-    if (!(label > 0)) return;
     if (clip && (left + width <= clip.from || left >= clip.to)) return;
 
-    const picked = region !== null && colPick && colPick.region === region && colPick.col === i;
+    /*
+     * Cột 0px VẪN LÀ MỘT CỘT trong pattern/list (neo, đệm, khóa kỹ thuật). Runtime để
+     * `width:0` nên ô co về 0 — bảng không phình. Blueprint phải HIỆN nó (không nới bảng):
+     * vạch nét đứt + nhãn "0" trên lớp overlay, bề rộng nhãn chỉ nằm trên blueprint.
+     */
+    const zero = label === 0;
+    if (!zero && !(label > 0)) return;
+
+    // Chỉ số CỘT TOÀN VÙNG — nửa phải FormTable bắt đầu từ `colOffset`, không reset về 0.
+    const absCol = colOffset + i;
+
+    // Cột 0px: giữ `left` đúng mốc guide. Không dùng `left - 6` để canh giữa chữ — `.bp-tick`
+    // có `border-left`, dời left sẽ lệch vạch tick khỏi guide. Canh giữa chữ bằng CSS.
+    const picked = region !== null && colPick && colPick.region === region && colPick.col === absCol;
+    const isLast = i === ticks.length - 1;
+    // Cột cuối width>0: các cột trước lấy mép phải nhờ border-left của tick kế; cột cuối
+    // không có tick kế → thiếu vạch phải (khi cuối = 0 thì tick "0" đứng đúng mép phải).
     const tick = el('div', `bp-tick${isGrid ? ' bp-tick-grid' : ''}`
-      + (region === null ? '' : ' bp-tick-pick') + (picked ? ' bp-tick-on' : ''), {
+      + (region === null ? '' : ' bp-tick-pick') + (picked ? ' bp-tick-on' : '')
+      + (zero ? ' bp-tick-zero' : '')
+      + (isLast && !zero ? ' bp-tick-end' : ''), {
       left: px(left),
       top: px(top),
-      width: px(width),
+      width: px(zero ? 12 : width),
     });
     tick.textContent = String(label);
-    tick.title = region === null
-      ? `cột ${i} · ${label}px`
-      : `cột ${i + 1} · ${label}px — bấm để tách hoặc gộp BIÊN cột của cả vùng`;
+    tick.title = zero
+      ? `cột ${absCol + 1} · 0px (neo/đệm — vẫn đếm trong pattern, không nới form)`
+      : (region === null
+        ? `cột ${absCol} · ${label}px`
+        : `cột ${absCol + 1} · ${label}px — bấm để tách hoặc gộp BIÊN cột của cả vùng`);
 
     /*
      * `region !== null` là CHỐT DUY NHẤT cho việc chọn cột — không lặp lại `isGrid`/`isGridTab`
@@ -996,17 +1306,26 @@ function drawWidthStrip(frag, { ticks, top, isGrid, clip, region }) {
         // trên ô hiện tại để thanh property của control không còn hiển thị.
         if (!picked) {
           if (selected) selected.classList.remove('fbo-selected');
+          for (const c of multiSelected) c.classList.remove('fbo-selected');
+          multiSelected.clear();
           for (const r of formLayer.querySelectorAll('tr.fbo-row-selected')) r.classList.remove('fbo-row-selected');
           selected = null;
           focused = null;
         }
-        colPick = picked ? null : { region, col: i };
+        colPick = picked ? null : { region, col: absCol };
         drawBlueprint();
       });
     }
     frag.appendChild(tick);
 
-    if (picked) drawColumnEdgeBar(frag, { left, width, top, region, col: i, count: ticks.length, pxWidth: label });
+    if (picked) {
+      const fullCount = regionWidthsOf(
+        formLayer.querySelector(`[data-fbo-region-root="${region}"], table[data-fbo-region-table="${region}"]`)
+      ).length || (colOffset + ticks.length);
+      drawColumnEdgeBar(frag, {
+        left, width: zero ? 0 : width, top, region, col: absCol, count: fullCount, pxWidth: label,
+      });
+    }
   });
 }
 
@@ -1023,6 +1342,9 @@ function drawWidthStrip(frag, { ticks, top, isGrid, clip, region }) {
  * nào để mà bấm vào, nên cách duy nhất nuốt nó là gọi từ cột hàng xóm — thiếu một chiều là có
  * những cột vĩnh viễn không gộp được bằng chuột.
  */
+/** Chiều cao thanh lệnh biên cột (và khoảng lật dưới khi sát mép trên). */
+const ACTION_BAR_H = 22;
+
 function drawColumnEdgeBar(frag, { left, width, top, region, col, count, pxWidth }) {
   /*
    * Chốt phòng hờ, không phải đường vào chính: `drawWidthStrip` chỉ gọi hàm này khi `picked`
@@ -1144,13 +1466,10 @@ function drawSpanBadges(frag, stageBox) {
 }
 
 /**
- * Bóng mờ của control ĐANG ĐƯỢC DỜI, vẽ tại chỗ nó sắp đáp xuống.
+ * Bóng mờ của control đang được DỜI — chỗ nó sắp đáp xuống.
  *
- * Vẽ theo mốc cột chứ không theo con trỏ, cùng lý do với `drawDragShadow`: bóng chạy mượt theo
- * chuột rồi nhảy về nấc lúc thả tay là hứa một chuyện rồi làm một chuyện khác.
- *
- * Đổi màu khi chỗ đích KHÔNG nhận được — vượt khỏi hàng, hoặc đang có control. Nói trước bằng
- * màu rẻ hơn nhiều so với thả tay xuống rồi đọc một câu từ chối.
+ * Cùng hàng / một hàng: span = 1 mỗi control, hiện tên token.
+ * Nhiều hàng (block): một dải cao N hàng tại vị trí thả — không gom vào một pattern.
  */
 function drawMoveShadow(frag, stageBox) {
   if (!moveDrag || !moveDrag.armed) return;
@@ -1159,83 +1478,157 @@ function drawMoveShadow(frag, stageBox) {
     col: moveDrag.col,
     toItem: moveDrag.fromItem,
     other: moveDrag.target.cell,
-    span: moveDrag.span,
+    span: 1,
   };
   const table = drop.cell.closest('table[data-fbo-col-widths]');
   if (!table) return;
 
-  const widths = (table.dataset.fboColWidths || '').split(',').map(Number).filter((n) => Number.isFinite(n));
+  // List px ĐẦY ĐỦ + mép trái vùng — khi có split, `data-fbo-col` là tuyệt đối còn mỗi
+  // FormTable chỉ giữ một nửa widths; đo từ root thì bóng đáp đúng cột.
+  const root = regionRootOf(table) || table;
+  const widths = regionWidthsOf(table);
   const offsets = [0];
   for (const w of widths) offsets.push(offsets[offsets.length - 1] + w);
 
-  const box = table.getBoundingClientRect();
+  const box = root.getBoundingClientRect();
   const total = offsets[offsets.length - 1];
   const k = total > 0 && box.width > 0 ? box.width / total : 1;
   const lay = (v) => v / k;
-
-  const { col, span, fromCol } = moveDrag;
   const cellBox = drop.cell.getBoundingClientRect();
+
+  if (moveDrag.isBlock && moveDrag.blockItems?.length > 1) {
+    const n = moveDrag.blockItems.length;
+    const left = lay(box.left - stageBox.left);
+    const width = lay(box.width);
+    const top = lay(cellBox.top - stageBox.top);
+    const height = lay(cellBox.height) * n;
+    const tone = moveDrag.blockItems.includes(drop.toItem) ? ' bp-move-bad' : '';
+    const shadow = el('div', `bp-move${tone}`, {
+      left: px(left),
+      top: px(top),
+      width: px(Math.max(width, 2)),
+      height: px(Math.max(height, 2)),
+    });
+    const lab = el('span', 'bp-move-label');
+    lab.textContent = `${n} hàng · ${(moveDrag.members || []).map((m) => m.label).join(', ')}`;
+    shadow.appendChild(lab);
+    shadow.title = tone
+      ? 'thả vào chính block đang kéo — không đổi'
+      : `chèn ${n} hàng trước hàng đích`;
+    frag.appendChild(shadow);
+    return;
+  }
+
+  const { col, fromCol } = moveDrag;
+  const members = moveDrag.members || [{ td: moveDrag.cell, token: moveDrag.cell.dataset.fboToken || '?' }];
+  const footprint = members.map((m, i) => ({
+    col: col + i,
+    span: 1,
+    label: tokenDisplayName(m.td) || m.token || '?',
+  }));
 
   const verdict = moveVerdict(moveDrag, widths.length);
   const tone = verdict.kind === 'bad' ? ' bp-move-bad' : (verdict.kind === 'swap' ? ' bp-move-swap' : '');
 
-  const left = lay(box.left - stageBox.left) + offsets[Math.min(col, offsets.length - 1)];
-  const right = lay(box.left - stageBox.left) + offsets[Math.min(col + span, offsets.length - 1)];
-  const shadow = el('div', `bp-move${tone}`, {
-    left: px(left),
-    top: px(lay(cellBox.top - stageBox.top)),
-    width: px(Math.max(right - left, 2)),
-    height: px(lay(cellBox.height)),
-  });
-  shadow.title = MOVE_HINT[verdict.kind](col, span);
-  if (col !== fromCol) frag.appendChild(shadow);
+  if (col === fromCol && drop.toItem === moveDrag.fromItem && members.length === 1) return;
+
+  for (const part of footprint) {
+    if (part.col < 0 || part.col >= widths.length) continue;
+    const left = lay(box.left - stageBox.left) + offsets[Math.min(part.col, offsets.length - 1)];
+    const right = lay(box.left - stageBox.left)
+      + offsets[Math.min(part.col + part.span, offsets.length - 1)];
+    const shadow = el('div', `bp-move${tone}`, {
+      left: px(left),
+      top: px(lay(cellBox.top - stageBox.top)),
+      width: px(Math.max(right - left, 2)),
+      height: px(lay(cellBox.height)),
+    });
+    const lab = el('span', 'bp-move-label');
+    lab.textContent = part.label;
+    shadow.appendChild(lab);
+    shadow.title = (MOVE_HINT[verdict.kind](part.col, 1)) + ` · ${part.label}`;
+    frag.appendChild(shadow);
+  }
 }
 
 const MOVE_HINT = {
   move: (col, span) => `dời tới cột ${col + 1}${span > 1 ? ` (trải ${span})` : ''}`,
-  swap: (col, span) => `đổi chỗ với control ở cột ${col + 1}${span > 1 ? ` (cùng trải ${span})` : ''}`,
+  swap: (col, span) => `đổi chỗ với control ở cột ${col + 1}${span > 1 ? ` (slot trải ${span})` : ''}`,
   bad: (col) => `cột ${col + 1} không nhận được — vượt hàng, hoặc đang có control khác bề rộng`,
 };
+
+/** Tên hiện trên bóng kéo: `ong_ba.Label` / `ong_ba` từ `data-fbo-token`. */
+function tokenDisplayName(td) {
+  const raw = td?.dataset?.fboToken || '';
+  const m = /^\[([^\]]*)\](?:\.(.*))?$/i.exec(raw);
+  if (!m) return raw || '';
+  const kind = (m[2] || '').trim();
+  return kind ? `${m[1]}.${kind}` : m[1];
+}
+
+/** Đọc field/kind từ `data-fbo-token` (`[ma_kh]`, `[ma_kh].Label`, …). */
+function tokenInfoFromTd(td) {
+  const raw = td?.dataset?.fboToken || '';
+  const m = /^\[([^\]]*)\](?:\.(.*))?$/i.exec(raw);
+  if (!m) return null;
+  const kindRaw = (m[2] || '').trim().toLowerCase();
+  const kind = kindRaw === '' ? 'input' : kindRaw;
+  return {
+    field: m[1],
+    kind,
+    col: Number(td.dataset.fboCol) || 0,
+    span: Number(td.dataset.fboSpan) || 1,
+    td,
+    token: raw,
+  };
+}
 
 /**
  * Chỗ sắp thả xuống nhận được kiểu gì — `'move'`, `'swap'`, hay `'bad'`.
  *
- * Quét TRONG CÙNG HÀNG, không quét cả bảng: một control ở hàng khác đứng cùng cột chẳng cản trở
- * gì, vì mọi phép trên `<item value>` chỉ tính trên hàng của nó. Quét cả bảng là báo đỏ ở những
- * chỗ thả xuống vẫn chạy được — bản trước mắc đúng lỗi ấy.
- *
- * `'swap'` chỉ khi vùng đích TRÙNG KHÍT một control khác: cùng cột bắt đầu, cùng số cột chiếm.
- * Đó cũng đúng là điều kiện của `swapCells` bên core — hai bên phải nói cùng một luật, không thì
- * hoặc bóng xanh mà thả xuống bị từ chối, hoặc bóng đỏ mà đáng lẽ đi được. Trùng MỘT PHẦN thì
- * không phải đổi chỗ mà là đè lên, và ai đè lên ai là chuyện người dùng phải nói rõ.
+ * Footprint mỗi control đang kéo = 1 cột (điểm thả). Multi → nhiều cột liên tiếp từ cột thả.
+ * `'swap'` khi đúng một ô kéo thả trúng ĐÚNG đầu một control khác — pattern/slot đứng yên,
+ * chỉ hoán token (kể cả khi hai bên khác span: ma_kh@2 ↔ dien_giai@9).
  */
 function moveVerdict(md, columnCount) {
-  const drop = md.drop ?? { cell: md.cell, col: md.col, toItem: md.fromItem, span: md.span };
-  const { col, span } = md;
-  if (col + span > columnCount) return { kind: 'bad', other: null };
+  const drop = md.drop ?? { cell: md.cell, col: md.col, toItem: md.fromItem, span: 1 };
+  const { col } = md;
+  const members = md.members || [{ td: md.cell }];
+  const parts = members.map((m, i) => ({ col: col + i, span: 1, td: m.td }));
+
+  if (parts.some((p) => p.col < 0 || p.col + p.span > columnCount)) {
+    return { kind: 'bad', other: null };
+  }
+
   const row = drop.cell.closest('tr.FormRow');
   if (!row) return { kind: 'bad', other: null };
 
   const hits = [];
   for (const td of row.querySelectorAll('td[data-fbo-cell]:not(.DwfEmptyCell)')) {
-    if (td === md.cell && drop.toItem === md.fromItem) continue;
+    if (parts.some((p) => p.td === td) && drop.toItem === md.fromItem) continue;
     const c = Number(td.dataset.fboCol) || 0;
     const n = Number(td.dataset.fboSpan) || 1;
-    if (col < c + n && c < col + span) hits.push({ td, col: c, span: n });
+    for (const p of parts) {
+      if (p.col < c + n && c < p.col + p.span) {
+        hits.push({ td, col: c, span: n });
+        break;
+      }
+    }
   }
-  if (hits.length === 0) return { kind: 'move', other: null };
-  if (hits.length === 1 && hits[0].col === col && hits[0].span === span) {
+  let verdict;
+  if (hits.length === 0) verdict = { kind: 'move', other: null };
+  else if (members.length === 1 && hits.length === 1 && hits[0].col === col) {
     const other = Number(hits[0].td.dataset.fboCell);
-    if (Number.isFinite(other)) return { kind: 'swap', other, toItem: drop.toItem };
+    if (Number.isFinite(other)) verdict = { kind: 'swap', other, toItem: drop.toItem };
   }
-  return { kind: 'bad', other: null };
+  if (!verdict) verdict = { kind: 'bad', other: null };
+  return verdict;
 }
 
-/** Số cột của vùng chứa ô — đọc từ list px của bảng, cùng nguồn với `drawMoveShadow`. */
+/** Số cột của vùng chứa ô — đọc từ list px ĐẦY ĐỦ của vùng (`.FormSplit` hoặc FormTable). */
 function colCountOf(cell) {
-  const table = cell.closest('table[data-fbo-col-widths]');
-  if (!table) return 0;
-  return (table.dataset.fboColWidths || '').split(',').map(Number).filter((n) => Number.isFinite(n)).length;
+  const widths = regionWidthsOf(cell);
+  return widths.length;
 }
 
 function el(tag, className, style) {
@@ -1339,23 +1732,10 @@ function postEdit(msg) {
 }
 
 /**
- * MỘT thanh lệnh nổi phía trên ô đang chọn, thay cho năm nút rải quanh bốn cạnh.
+ * Vòng chọn + vạch kéo gộp/tách trên ô đang chọn.
  *
- * Đây là chỗ sửa lỗi «gộp/tách chỉ chạy khi CHƯA chọn ô». Nguyên nhân không nằm ở logic kéo mà
- * nằm ở hình học: nút `+` bên phải là hình tròn 16px đặt tại `left + w`, tức đúng giữa cạnh
- * phải — chồng khít lên dải 6px bắt kéo của `wireResize`. Chọn ô xong là cái nút chiếm luôn
- * chỗ đó, chuột không bao giờ chạm tới `#fbo-form` nữa, nên kéo gộp/tách chết. Không chọn ô thì
- * không có nút, và kéo lại chạy — đúng triệu chứng.
- *
- * Nên luật của bố cục mới là: KHÔNG nút nào được đặt trên cạnh ô. Mọi thứ dồn lên một thanh
- * nằm ngoài ô, và bốn cạnh trả lại hết cho thao tác kéo.
- *
- * Thanh gồm hai nhóm, ngăn bằng vạch dọc, để hai họ thao tác không lẫn vào nhau:
- *   chèn  `+←  +→  +↑  +↓`   thêm control (trái/phải) hoặc thêm hàng (trên/dưới)
- *   xoá   `×`
- *
- * Gộp/tách có NÚT chứ không chỉ có kéo: kéo cạnh là thao tác phải đoán ra mới biết là có, còn
- * nút thì nhìn thấy. Kéo vẫn giữ nguyên cho ai muốn nhắm thẳng tới một cột xa.
+ * KHÔNG còn thanh lệnh (`+← +→ +↑ +↓ ×`): thêm hàng bằng dấu + ngoài form khi rê chuột lên
+ * hàng; thêm field bằng nút (+) trên slot trống đang chọn. Xoá vẫn dùng Delete / Shift+Delete.
  */
 function drawHandles(frag, stageBox) {
   if (!focused || !blueprintOn) return;
@@ -1379,83 +1759,178 @@ function drawHandles(frag, stageBox) {
   const ring = el('div', 'bp-focus', { left: px(left), top: px(top), width: px(w), height: px(h) });
   frag.appendChild(ring);
 
-  const target = editTarget(focused);
-  if (!target) return;
   const empty = focused.classList.contains('DwfEmptyCell');
-  const span = Number(focused.dataset.fboSpan) || 1;
 
   // Dấu hiệu NHÌN THẤY của chỗ kéo gộp/tách, ở CẢ HAI cạnh. `pointer-events` để mặc định (lớp
   // blueprint tắt sẵn) — chúng chỉ để chỉ chỗ; cú kéo thật vẫn do `wireResize` bắt trên
   // `#fbo-form` bên dưới, nên vạch không thể cướp chuột của chính thao tác nó đang quảng cáo.
-  //
-  // Chỉ vẽ trên ô ĐANG CHỌN, và đó cũng đúng là điều kiện để kéo được — hai thứ phải khớp nhau,
-  // nếu không thì hoặc có vạch mà kéo không ăn, hoặc kéo được mà không có gì chỉ chỗ.
   if (!empty) {
     frag.appendChild(el('div', 'bp-grip', { left: px(left - 1), top: px(top), height: px(h) }));
     frag.appendChild(el('div', 'bp-grip', { left: px(left + w - 3), top: px(top), height: px(h) }));
   }
 
-  frag.appendChild(actionBar(target, {
-    left, top, w, empty, cell: focused,
-    // Ô ở sát mép trên của vùng thì không còn chỗ phía trên — lật xuống dưới.
-    below: top < ACTION_BAR_H + 2,
-  }));
+  // Slot trống đang chọn → nút (+) giữa ô, raise insert/add field vào CHÍNH ô đó.
+  if (empty) {
+    const target = editTarget(focused);
+    if (target && Number(focused.dataset.fboCell) >= 0) {
+      const btn = el('button', 'bp-slot-add', {
+        left: px(left + w / 2),
+        top: px(top + h / 2),
+      });
+      btn.type = 'button';
+      btn.textContent = '+';
+      btn.title = 'Thêm field vào slot trống này';
+      btn.addEventListener('mousedown', (e) => e.stopPropagation());
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        postEdit({ op: 'insert', ...target, side: 'in' });
+      });
+      frag.appendChild(btn);
+    }
+  }
 }
 
-/** Chiều cao thanh lệnh, kể cả viền. Dùng để biết còn chỗ đặt nó phía trên ô hay không. */
-const ACTION_BAR_H = 22;
+/** Hàng đang rê chuột — dùng để vẽ dấu + thêm dòng phía ngoài form. */
+let hoverRowItem = null;
 
-function actionBar(target, { left, top, w, empty, below, cell }) {
-  const bar = el('div', 'bp-bar', {
-    left: px(left + w / 2),
-    top: px(below ? top + ACTION_BAR_H + 2 : top - 2),
-  });
-  bar.classList.toggle('bp-bar-below', below);
+/**
+ * Dấu + ngoài mép form — chèn hàng trống `---------` bên dưới.
+ *
+ * Form thường: 1 nút mép trái. Form split: 2 nút ở hai mép ngoài.
+ * Tab lưới: không vẽ.
+ */
+function drawRowAddButtons(frag, stageBox) {
+  if (!blueprintOn || hoverRowItem === null) return;
+  const rows = [...formLayer.querySelectorAll(`tr.FormRow[data-fbo-item="${hoverRowItem}"]`)]
+    .filter((tr) => !tr.classList.contains('DwfColRow'));
+  if (rows.length === 0) return;
 
-  const add = (cls, label, title, onClick, disabled = false) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = `bp-act ${cls}`;
-    b.textContent = label;
-    b.title = title;
-    b.disabled = disabled;
-    // `mousedown` phải chặn: không chặn thì cú nhấn rơi xuống form, `wireResize` tưởng là bắt
-    // đầu kéo, và nút vừa bấm biến mất giữa chừng vì blueprint vẽ lại.
-    b.addEventListener('mousedown', (e) => e.stopPropagation());
-    b.addEventListener('click', (e) => { e.stopPropagation(); if (!b.disabled) onClick(e); });
-    bar.appendChild(b);
-    return b;
+  const table = rows[0].closest('table[data-fbo-col-widths]');
+  const panel = table?.closest('.DwfTabPanel');
+  // Tab chỉ chứa lưới Detail — không thêm hàng form.
+  const gridOnly = table?.dataset.fboGridOnly === '1'
+    || (panel && panel.querySelector('.GridTabPanel')
+      && !panel.querySelector('td[data-fbo-cell]:not(.FormCellGrid):not(.DwfEmptyCell)'));
+  if (gridOnly) return;
+
+  let top = Infinity;
+  let bottom = -Infinity;
+  let leftEdge = Infinity;
+  let rightEdge = -Infinity;
+  for (const tr of rows) {
+    const r = tr.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue;
+    top = Math.min(top, r.top);
+    bottom = Math.max(bottom, r.bottom);
+    leftEdge = Math.min(leftEdge, r.left);
+    rightEdge = Math.max(rightEdge, r.right);
+  }
+  if (!Number.isFinite(top) || bottom < top) return;
+
+  const root = regionRootOf(table) || table;
+  const total = regionWidthsOf(table).reduce((a, b) => a + b, 0);
+  const tb = root ? root.getBoundingClientRect() : null;
+  const k = total > 0 && tb && tb.width > 0 ? tb.width / total : 1;
+  const lay = (v) => v / k;
+
+  const midY = lay((top + bottom) / 2 - stageBox.top);
+  const xLeft = lay(leftEdge - stageBox.left) - 18;
+  const xRight = lay(rightEdge - stageBox.left) + 18;
+  const isSplit = rows.some((r) => r.dataset.fboSplitSide);
+
+  const makeBtn = (x, side) => {
+    const btn = el('button', 'bp-row-add', {
+      left: px(Math.max(2, x)),
+      top: px(midY),
+    });
+    btn.type = 'button';
+    btn.dataset.fboRowAddSide = side;
+    btn.textContent = '+';
+    btn.title = 'Thêm hàng trống bên dưới (---------)';
+    btn.addEventListener('mousedown', (e) => e.stopPropagation());
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const item = Number(hoverRowItem);
+      if (!Number.isFinite(item)) return;
+      postEdit({
+        op: 'addRow',
+        item,
+        cell: 0,
+        side: 'below',
+        blank: true,
+        splitSide: side,
+      });
+    });
+    frag.appendChild(btn);
   };
-  const sep = () => bar.appendChild(el('span', 'bp-act-sep', {}));
 
-  add('bp-add', '+←', 'Thêm control bên trái (dùng ô trống kề bên)',
-    () => postEdit({ op: 'insert', ...target, side: 'left' }));
-  add('bp-add', '+→', 'Thêm control bên phải (dùng ô trống kề bên)',
-    () => postEdit({ op: 'insert', ...target, side: 'right' }));
-  add('bp-add', '+↑', 'Thêm hàng mới phía trên',
-    () => postEdit({ op: 'addRow', ...target, side: 'above' }));
-  add('bp-add', '+↓', 'Thêm hàng mới phía dưới',
-    () => postEdit({ op: 'addRow', ...target, side: 'below' }));
+  makeBtn(xLeft, 'left');
+  if (isSplit) makeBtn(xRight, 'right');
+}
 
+/** Dải mép ngoài giữ hover khi rê từ hàng sang nút + (tránh mất nút ở khoảng trống). */
+const ROW_ADD_HIT_PX = 28;
+
+function rowBandOf(item) {
+  const rows = [...formLayer.querySelectorAll(`tr.FormRow[data-fbo-item="${item}"]`)]
+    .filter((tr) => !tr.classList.contains('DwfColRow'));
+  if (rows.length === 0) return null;
+  let top = Infinity;
+  let bottom = -Infinity;
+  let left = Infinity;
+  let right = -Infinity;
+  for (const tr of rows) {
+    const r = tr.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue;
+    top = Math.min(top, r.top);
+    bottom = Math.max(bottom, r.bottom);
+    left = Math.min(left, r.left);
+    right = Math.max(right, r.right);
+  }
+  if (!Number.isFinite(top) || bottom < top) return null;
+  return { top, bottom, left, right };
+}
+
+function wireRowHover() {
   /*
-   * KHÔNG có nút gộp/tách ở đây.
-   *
-   * Gộp/tách là phép sửa LIÊN TỤC — người ta kéo tới khi vừa mắt, chứ không bấm từng nấc một.
-   * Đưa nó lên thanh lệnh dưới dạng hai nút `−`/`+` biến một cú kéo thành năm cú bấm, mà mỗi cú
-   * lại đi trọn một vòng ghi file rồi vẽ lại. Hai vạch chỉ chỗ ở hai cạnh ô (`bp-grip`) mới là
-   * bề mặt của phép ấy — xem `resizeEdgeAt`.
-   *
-   * Thanh lệnh giữ đúng những phép RỜI RẠC: thêm và xoá.
+   * Theo dõi trên `#fbo-stage` (ôm cả form + blueprint), không phải chỉ `#fbo-form`.
+   * Khi rê từ hàng sang nút + có một khe trống — `mouseleave` form sẽ xóa hover trước khi
+   * chuột kịp vào nút. Giữ hover nếu Y còn trong dải hàng và X còn trong mép ± ROW_ADD_HIT_PX.
    */
+  stage.addEventListener('mousemove', (e) => {
+    if (drag || moveDrag || colDrag || metaDrag) return;
+    if (e.target.closest?.('.bp-row-add')) {
+      return;
+    }
 
-  // Ô trống không có control để xoá — nút mờ đi thay vì bấm vào là báo lỗi.
-  sep();
-  add('bp-del', '×', empty
-    ? 'Ô trống, không có control để xoá'
-    : 'Xoá control (giữ Shift: xoá cả khai báo <field>)',
-  (e) => postEdit({ op: 'remove', ...target, withField: e.shiftKey === true }), empty);
+    const tr = e.target.closest?.('tr.FormRow[data-fbo-item]');
+    if (tr && !tr.classList.contains('DwfColRow') && formLayer.contains(tr)) {
+      const item = tr.dataset.fboItem;
+      if (item !== hoverRowItem) {
+        hoverRowItem = item;
+        drawBlueprintSoon();
+      }
+      return;
+    }
 
-  return bar;
+    if (hoverRowItem === null) return;
+    const band = rowBandOf(hoverRowItem);
+    if (band
+      && e.clientY >= band.top && e.clientY <= band.bottom
+      && e.clientX >= band.left - ROW_ADD_HIT_PX
+      && e.clientX <= band.right + ROW_ADD_HIT_PX) {
+      return;
+    }
+
+    hoverRowItem = null;
+    drawBlueprintSoon();
+  });
+
+  stage.addEventListener('mouseleave', () => {
+    if (hoverRowItem === null) return;
+    hoverRowItem = null;
+    drawBlueprintSoon();
+  });
 }
 
 /**
@@ -1540,7 +2015,11 @@ function moveDropAt(md, clientX, clientY) {
 }
 
 function columnEdges(table) {
-  const ths = [...table.querySelectorAll('.DwfColRow th[data-fbo-col]')];
+  // Gom th từ CẢ HAI nửa khi vùng có split — `data-fbo-col` là chỉ số tuyệt đối, sort để
+  // edges[i] khớp cột i (spanAt / colAt dựa vào điều đó).
+  const root = regionRootOf(table) || table;
+  const ths = [...root.querySelectorAll('.DwfColRow th[data-fbo-col]')]
+    .sort((a, b) => (Number(a.dataset.fboCol) || 0) - (Number(b.dataset.fboCol) || 0));
   return ths.map((th) => th.getBoundingClientRect());
 }
 
@@ -1583,22 +2062,53 @@ function wireResize() {
      * form là dễ dời nhầm một control mình không định đụng.
      */
     if (!side) {
-      if (cell && cell === focused && !cell.classList.contains('DwfEmptyCell')) {
+      if (cell && !cell.classList.contains('DwfEmptyCell')
+        && (cell === focused || multiSelected.has(cell))) {
         const t = editTarget(cell);
         if (t) {
           const col = Number(cell.dataset.fboCol) || 0;
-          const span = Number(cell.dataset.fboSpan) || 1;
+          const block = (multiSelected.size > 1 && multiSelected.has(cell))
+            ? selectedItemBlock()
+            : null;
+          const isBlock = !!(block && block.rowCount > 1);
+          // Multi cùng 1 hàng: dời các ô đã chọn (span 1). Nhiều hàng liền kề: dời cả block hàng.
+          const group = (multiSelected.size > 1 && multiSelected.has(cell) && !isBlock)
+            ? [...multiSelected]
+            : [cell];
+          group.sort((a, b) => {
+            const ia = Number(a.closest('tr')?.dataset?.fboItem ?? 0);
+            const ib = Number(b.closest('tr')?.dataset?.fboItem ?? 0);
+            if (ia !== ib) return ia - ib;
+            return (Number(a.dataset.fboCol) || 0) - (Number(b.dataset.fboCol) || 0);
+          });
+          const members = isBlock
+            ? [...multiSelected].map((td) => ({
+              td,
+              target: editTarget(td),
+              token: td.dataset.fboToken || '',
+              label: tokenDisplayName(td),
+            })).filter((m) => m.target)
+            : group.map((td) => ({
+              td,
+              target: editTarget(td),
+              token: td.dataset.fboToken || '',
+              label: tokenDisplayName(td),
+            })).filter((m) => m.target);
+          if (members.length === 0) return;
           moveDrag = {
             cell,
             target: t,
+            members,
+            isBlock,
+            blockItems: isBlock ? block.items : null,
             x0: e.clientX,
             y0: e.clientY,
             col,
             fromCol: col,
-            span,
+            span: 1,
             fromItem: t.item,
             toItem: t.item,
-            drop: { cell, toItem: t.item, other: t.cell, col, span },
+            drop: { cell, toItem: t.item, other: t.cell, col, span: 1 },
             armed: false,
           };
         }
@@ -1632,13 +2142,13 @@ function wireResize() {
       moveDrag.drop = drop;
       moveDrag.col = drop.col;
       moveDrag.toItem = drop.toItem;
-      drawBlueprint();
+      drawBlueprintSoon();
       return;
     }
     if (!drag) return;
     if (drag.side === 'left') drag.col = Math.min(colAt(drag.cell, e.clientX), drag.end - 1);
     else drag.span = spanAt(drag.cell, e.clientX);
-    drawBlueprint();
+    drawBlueprintSoon();
   });
 
   window.addEventListener('mouseup', () => {
@@ -1648,18 +2158,35 @@ function wireResize() {
       document.body.classList.remove('fbo-dragging-move');
       drawBlueprint();
       // Chưa `armed` = đây là một cú bấm chọn, không phải phép dời. Không gửi gì cả.
-      if (md.armed && (md.col !== md.fromCol || md.toItem !== md.fromItem)) {
-        /*
-         * Thả lên một control CÙNG SPAN là ĐỔI CHỖ, không phải dời — và đó là con đường trực
-         * tiếp mà trước đây không có: `moveCell` từ chối chỗ đã có người, nên đổi thứ tự hai
-         * field phải làm tay qua hai bước.
-         *
-         * `'bad'` vẫn gửi đi dưới dạng `move`: bóng đỏ nói ĐƯỢC/KHÔNG, còn câu từ chối của host
-         * mới nói RÕ VÌ SAO (vượt hàng? khác bề rộng?). Nuốt lặng cú thả là để người dùng đoán.
-         */
-        const v = moveVerdict(md, colCountOf(md.drop?.cell ?? md.cell));
-        if (v.kind === 'swap') postEdit({ op: 'swap', ...md.target, toItem: v.toItem, other: v.other });
-        else postEdit({ op: 'move', ...md.target, toItem: md.toItem, col: md.col });
+      if (md.armed) {
+        if (md.isBlock && Array.isArray(md.blockItems) && md.blockItems.length > 1) {
+          const items = md.blockItems;
+          if (Number.isFinite(md.toItem) && !items.includes(md.toItem)) {
+            postEdit({ op: 'moveBlock', items, toItem: md.toItem, side: 'before' });
+          }
+        } else if (md.col !== md.fromCol || md.toItem !== md.fromItem) {
+          /*
+           * Thả lên một control CÙNG SPAN là ĐỔI CHỖ, không phải dời — và đó là con đường trực
+           * tiếp mà trước đây không có: `moveCell` từ chối chỗ đã có người, nên đổi thứ tự hai
+           * field phải làm tay qua hai bước.
+           *
+           * `'bad'` vẫn gửi đi dưới dạng `move`: bóng đỏ nói ĐƯỢC/KHÔNG, còn câu từ chối của host
+           * mới nói RÕ VÌ SAO (vượt hàng? khác bề rộng?). Nuốt lặng cú thả là để người dùng đoán.
+           */
+          const v = moveVerdict(md, colCountOf(md.drop?.cell ?? md.cell));
+          if (v.kind === 'swap' && (!md.members || md.members.length <= 1)) {
+            postEdit({ op: 'swap', ...md.target, toItem: v.toItem, other: v.other });
+          } else {
+            const targets = (md.members || []).map((m) => m.target).filter(Boolean);
+            postEdit({
+              op: 'move',
+              ...md.target,
+              toItem: md.toItem,
+              col: md.col,
+              targets: targets.length > 1 ? targets : undefined,
+            });
+          }
+        }
       }
       return;
     }
@@ -1697,8 +2224,9 @@ function drawDragShadow(frag, stageBox) {
   const last = edges[Math.max(0, Math.min(to, edges.length - 1))];
   if (!first || !last) return;
 
-  const total = (table.dataset.fboColWidths || '').split(',').reduce((a, b) => a + (Number(b) || 0), 0);
-  const tb = table.getBoundingClientRect();
+  const root = regionRootOf(table) || table;
+  const total = regionWidthsOf(table).reduce((a, b) => a + b, 0);
+  const tb = root.getBoundingClientRect();
   const k = total > 0 && tb.width > 0 ? tb.width / total : 1;
   const lay = (v) => v / k;
 
@@ -1760,6 +2288,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 wireResize();
+wireRowHover();
 
 // ---------------------------------------------------------------------------
 // Cột của lưới: kéo giãn, chèn, bỏ
@@ -1987,16 +2516,15 @@ function syncGridScroll() {
 }
 
 // ---------------------------------------------------------------------------
-// Kéo chiều cao: vùng main và từng tab
+// Kéo chiều cao: vùng main (`view@height`) và lưới (`field@rows`) — HAI thanh độc lập
 // ---------------------------------------------------------------------------
 //
-// Hai con số ở hai chỗ khác nhau trong XML, và chọn nhầm thì kéo một tab nhưng mọi tab khác
-// cùng co lại:
+// Trước đây một thanh duy nhất: tab lưới → ghi panel-height vào `rows` (204 thay vì 144).
+// Nay:
+//   thanh hổ phách → `view@height` (dùng chung vùng main)
+//   thanh vàng     → `field@rows`  (riêng tab lưới; đúng số khai, không gồm chrome 60px)
 //
-//   tab CÓ lưới     → `field@rows` của chính field mang `<items style="Grid">` (riêng tab đó)
-//   tab KHÔNG lưới  → `view@height` (dùng chung cho cả vùng main)
-//
-// `data-fbo-rows-field` do core gắn sẵn lên panel, nên ở đây không phải đoán.
+// `data-fbo-rows-field` / `data-fbo-rows` / `data-fbo-view-height` do core gắn sẵn.
 
 let heightDrag = null;
 
@@ -2009,29 +2537,69 @@ function bottomEdgeOf(el, clientY) {
 function heightTargetAt(e) {
   const panel = e.target.closest('.DwfTabPanel.DwfActive');
   if (!panel || !bottomEdgeOf(panel, e.clientY)) return null;
-  const field = panel.dataset.fboRowsField;
+  // Mép dưới panel luôn là view@height — rows có thanh vàng riêng.
   return {
     panel,
-    // Tab có lưới thì con số thuộc về RIÊNG nó; không có thì nó dùng chung view@height.
-    msg: field ? { op: 'fieldRows', field } : { op: 'viewHeight' },
-    label: field ? `rows của [${field}]` : 'view@height (mọi tab không có lưới)',
+    kind: 'view',
+    msg: { op: 'viewHeight' },
+    label: 'view@height',
   };
 }
 
+/** Giữ mép trên form cố định trong viewport — tăng cao thì footer đi XUỐNG, không đẩy header lên. */
+function keepFormTopStable(formEl, topBefore) {
+  const surface = document.getElementById('fbo-surface');
+  if (!surface || !formEl) return;
+  const topAfter = formEl.getBoundingClientRect().top;
+  const drift = topAfter - topBefore;
+  if (Math.abs(drift) >= 0.5) surface.scrollTop += drift;
+}
+
+/** Xem trước `field@rows` trên DOM — chỉ đổi thân lưới, không đụng `view@height`. */
+function previewFieldRows(panel, rows) {
+  panel.dataset.fboRows = String(rows);
+  const grid = panel.querySelector('.GridTabPanel');
+  if (!grid) return;
+  grid.dataset.fboRows = String(rows);
+  grid.dataset.fboBlock = String(GRID_OUTER_CHROME_PX + rows);
+  const header = grid.querySelector('.divHeader');
+  const headerPx = header && header.offsetHeight > 0 ? header.offsetHeight : 30;
+  const divGrid = grid.querySelector('.divGrid');
+  if (divGrid) divGrid.style.height = `${Math.max(0, rows - headerPx)}px`;
+}
+
+/** Xem trước `view@height` — chỉ đổi panel, không đụng `field@rows`. */
+function previewViewHeight(panel, height) {
+  panel.style.height = `${height}px`;
+  panel.dataset.fboViewHeight = String(height);
+}
+
 /**
- * Bắt đầu kéo chiều cao của MỘT panel tab.
- *
- * Tách riêng vì có hai lối vào cùng dẫn tới đây: tay cầm nhìn thấy được ở lớp blueprint
- * (`drawTabHeightHandles`) và dải 6px sát mép dưới panel (`heightTargetAt`). Hai lối, một
- * trạng thái — nếu không thì cầm tay này rồi thả tay kia là kẹt cứng ở giữa.
+ * Bắt đầu kéo chiều cao.
+ * @param {'view'|'rows'} kind
  */
-function startHeightDrag(panel, clientY) {
-  const field = panel.dataset.fboRowsField;
-  const from = Math.round(panel.getBoundingClientRect().height);
+function startHeightDrag(panel, clientY, kind = 'view') {
+  const field = panel.dataset.fboRowsField || null;
+  const formEl = panel.closest('.FormParent') || panel;
+  let from;
+  let msg;
+  let label;
+  if (kind === 'rows' && field) {
+    from = readDeclaredRows(panel) ?? 0;
+    msg = { op: 'fieldRows', field };
+    label = `rows của [${field}]`;
+  } else {
+    kind = 'view';
+    from = readDeclaredViewHeight(panel);
+    msg = { op: 'viewHeight' };
+    label = 'view@height';
+  }
   heightDrag = {
     panel,
-    msg: field ? { op: 'fieldRows', field } : { op: 'viewHeight' },
-    label: field ? `rows của [${field}]` : 'view@height (mọi tab không có lưới)',
+    formEl,
+    kind,
+    msg,
+    label,
     from,
     height: from,
     startY: clientY,
@@ -2051,21 +2619,26 @@ function wireHeights() {
     if (!target) return;
     e.preventDefault();
     e.stopPropagation();
-    startHeightDrag(target.panel, e.clientY);
+    startHeightDrag(target.panel, e.clientY, target.kind || 'view');
   });
 
   window.addEventListener('mousemove', (e) => {
     if (!heightDrag) return;
+    const topBefore = heightDrag.formEl.getBoundingClientRect().top;
     heightDrag.height = Math.max(0, Math.round(heightDrag.from + (e.clientY - heightDrag.startY)));
-    // Xem trước ngay trên DOM; file chưa đổi gì cho tới lúc thả tay.
-    heightDrag.panel.style.height = `${heightDrag.height}px`;
+    if (heightDrag.kind === 'rows') {
+      previewFieldRows(heightDrag.panel, heightDrag.height);
+    } else {
+      previewViewHeight(heightDrag.panel, heightDrag.height);
+    }
     heightDrag.panel.title = `${heightDrag.label} · ${heightDrag.height}px`;
+    keepFormTopStable(heightDrag.formEl, topBefore);
     drawBlueprint();
   });
 
   window.addEventListener('mouseup', () => {
     if (!heightDrag) return;
-    const { msg, height, from } = heightDrag;
+    const { msg, height, from, kind } = heightDrag;
     heightDrag = null;
     document.body.classList.remove('fbo-dragging-v');
     formLayer.classList.remove('fbo-resizing-v');

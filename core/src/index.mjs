@@ -26,8 +26,11 @@ export {
   swapCells,
   placeCell,
   newRow,
+  takeRowHalf,
+  joinRowHalves,
+  newSplitBlankRow,
 } from './item-value.mjs';
-export { canEditRow, planRowEdit, planMoveControl, planSwapControl, moveControlFiles, rowEditTargetFile, planAddRow, planAddField, planRemoveField, planRemoveControl, planInlineEntity, planColumnWidth, planRemoveColumn, planInsertColumn, planViewHeight, planFieldRows, planRegionMetadata, planRegionColumns, regionColumnFiles } from './edit.mjs';
+export { canEditRow, planRowEdit, planMoveControl, planMoveRowBlock, planSwapControl, moveControlFiles, rowEditTargetFile, planAddRow, planAddField, planRemoveField, planRemoveControl, planInlineEntity, planColumnWidth, planRemoveColumn, planInsertColumn, planViewHeight, planFieldRows, planRegionMetadata, planRegionColumns, regionColumnFiles } from './edit.mjs';
 export { FIELD_KINDS, buildField, isValidFieldName } from './field-template.mjs';
 export { splitPatternAt, mergePatternAt, splitWidthsAt, mergeWidthsAt } from './columns.mjs';
 export { scopeCss, FORM_SCOPE } from './css-scope.mjs';

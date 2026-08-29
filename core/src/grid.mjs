@@ -829,7 +829,9 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null } = 
       // Ngăn bằng `|`: đường dẫn Windows không bao giờ chứa ký tự này, nên tách lại ở webview
       // không cần biết gì về cú pháp đường dẫn.
       + `${(model.relatedFiles ?? []).length > 1 ? ` data-fbo-related="${esc(model.relatedFiles.join('|'))}"` : ''}`
-      + `${blockPx === null ? '' : ` data-fbo-block="${blockPx}"`}${panelStyle}>`,
+      + `${blockPx === null ? '' : ` data-fbo-block="${blockPx}"`}`
+      // `data-fbo-rows` = đúng `field@rows` (body), không gồm toolbar/split/footer.
+      + `${bodyHeight === null ? '' : ` data-fbo-rows="${bodyHeight}"`}${panelStyle}>`,
     heading,
     toolbar,
     '<div class="HeaderStyle divHeader" style="overflow:hidden;position:relative;">',

@@ -346,7 +346,7 @@ function rewriteControllerCssUrls(css, webview, paths, bust, output) {
 }
 
 /** Bung entity rồi gọi core. Ném ra ngoài để người gọi quyết hiện lỗi thế nào. */
-function buildPayload(core, document, { cfg, paths, output, webview = null, bust = 0 }) {
+function buildPayload(core, document, { cfg, paths, output, webview = null, bust = 0, skipHtml = false }) {
   const readFile = cachedReadFile(core);
 
   // Bung entity TRƯỚC khi render: hàng từ Include (vd BI mode) không tồn tại trong file gốc,
@@ -368,6 +368,7 @@ function buildPayload(core, document, { cfg, paths, output, webview = null, bust
     loadDetail: (name) => loadDetail(core, document.uri.fsPath, name, readFile, detailCache),
     // Cấu hình ẩn của `Grid/Config` — hai file không được controller nhắc tên nhưng vẫn thêm cột.
     gridConfig: loadGridConfig(core, document.uri.fsPath, readFile, configCache),
+    skipHtml,
   });
 
   for (const d of expanded.diagnostics) output.appendLine(`entity [${d.severity}] ${d.message}`);
@@ -383,6 +384,19 @@ function buildPayload(core, document, { cfg, paths, output, webview = null, bust
     ...expanded.segments.map((s) => s.file),
     ...[...detailCache.values()].filter(Boolean).flatMap((d) => [d.file, ...d.segments.map((s) => s.file)]),
   ])];
+
+  if (skipHtml) {
+    return {
+      type: 'render',
+      model: result.model,
+      expanded: { clearText: expanded.clearText, segments: expanded.segments },
+      html: '',
+      mode: result.mode,
+      fitWidth: result.fitWidth === true,
+      sourceFiles,
+      warnings: result.warnings || [],
+    };
+  }
 
   return {
     type: 'render',

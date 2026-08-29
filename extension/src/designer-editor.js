@@ -82,6 +82,24 @@ class FboDesignerProvider {
        * được. `expanded` thì clone được nhưng vô ích: nó là bản đã bung cộng bản đồ đoạn, chỉ
        * tầng edit phía host cần, và chép cả file qua cầu mỗi lần vẽ là phí thật.
        */
+      const local = pendingLocalEdit;
+      pendingLocalEdit = null;
+      if (local && payload.type === 'render' && payload.model) {
+        const rowHtml = this.core.renderRowHtml(payload.model, local.item);
+        if (rowHtml) {
+          panel.webview.postMessage({
+            type: 'patchRow',
+            item: local.item,
+            cell: local.cell,
+            col: local.col,
+            html: rowHtml,
+            warnings: payload.warnings,
+          });
+          return;
+        }
+        this.output.appendLine(`vá cục bộ không được (hàng ${local.item} không còn) — vẽ lại toàn bộ`);
+      }
+
       const { model, expanded, ...wire } = payload;
       panel.webview.postMessage(wire);
     };
@@ -97,6 +115,7 @@ class FboDesignerProvider {
     let renderTimer = null;
     let editing = false;
     let renderPending = false;
+    let pendingLocalEdit = null;
     const renderSoon = () => {
       if (editing) { renderPending = true; return; }
       if (renderTimer) clearTimeout(renderTimer);
@@ -157,17 +176,42 @@ class FboDesignerProvider {
        * `PreviewPanel.onMessage`; `handleEdit` là chỗ duy nhất biết luật sửa, hai lối mở chỉ
        * khác nhau ở câu hỏi "document nào".
        *
-       * Không có `localEdit` như panel: panel vá cục bộ một hàng để giữ vị trí cuộn khi gộp/tách,
-       * còn ở đây `onDidChangeTextDocument` vẽ lại cả form — đơn giản hơn và không có gì để mất.
+       * Phép sửa một hàng (resize/move/swap/…) vá cục bộ qua `patchRow` giống panel — giữ
+       * scroll/tab; `addRow` và các op đụng nhiều hàng vẫn vẽ lại toàn bộ.
        */
       if (msg.type === 'edit') {
+        // rebuild cho plan chỉ cần model — không dựng HTML (~renderHtmlMs trong log perf).
         const rebuild = () => buildPayload(this.core, document, {
-          cfg, paths, output: this.output, webview: panel.webview,
+          cfg, paths, output: this.output, webview: panel.webview, skipHtml: true,
         });
+        /*
+         * Vá cục bộ giống PreviewPanel: resize/move/swap/insert/remove cùng hàng không cần
+         * thay cả formLayer.innerHTML — giữ scroll/tab và giảm giật sau thả.
+         */
+        const PATCHABLE = new Set(['resize', 'move', 'swap', 'insert', 'remove']);
+        const sameRowMove = msg.op === 'move' || msg.op === 'swap'
+          ? !Number.isFinite(Number(msg.toItem)) || Number(msg.toItem) === Number(msg.item)
+          : true;
+        const patchable = PATCHABLE.has(msg.op)
+          && !(msg.op === 'remove' && msg.withField === true)
+          && sameRowMove;
+        let localEdit = patchable
+          ? {
+            item: msg.item,
+            cell: msg.op === 'swap' ? msg.other : msg.cell,
+            col: msg.op === 'move' ? msg.col : undefined,
+          }
+          : null;
+
         editing = true;
         try {
-          await runWithDialogs(overlay, () => handleEdit(msg, this.core, document, rebuild, this.output));
+          const applied = await runWithDialogs(overlay, () => handleEdit(msg, this.core, document, rebuild, this.output));
+          if (!applied) localEdit = null;
+          // Gắn localEdit vào render sắp tới qua closure trên renderSoon path:
+          if (localEdit) pendingLocalEdit = localEdit;
         } catch (err) {
+          localEdit = null;
+          pendingLocalEdit = null;
           this.output.appendLine(`sửa lỗi: ${err.stack || err.message}`);
         } finally {
           // Hộp thoại bị Esc, phép sửa bị từ chối, hay handler ném — cả ba đều phải thả chốt.

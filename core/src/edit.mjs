@@ -12,7 +12,7 @@
 // Hàm ở đây nhận `model` do `buildViewModel` dựng (đã có `rows[].range` trỏ về file nguồn) và
 // trả `{ok, splice, file, warning}` — tầng vỏ chỉ việc áp.
 
-import { serializeRow, setSpan, setStart, removeCell, insertCell, moveCell, swapCells, placeCell, newRow, parseRow, buildCells } from './item-value.mjs';
+import { serializeRow, setSpan, setStart, removeCell, insertCell, moveCell, swapCells, placeCell, newRow, takeRowHalf, joinRowHalves, parseRow, buildCells, resolvePattern } from './item-value.mjs';
 import { segmentAt } from './entities.mjs';
 // Vùng của một hàng suy từ `<field categoryIndex>`, và luật ấy sống ở `render.mjs`. Tầng edit
 // phải tính lại vùng SAU một phép dời, nên nó dùng chung hàm chứ không chép luật sang đây.
@@ -364,27 +364,193 @@ export function planAddRow(model, op, sourceText, itemRange) {
   const allowed = { ok: true, warning: row.foreign ? row.range.file : null };
   if (!itemRange) return { ok: false, reason: 'không xác định được vị trí thẻ <item> trong file nguồn' };
 
-  const made = newRow(row.widths, op.token);
-  if (!made.ok) return made;
+  const split = Number(op.split);
+  const blankSide = op.splitSide === 'left' || op.splitSide === 'right' ? op.splitSide : null;
+  const useSplitCascade = op.blank && blankSide
+    && Number.isFinite(split) && split > 0 && split < row.widths.length;
 
   // Thụt lề lấy từ CHÍNH dòng chứa thẻ cũ — hàng mới phải trông như do người viết file đặt ra,
   // không phải như do máy nhét vào.
   const lineStart = sourceText.lastIndexOf('\n', itemRange.start - 1) + 1;
   const indent = /^[ \t]*/.exec(sourceText.slice(lineStart, itemRange.start))[0];
   const eol = sourceText.includes('\r\n') ? '\r\n' : '\n';
-  const tag = `<item value="${escapeAttr(serializeRow(made.row))}"/>`;
-
   const at = op.side === 'above' ? lineStart : itemRange.end;
-  const text = op.side === 'above'
+
+  if (!useSplitCascade) {
+    const made = newRow(row.widths, op.token);
+    if (!made.ok) return made;
+    const tag = `<item value="${escapeAttr(serializeRow(made.row))}"/>`;
+    const text = op.side === 'above'
+      ? `${indent}${tag}${eol}`
+      : `${eol}${indent}${tag}`;
+    return {
+      ok: true,
+      file: row.range.file,
+      splice: { start: at, end: at, text },
+      warning: allowed.warning,
+    };
+  }
+
+  /*
+   * Form có split: chèn slot trống MỘT nửa, nửa kia của các hàng phía dưới DỒN LÊN.
+   * Ví dụ + trái dưới ong_ba: hàng mới trái trống + phải lấy từ hàng kế; ngay_lct trên hàng
+   * dưới trượt lên — không copy nửa phải của hàng neo, cũng không đẩy trống cả hai nửa.
+   */
+  const cascade = planSplitHalfCascade(model, {
+    anchor: row,
+    side: op.side === 'above' ? 'above' : 'below',
+    blankSide,
+    split,
+    sourceText,
+  });
+  if (!cascade.ok) return cascade;
+
+  const tag = `<item value="${escapeAttr(serializeRow(cascade.inserted))}"/>`;
+  const insertText = op.side === 'above'
     ? `${indent}${tag}${eol}`
     : `${eol}${indent}${tag}`;
+
+  const edits = [
+    ...cascade.rewrites.map((r) => ({
+      file: r.file,
+      start: r.start,
+      end: r.end,
+      text: r.text,
+    })),
+    {
+      file: row.range.file,
+      start: at,
+      end: at,
+      text: insertText,
+    },
+  ];
 
   return {
     ok: true,
     file: row.range.file,
-    splice: { start: at, end: at, text },
-    warning: allowed.warning,
+    edits,
+    warning: cascade.warning ?? allowed.warning,
   };
+}
+
+/**
+ * Dồn nửa split khi chèn hàng trống một bên.
+ * blankSide=`left` → giữ trái mỗi hàng, phải lấy từ hàng kế (phải trượt lên vào hàng mới).
+ * blankSide=`right` → đối xứng.
+ */
+function planSplitHalfCascade(model, { anchor, side, blankSide, split, sourceText }) {
+  const widths = anchor.widths;
+  const columnCount = Math.max(1, widths.length);
+  const region = model.regions.find((r) => r.rows.some((x) => x.index === anchor.index));
+  if (!region) return { ok: false, reason: 'không xác định được vùng chứa hàng' };
+
+  const after = region.rows
+    .filter((r) => (side === 'above' ? r.index < anchor.index : r.index > anchor.index))
+    .sort((a, b) => (side === 'above' ? b.index - a.index : a.index - b.index));
+
+  // `above`: xử lý theo thứ tự tăng index sau khi đảo chiều lọc — cascade luôn theo hàng
+  // đứng NGAY sau điểm chèn trên form (cùng hướng "xuống dưới" như side=below).
+  const ordered = side === 'above' ? [...after].reverse() : after;
+
+  // Dồn trong cụm form thường; dừng trước hàng nhúng lưới Detail (`1: [d81]`) kẻo kéo
+  // nửa phải của lưới/tax vào cụm chứng từ.
+  const chain = [];
+  for (const r of ordered) {
+    if (rowHasEmbeddedGrid(r, model)) break;
+    chain.push(r);
+  }
+
+  const empty = {
+    pattern: '-'.repeat(columnCount),
+    tokens: [],
+    separator: ', ',
+    afterColon: ' ',
+    hasColon: false,
+    hasEntity: false,
+    warnings: [],
+  };
+
+  const parsedChain = [];
+  let warning = anchor.foreign ? anchor.range.file : null;
+  for (const r of chain) {
+    if (r.range?.file && r.range.file !== anchor.range.file) {
+      return { ok: false, reason: 'không dồn nửa split khi các hàng nằm ở file khác nhau' };
+    }
+    const src = sourceRow(r, sourceText, model);
+    if (!src.ok) return src;
+    if (r.foreign) warning = r.range.file;
+    parsedChain.push({ row: r, parsed: src.parsed, value: src.value });
+  }
+
+  const rewrites = [];
+  for (let i = 0; i < parsedChain.length; i++) {
+    let left;
+    let right;
+    if (blankSide === 'left') {
+      left = takeRowHalf(parsedChain[i].parsed, widths, split, 'left');
+      right = i + 1 < parsedChain.length
+        ? takeRowHalf(parsedChain[i + 1].parsed, widths, split, 'right')
+        : takeRowHalf(empty, widths, split, 'right');
+    } else {
+      left = i + 1 < parsedChain.length
+        ? takeRowHalf(parsedChain[i + 1].parsed, widths, split, 'left')
+        : takeRowHalf(empty, widths, split, 'left');
+      right = takeRowHalf(parsedChain[i].parsed, widths, split, 'right');
+    }
+    const merged = joinRowHalves(left, right, widths, split, parsedChain[i].parsed);
+    const text = serializeRow(merged);
+    if (text === parsedChain[i].value) continue;
+    rewrites.push({
+      file: parsedChain[i].row.range.file,
+      start: parsedChain[i].row.range.start,
+      end: parsedChain[i].row.range.end,
+      text,
+      expect: parsedChain[i].value,
+      fromIndex: parsedChain[i].row.index,
+    });
+  }
+
+  // Đối chiếu nguyên văn trước khi ghi — cùng chốt với planRowEdit.
+  for (const r of rewrites) {
+    const actual = sourceText.slice(r.start, r.end);
+    if (actual !== r.expect) {
+      return {
+        ok: false,
+        reason: `dải sắp ghi đè mang "${actual}", không phải "${r.expect}" — file nguồn đã đổi?`,
+      };
+    }
+  }
+
+  let inserted;
+  if (blankSide === 'left') {
+    inserted = joinRowHalves(
+      takeRowHalf(empty, widths, split, 'left'),
+      parsedChain.length
+        ? takeRowHalf(parsedChain[0].parsed, widths, split, 'right')
+        : takeRowHalf(empty, widths, split, 'right'),
+      widths, split, parsedChain[0]?.parsed ?? empty,
+    );
+  } else {
+    inserted = joinRowHalves(
+      parsedChain.length
+        ? takeRowHalf(parsedChain[0].parsed, widths, split, 'left')
+        : takeRowHalf(empty, widths, split, 'left'),
+      takeRowHalf(empty, widths, split, 'right'),
+      widths, split, parsedChain[0]?.parsed ?? empty,
+    );
+  }
+
+  return { ok: true, inserted, rewrites, warning };
+}
+
+/** Hàng có ô nhúng lưới Detail — điểm cắt cascade nửa split. */
+function rowHasEmbeddedGrid(row, model) {
+  for (const c of row.cells ?? []) {
+    if (c.empty || !c.token?.field) continue;
+    const field = model.fieldByName?.get(c.token.field);
+    if (String(field?.items?.style ?? '').toLowerCase() === 'grid') return true;
+  }
+  return false;
 }
 
 /**
@@ -1108,6 +1274,59 @@ function companionCells(row, name) {
 }
 
 /**
+ * Dải [start, start+span) trên pattern đích có toàn `-` không.
+ * Cùng luật với `placeCell` — dùng để thử neo trước khi ghi.
+ */
+function rangeFree(pattern, columnCount, start, span) {
+  if (start < 0 || start + span > columnCount) return false;
+  const chars = Array.from(resolvePattern(pattern, columnCount).pattern);
+  for (let c = start; c < start + span; c++) {
+    if (chars[c] !== '-') return false;
+  }
+  return true;
+}
+
+/**
+ * Neo cột cho ô ĐƯỢC KÉO (`src`) khi đặt cả cụm lên hàng đích.
+ *
+ * Ưu tiên đúng `preferredCol` (chỗ thả). Nếu cụm lệch tương đối (vd `.Label` ở cột trước)
+ * đụng control sẵn có trong khi bên phải còn slot trống — trượt neo tới chỗ gần nhất mà CẢ
+ * cụm nằm gọn trên `-`. Không đổi khoảng cách tương đối trong cụm.
+ *
+ * @returns {{ok:true, anchor:number} | {ok:false, reason:string}}
+ */
+function clusterDropAnchor(dstRow, widths, members, src, preferredCol) {
+  const columnCount = widths.length;
+  const pattern = dstRow.pattern;
+  const fits = (anchor) => members.every((c) =>
+    rangeFree(pattern, columnCount, anchor + (c.col - src.col), c.span));
+
+  if (fits(preferredCol)) return { ok: true, anchor: preferredCol };
+
+  let best = null;
+  for (let a = 0; a < columnCount; a++) {
+    if (a === preferredCol || !fits(a)) continue;
+    const dist = Math.abs(a - preferredCol);
+    if (!best || dist < best.dist) best = { a, dist };
+  }
+  if (best) return { ok: true, anchor: best.a };
+
+  const blockers = [];
+  for (const c of members) {
+    const at = preferredCol + (c.col - src.col);
+    if (rangeFree(pattern, columnCount, at, c.span)) continue;
+    const kind = c === src ? (c.token?.kind || 'input') : (c.token?.kind || '?');
+    blockers.push(`.${kind}@cột ${at + 1}`);
+  }
+  return {
+    ok: false,
+    reason: `cụm [${src.token?.field}] không đặt vừa hàng đích khi thả ở cột ${preferredCol + 1}`
+      + (blockers.length ? ` — ${blockers.join(', ')} đang bị chiếm hoặc vượt hàng` : '')
+      + '; kéo tới dải trống đủ rộng cho cả nhãn và ô nhập',
+  };
+}
+
+/**
  * Vùng của MỌI hàng, tính lại trên một thế giới GIẢ ĐỊNH.
  *
  * `tokensByRow` — hàng nào đã có danh sách token mới (sau khi dời).
@@ -1283,97 +1502,103 @@ function rowWritePatch(model, row, nextRow, what) {
 /**
  * Phần THUẦN, KHÔNG CẦN VĂN BẢN của phép dời — trả danh sách patch kèm `expect`.
  *
+ * Mỗi control đặt lại với span = 1. Không gom cụm Label/Description tự động — muốn dời nhiều
+ * ô thì webview gửi `targets` (Shift+click multi-select).
+ *
  * Tách khỏi phần đối chiếu vì có đúng cái vòng luẩn quẩn mà `rowEditTargetFile` đã gỡ một lần:
  * muốn so nguyên văn thì phải đọc file, mà biết đọc file nào thì phải tính xong patch. Tính
  * trước, rồi tầng vỏ mở đúng bấy nhiêu file — xem `moveControlFiles`.
  */
-function buildMovePatches(model, { item, cell, toItem, toCol }) {
-  const from = model.rows.find((r) => r.index === item);
-  if (!from) return { ok: false, reason: `không tìm thấy hàng ${item}` };
-  const to = model.rows.find((r) => r.index === (toItem ?? item));
+function buildMovePatches(model, op) {
+  const { item, cell, toItem, toCol, targets } = op;
+  const list = Array.isArray(targets) && targets.length > 0
+    ? targets
+    : [{ item, cell }];
+  return buildMoveManyPatches(model, list, toItem ?? item, toCol);
+}
+
+/**
+ * Dời một hoặc nhiều ô tới hàng đích, mỗi ô đặt với span = 1.
+ * `targets`: [{ item, cell }] — thứ tự giữ nguyên; cột đích lần lượt `baseCol`, `baseCol+1`, …
+ */
+function buildMoveManyPatches(model, targets, toItem, baseCol) {
+  const to = model.rows.find((r) => r.index === toItem);
   if (!to) return { ok: false, reason: `không tìm thấy hàng đích ${toItem}` };
 
-  const src = from.cells?.[cell];
-  if (!src || src.empty || !src.token) return { ok: false, reason: 'ô trống, không có gì để dời' };
+  const base = Math.trunc(Number(baseCol));
+  if (!Number.isFinite(base) || base < 0) return { ok: false, reason: `cột đích ${baseCol} không hợp lệ` };
 
-  const col = Math.trunc(Number(toCol));
-  if (!Number.isFinite(col) || col < 0) return { ok: false, reason: `cột đích ${toCol} không hợp lệ` };
-
-  // CÙNG HÀNG → `moveCell` lo trọn, kể cả ca vùng đích chồng lên vùng nguồn.
-  if (from.index === to.index) {
-    const moved = moveCell(from.row, from.widths, cell, col, { allowEntity: true });
-    if (!moved.ok) return moved;
-    const patch = valuePatch(model, from, moved.row, `hàng ${from.index + 1}`);
-    if (!patch.ok) return patch;
-    return { ok: true, patches: [patch], warning: from.foreign ? from.range?.file : null, pinned: [] };
+  const picks = [];
+  for (const t of targets) {
+    const row = model.rows.find((r) => r.index === t.item);
+    if (!row) return { ok: false, reason: `không tìm thấy hàng ${t.item}` };
+    const src = row.cells?.[t.cell];
+    if (!src || src.empty || !src.token) return { ok: false, reason: 'ô trống, không có gì để dời' };
+    picks.push({ row, src, token: src.token });
   }
 
-  const crossRegion = from.categoryIndex !== to.categoryIndex;
-  const name = src.token.field;
+  // Gỡ nguồn: mỗi hàng theo cột GIẢM DẦN để cột bên trái không bị lệch chỉ số.
+  const rowState = new Map();
+  for (const p of picks) rowState.set(p.row.index, p.row.row);
 
-  /*
-   * Qua VÙNG khác thì cụm `.Label` / `.Footer` / `.Description` phải đi theo — để lại là để một
-   * cái nhãn ở tab cũ trỏ vào ô nhập đã sang tab khác.
-   *
-   * Trong CÙNG vùng thì KHÔNG gom: hai ô vẫn nằm cạnh nhau trên màn hình, và người dùng kéo một
-   * ô thì họ đang nói về một ô — cùng luật với phép dời trong hàng vốn có từ trước.
-   */
-  const cluster = [];
-  if (crossRegion && name && src.token.kind === 'input') {
-    for (const r of model.rows) {
-      for (const c of companionCells(r, name)) {
-        if (r.index !== from.index) {
-          return {
-            ok: false,
-            reason: `[${name}] còn ô .${c.token.kind} ở hàng ${r.index + 1} —`
-              + ' dời qua vùng khác thì cả cụm phải đi cùng, mà ô ấy ở hàng khác nên không tự đặt được;'
-              + ' dời nó sang trước rồi dời ô này sau',
-          };
-        }
-        cluster.push(c);
-      }
+  const removeOrder = [...picks].sort((a, b) => {
+    if (a.row.index !== b.row.index) return a.row.index - b.row.index;
+    return b.src.col - a.src.col;
+  });
+  const rowIndexes = [...new Set(removeOrder.map((p) => p.row.index))];
+  for (const ri of rowIndexes) {
+    const group = removeOrder.filter((p) => p.row.index === ri).sort((a, b) => b.src.col - a.src.col);
+    let cur = rowState.get(ri);
+    const widths = group[0].row.widths;
+    for (const p of group) {
+      const { cells } = buildCells(cur, widths);
+      const idx = cells.findIndex((x) => x.col === p.src.col && !x.empty);
+      if (idx === -1) return { ok: false, reason: `không tìm lại được ô ở cột ${p.src.col + 1}` };
+      const done = removeCell(cur, widths, idx, { allowEntity: true });
+      if (!done.ok) return done;
+      cur = done.row;
     }
+    rowState.set(ri, cur);
   }
 
-  // Gỡ khỏi hàng nguồn theo cột GIẢM DẦN: bỏ ô bên phải trước thì cột của ô bên trái không bị
-  // lay chuyển — cùng mẹo với `planRemoveControl`.
-  let cur = from.row;
-  for (const c of [src, ...cluster].sort((a, b) => b.col - a.col)) {
-    const { cells } = buildCells(cur, from.widths);
-    const idx = cells.findIndex((x) => x.col === c.col && !x.empty);
-    if (idx === -1) return { ok: false, reason: `không tìm lại được ô ở cột ${c.col + 1} của hàng nguồn` };
-    const done = removeCell(cur, from.widths, idx, { allowEntity: true });
-    if (!done.ok) return done;
-    cur = done.row;
-  }
-
-  // Đặt vào hàng đích, GIỮ NGUYÊN khoảng cách tương đối trong cụm: `[x].Label, [x]` sang chỗ mới
-  // vẫn là `[x].Label, [x]`, không dồn thành một đống.
-  let dst = to.row;
-  for (const c of [src, ...cluster].sort((a, b) => a.col - b.col)) {
-    const at = col + (c.col - src.col);
-    if (at < 0) {
+  // Đặt lên đích, mỗi control span = 1, cột liên tiếp từ baseCol.
+  let dst = rowState.has(to.index) ? rowState.get(to.index) : to.row;
+  let at = base;
+  for (const p of picks) {
+    if (at >= to.widths.length) {
       return {
         ok: false,
-        reason: `ô .${c.token.kind} của cụm rơi ra ngoài mép trái hàng đích — thả xa mép trái hơn ${src.col - c.col} cột`,
+        reason: `không đủ cột từ cột ${base + 1} để đặt ${picks.length} control (span 1)`,
       };
     }
-    const done = placeCell(dst, to.widths, at, c.span, c.token, { allowEntity: true });
+    const done = placeCell(dst, to.widths, at, 1, p.token, { allowEntity: true });
     if (!done.ok) return done;
     dst = done.row;
+    at += 1;
   }
+  rowState.set(to.index, dst);
 
-  const fixed = reconcileRegions(model, new Map([[from.index, cur.tokens], [to.index, dst.tokens]]));
+  const tokenMap = new Map();
+  for (const [ri, parsed] of rowState) tokenMap.set(ri, parsed.tokens);
+  const fixed = reconcileRegions(model, tokenMap);
   if (!fixed.ok) return fixed;
 
   const patches = [];
-  const fromPatch = rowWritePatch(model, from, cur, `hàng ${from.index + 1}`);
-  if (!fromPatch.ok) return fromPatch;
-  patches.push(fromPatch);
-
-  const toPatch = valuePatch(model, to, dst, `hàng ${to.index + 1}`);
-  if (!toPatch.ok) return toPatch;
-  patches.push(toPatch);
+  for (const [ri, parsed] of rowState) {
+    const row = model.rows.find((r) => r.index === ri);
+    if (!row) continue;
+    // Hàng đích luôn valuePatch; hàng nguồn khác có thể bỏ luôn thẻ <item> nếu hết token.
+    const patch = ri === to.index
+      ? valuePatch(model, row, parsed, `hàng ${ri + 1}`)
+      : rowWritePatch(model, row, parsed, `hàng ${ri + 1}`);
+    if (!patch.ok) {
+      if (patch.reason === 'không có gì thay đổi') continue;
+      return patch;
+    }
+    if (!patches.some((x) => x.file === patch.file && x.splice?.start === patch.splice?.start)) {
+      patches.push(patch);
+    }
+  }
 
   for (const [field, n] of fixed.overrides) {
     const cp = categoryPatch(model, field, n);
@@ -1381,21 +1606,24 @@ function buildMovePatches(model, { item, cell, toItem, toCol }) {
     patches.push(cp);
   }
 
+  if (patches.length === 0) return { ok: false, reason: 'không có gì thay đổi' };
+
+  const touched = [...rowState.keys()].map((i) => model.rows.find((r) => r.index === i)).filter(Boolean);
   return {
     ok: true,
     patches,
-    warning: [from, to].find((r) => r.foreign)?.range?.file ?? null,
+    warning: touched.find((r) => r.foreign)?.range?.file ?? null,
     pinned: fixed.pinned,
-    moved: cluster.length + 1,
+    moved: picks.length,
+    dropAnchor: base,
+    dropPreferred: base,
   };
 }
 
 /**
  * Phần THUẦN của phép ĐỔI CHỖ — hai token hoán vị, có thể ở HAI HÀNG khác nhau.
  *
- * Cùng span vẫn là điều kiện, và ở ca hai hàng nó còn quan trọng hơn: khác span thì hai vùng
- * đích không trùng nhau, "hoán vị" biến thành hai phép dời chồng lấn — thứ phải nói rõ chứ
- * không đoán.
+ * Pattern/slot đứng yên ở cả hai bên; khác span vẫn được (giữ kích thước slot, chỉ đổi input).
  */
 function buildSwapPatches(model, { item, cell, toItem, other }) {
   const ra = model.rows.find((r) => r.index === item);
@@ -1408,15 +1636,8 @@ function buildSwapPatches(model, { item, cell, toItem, other }) {
   if (!a || a.empty || !a.token) return { ok: false, reason: 'ô trống, không có control để đổi chỗ' };
   if (!b || b.empty || !b.token) return { ok: false, reason: 'ô trống, không có control để đổi chỗ' };
   if (ra.index === rb.index && cell === other) return { ok: false, reason: 'không có gì thay đổi' };
-  if (a.span !== b.span) {
-    return {
-      ok: false,
-      reason: `hai control khác bề rộng (trải ${a.span} và ${b.span} cột)`
-        + ' — cho bằng nhau rồi mới đổi chỗ được',
-    };
-  }
 
-  // CÙNG HÀNG → `swapCells` lo trọn: pattern đứng yên, hai token hoán vị.
+  // CÙNG HÀNG → `swapCells` lo trọn: pattern đứng yên, hai token hoán vị (kể cả khác span).
   if (ra.index === rb.index) {
     const done = swapCells(ra.row, ra.widths, cell, other, { allowEntity: true });
     if (!done.ok) return done;
@@ -1426,8 +1647,8 @@ function buildSwapPatches(model, { item, cell, toItem, other }) {
   }
 
   /*
-   * HAI HÀNG: thay token TẠI CHỖ ở cả hai bên. Không đi qua remove+place, vì hai ô cùng span nên
-   * pattern của CẢ HAI hàng đứng yên — y hệt lý do phép đổi chỗ trong một hàng rẻ tới vậy.
+   * HAI HÀNG: thay token TẠI CHỖ ở cả hai bên. Không đi qua remove+place — pattern của CẢ HAI
+   * hàng đứng yên (slot giữ kích thước), kể cả khi hai ô khác span.
    */
   const swapIn = (row, cells, at, token) => {
     const ti = tokenIndexOfCell(cells, at);
@@ -1529,6 +1750,9 @@ function verifyPatches(built, getText) {
     warning: built.warning ?? null,
     pinned: built.pinned ?? [],
     wrote: built.patches.filter((p) => p.wrote).map((p) => p.wrote),
+    dropAnchor: built.dropAnchor,
+    dropPreferred: built.dropPreferred,
+    moved: built.moved,
   };
 }
 
@@ -1540,6 +1764,102 @@ function verifyPatches(built, getText) {
  */
 export function planMoveControl(model, op, getText) {
   return verifyPatches(buildMovePatches(model, op), getText);
+}
+
+/**
+ * Dời một KHỐI hàng `<item>` liền kề (Shift+click nhiều hàng) tới trước/sau hàng đích.
+ *
+ * Khác `planMoveControl`: không gỡ token khỏi pattern rồi nhét sang hàng khác — cả thẻ `<item>`
+ * đi nguyên, các hàng còn lại dịch theo trong file. Chỉ nhận hàng liền kề trên file nguồn.
+ *
+ * @param op {items:number[], toItem:number, side?:'before'|'after'}
+ */
+export function planMoveRowBlock(model, { items, toItem, side = 'before' }, getText) {
+  const uniq = [...new Set((items ?? []).map(Number))]
+    .filter((n) => Number.isFinite(n))
+    .sort((a, b) => a - b);
+  if (uniq.length < 2) return { ok: false, reason: 'block cần ít nhất 2 hàng' };
+
+  const blockRows = uniq.map((i) => model.rows.find((r) => r.index === i));
+  if (blockRows.some((r) => !r)) return { ok: false, reason: 'không tìm thấy hàng trong block' };
+  if (blockRows.some((r) => !r.itemRange)) {
+    return { ok: false, reason: 'không xác định được thẻ <item> của một hàng trong block' };
+  }
+
+  const file = blockRows[0].itemRange.file;
+  if (blockRows.some((r) => r.itemRange.file !== file)) {
+    return { ok: false, reason: 'các hàng block nằm ở nhiều file — không dời chung được' };
+  }
+
+  const dest = model.rows.find((r) => r.index === toItem);
+  if (!dest?.itemRange) return { ok: false, reason: `không tìm thấy hàng đích ${toItem}` };
+  if (dest.itemRange.file !== file) {
+    return { ok: false, reason: 'hàng đích khác file với block' };
+  }
+  if (uniq.includes(toItem)) return { ok: false, reason: 'không có gì thay đổi' };
+
+  const text = typeof getText === 'function' ? getText(file) : null;
+  if (typeof text !== 'string') {
+    return { ok: false, reason: 'chưa đọc được văn bản nguồn để đối chiếu trước khi ghi' };
+  }
+
+  const spans = blockRows
+    .map((r) => lineSpanOfItem(text, r.itemRange))
+    .sort((a, b) => a.start - b.start);
+  for (let i = 1; i < spans.length; i++) {
+    const gap = text.slice(spans[i - 1].end, spans[i].start);
+    if (!/^[\r\n \t]*$/.test(gap)) {
+      return { ok: false, reason: 'các hàng không liền kề trong file nguồn — chỉ dời được vùng liền kề' };
+    }
+  }
+
+  const blockStart = spans[0].start;
+  const blockEnd = spans[spans.length - 1].end;
+  const blockText = text.slice(blockStart, blockEnd);
+  if (blockText.trim() === '') return { ok: false, reason: 'block rỗng' };
+
+  const destSpan = lineSpanOfItem(text, dest.itemRange);
+  const insertAt = side === 'after' ? destSpan.end : destSpan.start;
+  if (insertAt > blockStart && insertAt < blockEnd) {
+    return { ok: false, reason: 'vị trí thả nằm trong chính block đang kéo' };
+  }
+
+  let splice;
+  if (insertAt <= blockStart) {
+    splice = {
+      start: insertAt,
+      end: blockEnd,
+      text: blockText + text.slice(insertAt, blockStart),
+    };
+  } else {
+    splice = {
+      start: blockStart,
+      end: insertAt,
+      text: text.slice(blockEnd, insertAt) + blockText,
+    };
+  }
+
+  if (splice.text === text.slice(splice.start, splice.end)) {
+    return { ok: false, reason: 'không có gì thay đổi' };
+  }
+
+  return {
+    ok: true,
+    edits: [{ file, start: splice.start, end: splice.end, text: splice.text }],
+    warning: blockRows.find((r) => r.foreign)?.range?.file
+      ?? (blockRows.find((r) => r.foreign) ? file : null),
+    pinned: [],
+    moved: uniq.length,
+  };
+}
+
+/** Thẻ `<item>` + thụt lề dòng + xuống dòng sau thẻ — đơn vị dịch chuyển cả hàng. */
+function lineSpanOfItem(text, itemRange) {
+  const lineStart = text.lastIndexOf('\n', itemRange.start - 1) + 1;
+  let end = itemRange.end;
+  if (text.slice(end, end + 2) === '\r\n') end += 2;
+  else if (text[end] === '\n') end += 1;
+  return { start: lineStart, end };
 }
 
 /** ĐỔI CHỖ hai control, cùng hàng hoặc khác hàng. @param op {item, cell, toItem, other} */
@@ -1554,6 +1874,12 @@ export function planSwapControl(model, op, getText) {
  * thì trả mảng rỗng và để hàm plan nói lý do, chứ không nói hộ ở đây.
  */
 export function moveControlFiles(model, op) {
+  if (op.kind === 'moveBlock') {
+    const rows = (op.items ?? []).map((i) => model.rows.find((r) => r.index === i)).filter(Boolean);
+    const dest = model.rows.find((r) => r.index === op.toItem);
+    const files = [...rows, dest].map((r) => r?.itemRange?.file ?? r?.range?.file).filter(Boolean);
+    return [...new Set(files)];
+  }
   const built = op.kind === 'swap' ? buildSwapPatches(model, op) : buildMovePatches(model, op);
   return built.ok ? [...new Set(built.patches.map((p) => p.file))] : [];
 }

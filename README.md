@@ -63,6 +63,17 @@ Dự án này tập trung vào trải nghiệm làm việc thực tế của l�
 
 ## Cập nhật gần đây
 
+- Form có `view@split` / `category@split` render đúng cấu trúc runtime: bảng cha 2 cột + FormTable
+  trái (cột 1…k) và FormTable phải (cột k+1…hết), không còn một bảng gộp.
+- Đổi chỗ (swap) hai control trong cùng hàng: chỉ hoán token, giữ nguyên pattern/slot — kể cả khi
+  hai bên khác `colspan` (ví dụ label+input ↔ ô trải nhiều cột).
+- Thanh lệnh ô (`+← +→ +↑ +↓ ×`) đã bỏ. Thêm hàng bằng nút `+` ngoài mép form khi rê chuột lên
+  hàng; thêm field bằng nút `(+)` trên slot trống đang chọn. Xoá vẫn dùng Delete / Shift+Delete.
+- Form có split: hai nút `+` (mép trái / mép phải). Bấm `+` một bên chèn slot trống bên đó và
+  **dồn nửa kia của các hàng phía dưới lên** (tới trước hàng nhúng lưới Detail), để nửa còn lại
+  không bị đẩy xuống một dòng trống thừa.
+- Hàng / nửa hàng toàn slot trống giữ chiều cao gần bằng hàng có ô nhập (~24px), không còn bị dẹt.
+- Tab chỉ chứa lưới Detail không hiện nút `+` thêm hàng form.
 - Render đã được gộp nhịp để giảm lag khi một thao tác phát sinh nhiều thay đổi liên tiếp.
 - Includes và dữ liệu bung entity được nhớ theo mtime để không đọc lại và không bung lại vô ích mỗi lần render.
 - Cấu hình Grid/Config/Initialize.xml được memo hóa theo toàn bộ tập file đã tham gia vào kết quả.
@@ -88,10 +99,25 @@ Dự án này tập trung vào trải nghiệm làm việc thực tế của l�
 
 ### 4. Sửa trực tiếp trên design
 
-- Chọn control để hiện thanh thao tác nổi.
-- Kéo các mép và tay cầm để đổi kích thước, gộp/tách hoặc đổi vị trí.
-- Bấm vào các nút + hoặc × để thêm/xóa theo ngữ cảnh.
+- Chọn control để hiện tay cầm kéo (gộp/tách biên ô) và khung chọn.
+- Kéo control sang slot trống để dời; kéo lên control khác trong cùng hàng để đổi chỗ (swap).
+- Rê chuột lên một hàng form → nút `+` ngoài mép (một nút, hoặc hai nút khi vùng có `split`) để
+  thêm hàng trống bên dưới.
+- Bấm slot trống (ô gạch chéo) → nút `(+)` giữa ô để thêm field vào đúng chỗ đó.
+- Xóa control bằng Delete; giữ Shift để xóa luôn khai báo `<field>` khi được hỗ trợ.
 - Chọn control rồi theo liên kết để nhảy tới file liên quan khi designer cung cấp.
+
+#### Thêm hàng khi form có `split`
+
+Mỗi `<item>` vẫn là một hàng logic gồm cả nửa trái và nửa phải. Nút `+` **trái** / **phải** không
+chỉ chèn một dòng `---------` giống nhau:
+
+- `+` trái — nửa trái hàng mới trống; nửa phải của các hàng phía dưới **dồn lên** vào chỗ mới
+  (ví dụ `ngay_lct` trượt lên khi chèn dưới `ong_ba` trên `SVTran`).
+- `+` phải — đối xứng: nửa phải trống, nửa trái các hàng dưới dồn lên.
+
+Cascade dừng trước hàng nhúng lưới Detail (`<items style="Grid"/>`), tránh kéo nội dung chứng từ
+sang cụm lưới/tax.
 
 #### Tách / gộp BIÊN CỘT của một vùng
 
@@ -130,11 +156,15 @@ Lưu ý: một số màu còn bám theo theme của VS Code, nên nhìn thực t
 
 ## Biểu tượng và nút thao tác
 
-- `+←` và `+→`: chèn control sang trái hoặc sang phải của ô đang chọn.
-- `+↑` và `+↓`: thêm một hàng mới phía trên hoặc phía dưới.
-- `×`: xóa control; nếu giữ Shift thì xóa luôn khai báo `<field>` khi thao tác đó được hỗ trợ.
+- `+` ngoài mép hàng (rê chuột lên hàng): thêm hàng trống bên dưới. Form thường một nút mép trái;
+  form có `split` có thêm nút mép phải — mỗi bên dồn nửa còn lại như mục «Thêm hàng khi form có
+  split» ở trên.
+- `(+)` giữa slot trống đang chọn: thêm field vào đúng ô đó (`insert` vào chỗ trống).
+- Delete / Shift+Delete: xóa control; Shift thì xóa luôn khai báo `<field>` khi thao tác đó được hỗ trợ.
+- Kéo control → slot trống: dời control. Kéo lên control khác cùng hàng: đổi chỗ (swap token,
+  giữ pattern — kể cả khác `colspan`).
 - `⚓`: mỏ neo của vùng main, kéo để đổi cột neo.
-- Vạch dọc đỏ: `split`, tức ranh giới chia vùng của bảng.
+- Vạch dọc đỏ: `split`, tức ranh giới chia vùng của bảng (preview cũng chia hai FormTable theo vạch này).
 - Tay cầm xanh ở mép ô: kéo để gộp/tách hoặc đổi biên độ của control — đổi số cột MỘT control
   đang trải, trong danh sách biên cột có sẵn.
 - Nhãn số px trên dải thước của form: bấm vào để hiện thanh `Tách` / `Gộp◄` / `Gộp►` — đổi chính
@@ -146,7 +176,7 @@ Lưu ý: một số màu còn bám theo theme của VS Code, nên nhìn thực t
 
 ### Bắt đầu
 
-Mở project trong VS Code hoặc Cursor, mở một file controller FBO rồi chạy extension bằng F5 hoặc mở Command Palette và chạy lệnh tương ứng cho FBO Designer. Khi designer hiện ra, bật Blueprint nếu muốn kiểm tra chi tiết layout, còn khi chỉ cần sửa thì dùng thanh thao tác nổi ngay trên control đang chọn.
+Mở project trong VS Code hoặc Cursor, mở một file controller FBO rồi chạy extension bằng F5 hoặc mở Command Palette và chạy lệnh tương ứng cho FBO Designer. Khi designer hiện ra, bật Blueprint nếu muốn kiểm tra chi tiết layout; thêm hàng bằng nút `+` ngoài mép khi rê chuột, thêm field bằng `(+)` trên slot trống, và kéo control để dời hoặc đổi chỗ.
 
 ### Các lệnh thường dùng
 
@@ -229,10 +259,11 @@ Dự án đang tập trung vào trải nghiệm preview thật, tiếp theo sẽ
 - Hỗ trợ nâng cao cho tabs, toolbar và các khu vực phức tạp hơn
 
 Sinh script thêm cột database cho field mới (`FBO Designer: Sinh script thêm cột cho field mới`),
-tách/gộp biên cột của một vùng form, và đổi chỗ hai control cùng bề rộng trong một hàng (kéo thả
-lên nhau, hoặc nút `⇄←` / `⇄→`) đã thực thi xong. Các tiện ích khác đang ở giai đoạn thảo luận,
-chưa thực thi — preview theo dữ liệu mẫu, nhập liệu debug ngay trên form (Filter/Danh mục), sao
-chép source giữa các dự án khách, và tuỳ chọn Lưu ngay/Tự lưu khi sửa design.
+tách/gộp biên cột của một vùng form, đổi chỗ hai control trong một hàng (kéo thả lên nhau — kể cả
+khác `colspan`), và thêm hàng / field theo UX `+` mép hàng + `(+)` slot trống (kèm dồn nửa split)
+đã thực thi xong. Các tiện ích khác đang ở giai đoạn thảo luận, chưa thực thi — preview theo dữ
+liệu mẫu, nhập liệu debug ngay trên form (Filter/Danh mục), sao chép source giữa các dự án khách,
+và tuỳ chọn Lưu ngay/Tự lưu khi sửa design.
 Xem [docs/IDEAS-FUTURE-TOOLS.md](docs/IDEAS-FUTURE-TOOLS.md).
 
 Chưa có trong bản này: đổi bề rộng một cột form đã có sẵn bằng chuột. Px của cột form nằm ở danh

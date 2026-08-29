@@ -4,7 +4,7 @@
 import { ok, eq, section } from './harness.mjs';
 import {
   classifyItem, parseWidths, parseToken, parseRow, resolvePattern, buildCells, serializeRow, setSpan,
-  removeCell, insertCell, newRow,
+  removeCell, insertCell, newRow, takeRowHalf, joinRowHalves,
 } from '../src/item-value.mjs';
 
 section('classifyItem — chỉ item ĐẦU TIÊN và không có ":" mới là list px');
@@ -133,6 +133,52 @@ const nr = newRow(W, '[a]');
 eq('một "1" rồi toàn "-"', nr.row.pattern, '1---');
 eq('đúng một token', nr.row.tokens.map((t) => t.raw), ['[a]']);
 eq('ghi ra đúng dạng item value', serializeRow(nr.row), '1---: [a]');
+
+section('newRow — trống toàn dấu gạch (hàng chờ field)');
+const blank = newRow(W, []);
+ok('lập được', blank.ok);
+eq('toàn "-"', blank.row.pattern, '----');
+eq('không token', blank.row.tokens.length, 0);
+eq('ghi ra không dấu ":"', serializeRow(blank.row), '----');
+ok('null cũng trống', newRow(W, null).ok && serializeRow(newRow(W, null).row) === '----');
+
+section('takeRowHalf / joinRowHalves — tách/ghép theo split');
+const W8 = parseWidths('50, 50, 50, 50, 50, 50, 50, 50').widths;
+const splitRef = parseRow('11--1-1-: [a].Label, [a], [b].Label, [b]');
+const leftH = takeRowHalf(splitRef, W8, 4, 'left');
+const rightH = takeRowHalf(splitRef, W8, 4, 'right');
+eq('nửa trái pattern', leftH.pattern, '11------');
+eq('nửa trái tokens', leftH.tokens.map((t) => t.raw), ['[a].Label', '[a]']);
+eq('nửa phải pattern', rightH.pattern, '----1-1-');
+eq('nửa phải tokens', rightH.tokens.map((t) => t.raw), ['[b].Label', '[b]']);
+eq('ghép lại', serializeRow(joinRowHalves(leftH, rightH, W8, 4, splitRef)), '11--1-1-: [a].Label, [a], [b].Label, [b]');
+
+section('cascade + trái — nửa phải hàng dưới dồn lên (SVTran-like)');
+const empty = parseRow('--------');
+const r0 = parseRow('-----------101-: [so_seri].Label, [so_seri]');
+const r1 = parseRow('1101000000-101-: [ma_gd].Label, [ma_gd], [ten_gd%l], [ngay_lct].Label, [ngay_lct]');
+const W15 = parseWidths('100, 30, 70, 35, 65, 0, 0, 37, 100, 100, 8, 58, 50, 100, 0').widths;
+const SPL = 10;
+const inserted = joinRowHalves(
+  takeRowHalf(empty, W15, SPL, 'left'),
+  takeRowHalf(r0, W15, SPL, 'right'),
+  W15, SPL, r0,
+);
+const next0 = joinRowHalves(
+  takeRowHalf(r0, W15, SPL, 'left'),
+  takeRowHalf(r1, W15, SPL, 'right'),
+  W15, SPL, r0,
+);
+eq('hàng mới lấy so_seri bên phải', serializeRow(inserted), '-----------101-: [so_seri].Label, [so_seri]');
+eq('ngay_lct dồn lên hàng trống trái', serializeRow(next0), '-----------101-: [ngay_lct].Label, [ngay_lct]');
+
+section('insertCell side=in — đặt field vào chính ô trống');
+const fillBase = R('1---: [a]');
+const filled = insertCell(fillBase, W, 1, 'in', '[b]');
+ok('điền vào ô trống được', filled.ok, filled.reason);
+eq('pattern', filled.ok && filled.row.pattern, '11--');
+eq('tokens', filled.ok && filled.row.tokens.map((t) => t.raw), ['[a]', '[b]']);
+ok('ô đã có control thì từ chối', !insertCell(fillBase, W, 0, 'in', '[b]').ok);
 
 section('sửa xong ghi lại phải đọc lại được y như thế');
 // Vòng tròn parse → sửa → serialize → parse là thứ giữ cho edit không trôi dần.

@@ -209,17 +209,25 @@ async function applySplice(plan, hostDocument, output, label = 'sửa form') {
     output.appendLine(`sửa ${e.file} [${e.start},${e.end}) → ${JSON.stringify(e.text)}`);
   }
 
-  // Lưu luôn. `applyEdit` mới chỉ đổi document trong bộ nhớ; chưa lưu thì file trên đĩa vẫn là
-  // bản cũ, và designer đang vẽ từ document nên hai bên nói hai chuyện khác nhau — người dùng
-  // thấy form đã đổi mà mở file ra thì chưa. Lưu xong `onDidChangeTextDocument` cũng đã bắn,
-  // nên preview tự vẽ lại; không cần ép render ở đây.
-  for (const doc of targets.values()) await doc.save();
-
-  // Chụp SAU khi đã lưu: VS Code còn chỉnh thêm lúc lưu (cắt khoảng trắng cuối dòng, thêm dòng
-  // trắng cuối file). Chụp trước bước đó là bản "after" không khớp file thật, và mọi lần hoàn
-  // tác sau đó sẽ bị chính phép so an toàn của nó từ chối.
+  /*
+   * Chụp SAU applyEdit, TRƯỚC save — rồi trả về ngay để UI vẽ lại.
+   *
+   * `await doc.save()` từng chiếm phần lớn latency mỗi thao tác (thường 50–150ms), trong khi
+   * `applyEdit` chỉ vài ms. Chốt `editing` giữ đến hết save khiến form chỉ nhảy sau khi đĩa
+   * xong. Vẽ từ document (đã apply) là đủ; save chạy nền. VS Code có thể chỉnh whitespace lúc
+   * lưu — cập nhật `frames.after` sau save để hoàn tác vẫn khớp file thật.
+   */
   for (const f of frames) f.after = targets.get(f.uri.fsPath.toLowerCase()).getText();
   history(output).record(label, frames);
+
+  const saveJobs = [...targets.values()].map((doc) => doc.save().then(() => {
+    const frame = frames.find((f) => f.uri.toString() === doc.uri.toString());
+    if (frame) frame.after = doc.getText();
+  }));
+  void Promise.all(saveJobs).catch((err) => {
+    output.appendLine(`lưu nền lỗi: ${err.stack || err.message}`);
+  });
+
   return true;
 }
 
@@ -342,7 +350,10 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
   // đang cầm. Đó là thứ duy nhất bắt được hàng viết bằng entity đã bung (`[&k;]` → `[ma_kho]`),
   // vì lúc ấy trong model không còn dấu `&` nào để nhận ra. File nguồn có thể là một Include
   // chưa mở, nên phải mở nó ra chứ không dùng văn bản của controller.
-  const row = model.rows.find((r) => r.index === msg.item);
+  const rowKey = msg.op === 'moveBlock'
+    ? (Array.isArray(msg.items) ? msg.items[0] : undefined)
+    : msg.item;
+  const row = model.rows.find((r) => r.index === rowKey);
   if (!row || !row.range) {
     vscode.window.showWarningMessage('FBO Designer: không xác định được hàng trong file nguồn.');
     return false;
@@ -372,25 +383,33 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
    * đúng lối hỏng mà tầng chiều cao đã mắc một lần.
    */
   let plan;
-  if (msg.op === 'move' || msg.op === 'swap') {
+  if (msg.op === 'move' || msg.op === 'swap' || msg.op === 'moveBlock') {
     // Dời/đổi chỗ TỰ DO có thể đụng nhiều hàng, nhiều vùng, và nhiều file cùng lúc.
     // Tầng core nói trước danh sách file phải mở (`moveControlFiles`), rồi mới đối chiếu từng
-    // splice trên đúng file sở hữu nó (`planMoveControl` / `planSwapControl`).
-    const op = msg.op === 'move'
+    // splice trên đúng file sở hữu nó (`planMoveControl` / `planSwapControl` / `planMoveRowBlock`).
+    const op = msg.op === 'moveBlock'
       ? {
-        kind: 'move',
-        item: msg.item,
-        cell: msg.cell,
-        toItem: Number.isFinite(Number(msg.toItem)) ? Number(msg.toItem) : undefined,
-        toCol: msg.col,
+        kind: 'moveBlock',
+        items: Array.isArray(msg.items) ? msg.items.map(Number) : [],
+        toItem: Number(msg.toItem),
+        side: msg.side === 'after' ? 'after' : 'before',
       }
-      : {
-        kind: 'swap',
-        item: msg.item,
-        cell: msg.cell,
-        toItem: Number.isFinite(Number(msg.toItem)) ? Number(msg.toItem) : undefined,
-        other: msg.other,
-      };
+      : msg.op === 'move'
+        ? {
+          kind: 'move',
+          item: msg.item,
+          cell: msg.cell,
+          toItem: Number.isFinite(Number(msg.toItem)) ? Number(msg.toItem) : undefined,
+          toCol: msg.col,
+          targets: Array.isArray(msg.targets) ? msg.targets : undefined,
+        }
+        : {
+          kind: 'swap',
+          item: msg.item,
+          cell: msg.cell,
+          toItem: Number.isFinite(Number(msg.toItem)) ? Number(msg.toItem) : undefined,
+          other: msg.other,
+        };
 
     const files = core.moveControlFiles(model, op);
     const texts = [];
@@ -400,9 +419,11 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
     }
     const getText = (file) => texts.find((t) => samePath(t.file, file))?.text ?? null;
 
-    plan = msg.op === 'move'
-      ? core.planMoveControl(model, op, getText)
-      : core.planSwapControl(model, op, getText);
+    plan = msg.op === 'moveBlock'
+      ? core.planMoveRowBlock(model, op, getText)
+      : msg.op === 'move'
+        ? core.planMoveControl(model, op, getText)
+        : core.planSwapControl(model, op, getText);
   } else {
     const op = msg.op === 'resize'
       ? { kind: 'resize', item: msg.item, cell: msg.cell, span: msg.span, col: msg.col, side: msg.side }
@@ -413,38 +434,64 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
 
     if (msg.op === 'resize') {
       plan = core.planRowEdit(model, op, sourceText);
-  } else if (msg.op === 'insert' || msg.op === 'addRow') {
-    const made = await askNewControl(core);
-    if (!made) return false;
+    } else if (msg.op === 'insert' || msg.op === 'addRow') {
+      /*
+       * `addRow` + `blank: true` — chỉ chèn hàng `---------`, không hỏi control / không khai
+       * `<field>`. Field thêm sau bằng nút (+) trên slot trống.
+       */
+      if (msg.op === 'addRow' && msg.blank) {
+        if (!row.itemRange) {
+          vscode.window.showWarningMessage('FBO Designer: không xác định được vị trí thẻ <item>.');
+          return false;
+        }
+        const region = model.regions.find((r) => r.rows.some((x) => x.index === msg.item));
+        const split = Number(region?.split ?? model.split);
+        const splitSide = msg.splitSide === 'left' || msg.splitSide === 'right' ? msg.splitSide : undefined;
+        plan = core.planAddRow(model, {
+          kind: 'addRow',
+          item: msg.item,
+          side: msg.side === 'above' ? 'above' : 'below',
+          token: [],
+          blank: true,
+          splitSide,
+          split: Number.isFinite(split) && split > 0 ? split : undefined,
+        }, sourceText, row.itemRange);
+      } else {
+        const made = await askNewControl(core);
+        if (!made) return false;
 
-    if (msg.op === 'addRow' && !row.itemRange) {
-      vscode.window.showWarningMessage('FBO Designer: không xác định được vị trí thẻ <item>.');
-      return false;
-    }
-    plan = msg.op === 'insert'
-      ? core.planRowEdit(model,
-        { kind: 'insert', item: msg.item, cell: msg.cell, side: msg.side, token: made.tokens }, sourceText)
-      : core.planAddRow(model,
-        { kind: 'addRow', item: msg.item, side: msg.side, token: made.tokens }, sourceText, row.itemRange);
+        if (msg.op === 'addRow' && !row.itemRange) {
+          vscode.window.showWarningMessage('FBO Designer: không xác định được vị trí thẻ <item>.');
+          return false;
+        }
+        const side = msg.side === 'left' || msg.side === 'right' || msg.side === 'in'
+          ? msg.side
+          : (msg.side === 'above' ? 'above' : 'below');
+        plan = msg.op === 'insert'
+          ? core.planRowEdit(model,
+            { kind: 'insert', item: msg.item, cell: msg.cell, side, token: made.tokens }, sourceText)
+          : core.planAddRow(model,
+            { kind: 'addRow', item: msg.item, side, token: made.tokens }, sourceText, row.itemRange);
 
-    /*
-     * Khai báo `<field>` đi kèm — cùng một WorkspaceEdit với phép sửa hàng, để Ctrl+Z không bao
-     * giờ để lại một file có control trỏ vào field chưa tồn tại (hoặc ngược lại).
-     *
-     * Nhưng nó KHÔNG đi vào cùng file với hàng. Hàng `<item>` hay nằm trong một Include dùng
-     * chung; `<fields>` thì luôn ở controller. Bản trước dùng `sourceText` (văn bản của file
-     * chứa hàng) cho cả hai, nên với `Dir/Customer.xml` của HOATP nó báo «file không có
-     * <fields> để thêm khai báo vào» trong khi controller có đủ.
-     */
-    if (plan.ok) {
-      const declHost = fieldsHost(core, hostDocument, sourceText, targetFile);
-      const decl = core.planAddField(declHost.text, made.xml, made.name);
-      if (!decl.ok) {
-        vscode.window.showWarningMessage(`FBO Designer: ${decl.reason}`);
-        return false;
+        /*
+         * Khai báo `<field>` đi kèm — cùng một WorkspaceEdit với phép sửa hàng, để Ctrl+Z không bao
+         * giờ để lại một file có control trỏ vào field chưa tồn tại (hoặc ngược lại).
+         *
+         * Nhưng nó KHÔNG đi vào cùng file với hàng. Hàng `<item>` hay nằm trong một Include dùng
+         * chung; `<fields>` thì luôn ở controller. Bản trước dùng `sourceText` (văn bản của file
+         * chứa hàng) cho cả hai, nên với `Dir/Customer.xml` của HOATP nó báo «file không có
+         * <fields> để thêm khai báo vào» trong khi controller có đủ.
+         */
+        if (plan.ok) {
+          const declHost = fieldsHost(core, hostDocument, sourceText, targetFile);
+          const decl = core.planAddField(declHost.text, made.xml, made.name);
+          if (!decl.ok) {
+            vscode.window.showWarningMessage(`FBO Designer: ${decl.reason}`);
+            return false;
+          }
+          plan = { ...plan, extra: { ...decl.splice, file: declHost.file } };
+        }
       }
-      plan = { ...plan, extra: { ...decl.splice, file: declHost.file } };
-    }
     } else {
       return false;
     }
@@ -471,7 +518,7 @@ const COMPANION_KINDS = new Set(['label', 'footer', 'description']);
  * thuộc tính trên thẻ chứ không sửa `<item value>`, nên «phân giải dòng &Name; ra tại chỗ»
  * không phải phép sửa đúng cho chúng.
  */
-const ENTITY_ROUTED_OPS = new Set(['resize', 'move', 'swap', 'insert', 'remove', 'addRow']);
+const ENTITY_ROUTED_OPS = new Set(['resize', 'move', 'swap', 'moveBlock', 'insert', 'remove', 'addRow']);
 
 /**
  * Hàng đến từ `&ENTITY;`: ghi thẳng vào file gốc, hay phân giải vào chính file thiết kế?
@@ -498,7 +545,10 @@ async function routeEntityEdit(msg, core, built, hostDocument, output, depth) {
   if (depth > 0) return 'continue';
   if (!ENTITY_ROUTED_OPS.has(msg.op)) return 'continue';
 
-  const row = built.model.rows.find((r) => r.index === msg.item);
+  const rowKey = msg.op === 'moveBlock'
+    ? (Array.isArray(msg.items) ? msg.items[0] : undefined)
+    : msg.item;
+  const row = built.model.rows.find((r) => r.index === rowKey);
   // `hostRef` chỉ có khi chính controller ĐANG MỞ là nơi viết ra `&Name;`. Không có nó thì
   // không có dòng nào ở đây để mà comment, và câu hỏi trở thành vô nghĩa.
   if (!row || !row.foreign || !row.hostRef) return 'continue';

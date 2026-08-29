@@ -76,11 +76,68 @@ body {
 /* Bọc form để lớp blueprint có gốc toạ độ. `inline-block` để nó ôm sát panel, không kéo dài
    ra hết bề ngang vùng cuộn — nếu không thì thước kẻ dài hơn cả form. */
 #fbo-stage { position: relative; display: inline-block; }
-body.bp-on #fbo-stage { margin-top: 26px; }
+body.bp-on #fbo-stage { margin-top: 26px; margin-left: 22px; margin-right: 22px; }
+
+/* Dấu + thêm hàng trống — ngoài mép trái form, hiện khi rê chuột lên hàng. */
+.bp-row-add {
+  position: absolute;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(11, 107, 203, 0.7);
+  background: var(--vscode-editorWidget-background, #fff);
+  color: rgba(11, 107, 203, 0.95);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 16px;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  z-index: 3;
+}
+.bp-row-add:hover {
+  background: rgba(11, 107, 203, 0.12);
+  border-color: rgba(11, 107, 203, 0.95);
+}
+
+/* Nút (+) giữa slot trống đang chọn — raise insert/add field. */
+.bp-slot-add {
+  position: absolute;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin: 0;
+  border-radius: 4px;
+  border: 1px solid rgba(11, 107, 203, 0.75);
+  background: var(--vscode-editorWidget-background, #fff);
+  color: rgba(11, 107, 203, 0.95);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  z-index: 3;
+}
+.bp-slot-add:hover {
+  background: rgba(11, 107, 203, 0.14);
+  border-color: rgba(11, 107, 203, 1);
+}
 
 /* Footer cần một dải riêng cho ruler khi bật blueprint.
   Khoảng này chỉ bật trong bp-on để không đổi bố cục khi tắt blueprint. */
-body.bp-on .FormTable[data-fbo-region-table="footer"] { margin-top: 24px; }
+body.bp-on .FormRegion[data-fbo-region="footer"] > .FormTable,
+body.bp-on .FormRegion[data-fbo-region="footer"] > .FormSplit { margin-top: 24px; }
+
+/* Parent 2 cột khi view@split — không thêm khoảng cách giữa hai nửa (runtime cũng dính sát). */
+.FormSplit { display: block; }
+.FormParentTable { border-collapse: collapse; }
 
 /* Tỉ lệ NHÌN. `zoom` (không phải `transform: scale`) vì nó tham gia layout, nên vùng cuộn
    biết form đang chiếm bao nhiêu chỗ. Đặt Ở NGOÀI `#fbo-stage`: mọi thứ bên trong stage —
@@ -200,6 +257,14 @@ body:not(.bp-on) #fbo-blueprint { display: none; }
 
 .bp-guide.bp-edge { border-left-style: solid; border-left-color: rgba(234, 88, 12, 0.9); }
 
+/* Cột width=0: chữ "0" canh giữa trên đúng mốc guide. Không dời `left` trong JS (tránh lệch
+   border-left khỏi vạch cột). `translateX(-50%)` chỉ dịch hộp chữ; border ẩn vì guide đã vẽ. */
+.bp-tick.bp-tick-zero {
+  width: 12px;
+  
+  text-align: center;
+}
+
 /* Dải px của MỘT VÙNG — con số khai trong XML, viết trên đầu cột của nó.
    Nhãn được TRÀN ra khỏi ô: cột 25px không đủ chỗ cho chữ "25", nhưng cắt cụt thì người đọc
    mất đúng con số họ cần. Tràn một chút và chồng nhẹ lên cột bên cạnh vẫn đọc được. */
@@ -221,6 +286,12 @@ body:not(.bp-on) #fbo-blueprint { display: none; }
   color: #b3400a;
   text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 1px 2px #fff;
   border-left: 1px solid rgba(234, 88, 12, 0.55);
+}
+
+/* Cột cuối width>0: không có tick kế tiếp để vẽ mép phải — tự vẽ border-right. */
+.bp-tick.bp-tick-end {
+  box-sizing: border-box;
+  border-right: 1px solid rgba(234, 88, 12, 0.55);
 }
 
 /* Trong lưới, dải px nằm ở mép dưới hàng tiêu đề — chỗ chật hơn và đã có chữ sẵn phía trên.
@@ -323,6 +394,13 @@ body.bp-on .GridTabPanel td.HeaderCellDefault[data-fbo-width]::after {
 /* Ô đang chọn — outline, không border: border là thêm px vào hộp. */
 .fbo-selected { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; }
 
+/* Form designer: chọn ô bằng Shift+click — không để trình duyệt bôi đen chữ nhãn. */
+#fbo-form td.FormCell,
+#fbo-form td.FormCellGrid {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 /* `split` — ranh giới hai vùng của bảng. Đỏ đặc, và là thứ ĐỎ DUY NHẤT của lớp blueprint:
    mọi vạch khác đều xanh, nên nhìn một cái là biết đâu là chỗ bảng bị chia. */
 /* `anchor` — mỏ neo ĐỨNG SÁT vạch mở đầu cột được neo. Canh giữa cột thì ở cột hẹp nó trôi
@@ -420,21 +498,63 @@ body.bp-on .GridTabPanel td.HeaderCellDefault[data-fbo-width]::after {
   border-radius: 2px;
 }
 
-/* Tay cầm kéo chiều cao của tab đang mở — thứ DUY NHẤT của lớp blueprint nằm ngang.
-   Nó phải bắt được chuột, khác với `.bp-grip`: ở đây không có handler nào bên dưới lo hộ, chính
-   nó khởi động phép kéo. Màu lấy từ `BlueprintTheme.Splitter` của DWF để hai công cụ nhìn giống
-   nhau ở cùng một thao tác. */
+/* Tay cầm kéo chiều cao — có thể CÓ HAI thanh trên cùng một tab lưới:
+     `.bp-hheight-view`  hổ phách (cùng màu line cột) → `view@height`
+     `.bp-hheight-grid`  vàng                         → `field@rows`
+   Hai thanh độc lập: kéo cái này không đổi cái kia.
+
+   Nền nét đứt nằm ở `.bp-hheight` (dùng `currentColor`). Biến thể CHỈ đổi `color` —
+   không viết `background:` shorthand kẻo reset hết `background-image` / `size` / `repeat`. */
 .bp-hheight {
   position: absolute;
   pointer-events: auto;
-  height: 6px;
+  height: 2.2px;
   cursor: row-resize;
-  background: rgba(255, 111, 0, 0.35);
   border-radius: 3px;
+  z-index: 2;
+  background-color: transparent;
+  background-image: linear-gradient(
+    to right,
+    currentColor 0%,
+    currentColor 50%,
+    transparent 50%,
+    transparent 100%
+  );
+  background-size: 10px 1.2px;
+  background-repeat: repeat-x;
+  background-position: 0 0;
+}
+
+.bp-hheight-view { color: rgba(234, 88, 12, 0.85); }
+.bp-hheight-view:hover { color: rgba(234, 88, 12, 1); }
+
+.bp-hheight-grid { color: rgba(234, 179, 8, 0.9); }
+.bp-hheight-grid:hover { color: rgba(202, 138, 4, 1); }
+
+/* Con số chiều cao neo MÉP PHẢI vùng main (cạnh line y, nằm trong vùng), xếp dọc —
+   không nằm trên thanh kéo đáy. `translateX(-100%)` neo mép phải chữ vào line y. */
+.bp-hheight-label {
+  position: absolute;
+  transform: translateX(-100%);
+  pointer-events: none;
+  padding-right: 3px;
+  font: 700 11px/12px Verdana, sans-serif;
+  color: #b3400a;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 1px 2px #fff;
+  white-space: nowrap;
   z-index: 2;
 }
 
-.bp-hheight:hover { background: rgba(255, 111, 0, 0.65); }
+.bp-hheight-label-grid { color: #92640a; }
+.bp-hheight-label-view { color: #b3400a; }
+
+/* Khi kéo cao vùng main, tắt scroll-anchoring để footer form đi XUỐNG theo — không để trình
+   duyệt neo đáy rồi đẩy header/main lên. */
+#fbo-form,
+.DwfTabPanel,
+.GridTabPanel {
+  overflow-anchor: none;
+}
 
 /* `view@split` — ranh giới hai vùng của bảng. Đỏ đặc, và là thứ ĐỎ DUY NHẤT của lớp blueprint:
    mọi vạch khác đều cam hoặc xanh, nên nhìn một cái là biết đâu là chỗ bảng bị chia.
@@ -534,6 +654,20 @@ body.fbo-dragging-v * { cursor: row-resize !important; user-select: none; }
   border: 2px solid rgba(22, 163, 74, 0.9);
   background: rgba(22, 163, 74, 0.14);
   border-radius: 2px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.bp-move-label {
+  font: 600 10px/1.2 Consolas, "Courier New", monospace;
+  color: rgba(20, 83, 45, 0.95);
+  padding: 0 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  pointer-events: none;
 }
 .bp-move.bp-move-bad {
   border-color: rgba(185, 28, 28, 0.9);

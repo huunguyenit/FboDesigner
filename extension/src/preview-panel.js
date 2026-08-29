@@ -188,7 +188,9 @@ class PreviewPanel {
   /** Model tươi từ văn bản hiện tại — tầng edit hỏi qua đây. */
   buildNow() {
     try {
-      return buildPayload(this.core, this.document, { cfg: config(), paths: this.paths, output: this.output });
+      return buildPayload(this.core, this.document, {
+        cfg: config(), paths: this.paths, output: this.output, skipHtml: true,
+      });
     } catch (err) {
       this.output.appendLine(`dựng model để sửa lỗi: ${err.message}`);
       return null;

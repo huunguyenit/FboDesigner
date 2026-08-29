@@ -233,12 +233,12 @@ export function removeCell(row, widths, cellIndex, { allowEntity = false } = {})
 }
 
 /**
- * Thêm một control vào ô TRỐNG kề bên ô đang chọn.
+ * Thêm một control vào ô TRỐNG kề bên ô đang chọn, hoặc VÀO CHÍNH ô trống (`side: 'in'`).
  *
  * Chỉ ăn ô trống — đụng ô đang giữ control thì TỪ CHỐI, cùng thái độ với `setSpan`. Đè lên
  * control có sẵn là làm mất một khai báo mà người dùng không hề yêu cầu.
  *
- * @param side 'left' | 'right'
+ * @param side 'left' | 'right' | 'in'
  * @returns {{ok: true, row: object} | {ok: false, reason: string}}
  */
 export function insertCell(row, widths, cellIndex, side, tokenRaw, { allowEntity = false } = {}) {
@@ -258,7 +258,12 @@ export function insertCell(row, widths, cellIndex, side, tokenRaw, { allowEntity
   // Một control có thể cần NHIỀU cột (textbox = nhãn + ô nhập). Cả dải phải trống, và phải nằm
   // gọn trong hàng — thiếu một cột cũng từ chối, chứ không đặt được bao nhiêu hay bấy nhiêu.
   const n = parsed.length;
-  const from = side === 'left' ? cell.col - n : cell.col + cell.span;
+  if (side === 'in') {
+    if (!cell.empty) return { ok: false, reason: 'ô đang có control — chọn ô trống để thêm field vào' };
+  }
+  const from = side === 'in' ? cell.col
+    : side === 'left' ? cell.col - n
+    : cell.col + cell.span;
   if (from < 0) return { ok: false, reason: `bên trái chỉ còn ${cell.col} cột trống, cần ${n}` };
   if (from + n > columnCount) {
     return { ok: false, reason: `bên phải chỉ còn ${columnCount - (cell.col + cell.span)} cột trống, cần ${n}` };
@@ -334,23 +339,19 @@ export function moveCell(row, widths, cellIndex, toCol, { allowEntity = false } 
 }
 
 /**
- * ĐỔI CHỖ hai control trong CÙNG một hàng — hoán vị, không phải hai phép dời nối nhau.
+ * ĐỔI CHỖ hai control trong CÙNG một hàng — hoán token, pattern đứng yên (slot giữ kích thước).
  *
  * `moveCell` TỪ CHỐI khi cột đích đang có control, và đó là thái độ đúng của nó: dời một ô lên
- * chỗ đang có người là làm mất một khai báo mà không ai yêu cầu. Nhưng «đổi thứ tự hai field
- * cạnh nhau» thì chẳng mất gì cả — nên nó cần phép RIÊNG, chứ không phải một cái công tắc nới
- * lỏng `moveCell`. Trước phép này, đổi chỗ phải làm tay qua hai bước: xoá rồi thêm lại, hoặc dời
- * vòng qua một ô trống trung gian.
+ * chỗ đang có người là làm mất một khai báo mà không ai yêu cầu. Nhưng «đổi thứ tự hai field»
+ * thì chẳng mất gì cả — nên nó cần phép RIÊNG, chứ không phải một cái công tắc nới lỏng
+ * `moveCell`.
  *
- * CHỈ CÙNG SPAN — và đó chính là thứ làm phép này rẻ tới mức không ngờ. Hai ô cùng span thì
- * PATTERN KHÔNG ĐỔI một ký tự nào: cột bắt đầu và số cột chiếm của cả hai đều giữ nguyên, chỉ có
- * hai token đổi chỗ cho nhau. Nhờ vậy phép này an toàn với hàng viết bằng entity ở CẢ HAI chỗ —
- * pattern đi qua nguyên văn (kể cả `110&Split;-1`), token đi qua bằng `t.raw` nên `[&k;]` vẫn là
- * `[&k;]`.
+ * Pattern không đổi một ký tự: cột bắt đầu và số cột chiếm của cả hai slot giữ nguyên, chỉ hai
+ * token đổi chỗ. Nhờ vậy an toàn với hàng viết bằng entity ở CẢ HAI chỗ — pattern đi qua nguyên
+ * văn, token đi qua bằng `t.raw` nên `[&k;]` vẫn là `[&k;]`.
  *
- * Khác span thì TỪ CHỐI kèm lý do, không tự dồn lại hàng: ô trải 3 tráo với ô trải 1 sẽ đè lên ô
- * thứ ba nằm giữa, và «dồn lại cả hàng» là một quyết định bố cục người dùng chưa hề nói ra.
- * Đường vòng có sẵn và nói rõ hơn nhiều: kéo cạnh cho hai ô bằng span rồi mới đổi chỗ.
+ * Khác span VẪN ĐƯỢC: ô trải 2 nhận token của ô trải 9 và ngược lại — đúng «giữ kích thước slot,
+ * chỉ đổi vị trí input». Không đè lên ô thứ ba vì pattern không bị viết lại.
  *
  * @returns {{ok: true, row: object} | {ok: false, reason: string}}
  */
@@ -365,13 +366,6 @@ export function swapCells(row, widths, cellIndex, otherIndex, { allowEntity = fa
   if (!b) return { ok: false, reason: `không có ô thứ ${otherIndex}` };
   if (cellIndex === otherIndex) return { ok: false, reason: 'không có gì thay đổi' };
   if (a.empty || b.empty) return { ok: false, reason: 'ô trống, không có control để đổi chỗ' };
-  if (a.span !== b.span) {
-    return {
-      ok: false,
-      reason: `hai control khác bề rộng (trải ${a.span} và ${b.span} cột)`
-        + ' — cho bằng nhau rồi mới đổi chỗ được',
-    };
-  }
 
   // Chỉ số token = số ký tự `1` đứng trước, đọc trên pattern ĐÃ bung cho đủ cột — cùng không
   // gian với `cell.col` mà `buildCells` vừa trả. Pattern không đổi nên chỉ số trước và sau như
@@ -437,23 +431,45 @@ export function placeCell(row, widths, col, span, token, { allowEntity = false }
 }
 
 /**
- * Hàng mới toanh mang đúng một control ở cột 0 — dùng cho `+ phía trên` / `+ phía dưới`.
- * Các cột còn lại để trống, không đoán hộ người dùng muốn gì ở đó.
+ * Hàng mới — dùng cho `+` thêm dòng / thêm control vào dòng mới.
+ *
+ * `tokenRaw` rỗng / `null` / `[]` → hàng trống toàn `-` (`---------`), không dấu `:`, không
+ * token. Đó là «ô chờ» để sau này bấm slot blank mà thêm field vào.
+ * Còn không thì mang đúng các token đã cho ở cột 0…n−1, các cột còn lại để trống.
  */
 export function newRow(widths, tokenRaw) {
+  const columnCount = Math.max(1, widths.length);
+  const empty = tokenRaw == null
+    || (Array.isArray(tokenRaw) && tokenRaw.length === 0)
+    || (typeof tokenRaw === 'string' && String(tokenRaw).trim() === '');
+  if (empty) {
+    return {
+      ok: true,
+      row: {
+        pattern: '-'.repeat(columnCount),
+        tokens: [],
+        separator: ', ',
+        afterColon: ' ',
+        hasColon: false,
+        hasEntity: false,
+        warnings: [],
+      },
+    };
+  }
+
   const list = Array.isArray(tokenRaw) ? tokenRaw : [tokenRaw];
   const parsed = list.map((t) => parseToken(String(t ?? '').trim()));
   const bad = parsed.find((t) => !t.valid);
   if (bad) return { ok: false, reason: `token "${bad.raw}" không đọc được` };
 
-  const columnCount = Math.max(widths.length, parsed.length);
   if (parsed.length > widths.length && widths.length > 0) {
     return { ok: false, reason: `control cần ${parsed.length} cột nhưng view chỉ có ${widths.length}` };
   }
+  const cols = Math.max(widths.length, parsed.length);
   return {
     ok: true,
     row: {
-      pattern: `${'1'.repeat(parsed.length)}${'-'.repeat(columnCount - parsed.length)}`,
+      pattern: `${'1'.repeat(parsed.length)}${'-'.repeat(cols - parsed.length)}`,
       tokens: parsed,
       separator: ', ',
       afterColon: ' ',
@@ -462,6 +478,116 @@ export function newRow(widths, tokenRaw) {
       warnings: [],
     },
   };
+}
+
+/**
+ * Lấy một nửa (trái/phải theo `split`) — pattern + token; cắt sạch span vượt vạch.
+ * @param {'left'|'right'} side
+ */
+export function takeRowHalf(row, widths, split, side) {
+  const columnCount = Math.max(1, widths.length);
+  const empty = {
+    pattern: '-'.repeat(columnCount),
+    tokens: [],
+    separator: row?.separator ?? ', ',
+    afterColon: row?.afterColon ?? ' ',
+    hasColon: false,
+    hasEntity: false,
+    warnings: [],
+  };
+  if (!row || typeof row.pattern !== 'string'
+    || !Number.isFinite(split) || split <= 0 || split >= columnCount
+    || (side !== 'left' && side !== 'right')) {
+    return empty;
+  }
+
+  const chars = Array.from(resolvePattern(row.pattern, columnCount).pattern);
+  const { cells } = buildCells(row, widths);
+  const keepStart = side === 'left' ? 0 : split;
+  const keepEnd = side === 'left' ? split : columnCount;
+  const clearStart = side === 'left' ? split : 0;
+  const clearEnd = side === 'left' ? columnCount : split;
+
+  for (let c = clearStart; c < clearEnd; c++) chars[c] = '-';
+
+  for (const cell of cells) {
+    if (cell.empty) continue;
+    const end = cell.col + cell.span;
+    if (cell.col >= clearStart && cell.col < clearEnd) {
+      for (let c = Math.max(cell.col, keepStart); c < Math.min(end, keepEnd); c++) {
+        chars[c] = '-';
+      }
+    }
+  }
+
+  const tokens = [];
+  for (const cell of cells) {
+    if (cell.empty || !cell.token) continue;
+    if (cell.col >= keepStart && cell.col < keepEnd) tokens.push(cell.token);
+  }
+
+  const hasToken = tokens.length > 0;
+  return {
+    pattern: chars.join(''),
+    tokens,
+    separator: row.separator ?? ', ',
+    afterColon: row.afterColon ?? ' ',
+    hasColon: hasToken,
+    hasEntity: tokens.some((t) => RE_ENTITY_REF.test(t.raw)) || false,
+    warnings: [],
+  };
+}
+
+/**
+ * Ghép nửa trái + nửa phải (đã qua `takeRowHalf`) thành một hàng đủ cột.
+ */
+export function joinRowHalves(leftHalf, rightHalf, widths, split, templateRow) {
+  const columnCount = Math.max(1, widths.length);
+  if (!Number.isFinite(split) || split <= 0 || split >= columnCount) {
+    return newRow(widths, []).row;
+  }
+  const leftChars = Array.from(resolvePattern(leftHalf.pattern, columnCount).pattern);
+  const rightChars = Array.from(resolvePattern(rightHalf.pattern, columnCount).pattern);
+  const pattern = leftChars.slice(0, split).join('') + rightChars.slice(split).join('');
+  const tokens = [...(leftHalf.tokens ?? []), ...(rightHalf.tokens ?? [])];
+  const hasToken = tokens.length > 0;
+  const tmpl = templateRow ?? leftHalf;
+  return {
+    pattern,
+    tokens,
+    separator: tmpl.separator ?? ', ',
+    afterColon: tmpl.afterColon ?? ' ',
+    hasColon: hasToken,
+    hasEntity: tokens.some((t) => RE_ENTITY_REF.test(t.raw)) || false,
+    warnings: [],
+  };
+}
+
+/**
+ * Hàng mới trống một nửa; nửa kia lấy từ `refRow` (không dồn cascade — dùng nội bộ / test).
+ * Cascade khi thêm hàng split nằm ở `planAddRow`.
+ */
+export function newSplitBlankRow(widths, refRow, split, blankSide) {
+  const columnCount = Math.max(1, widths.length);
+  if (!Number.isFinite(split) || split <= 0 || split >= columnCount
+    || (blankSide !== 'left' && blankSide !== 'right')) {
+    return newRow(widths, []);
+  }
+  const empty = {
+    pattern: '-'.repeat(columnCount),
+    tokens: [],
+    separator: ', ',
+    afterColon: ' ',
+    hasColon: false,
+    hasEntity: false,
+    warnings: [],
+  };
+  const keepSide = blankSide === 'left' ? 'right' : 'left';
+  const blank = takeRowHalf(empty, widths, split, blankSide);
+  const keep = takeRowHalf(refRow, widths, split, keepSide);
+  const left = blankSide === 'left' ? blank : keep;
+  const right = blankSide === 'left' ? keep : blank;
+  return { ok: true, row: joinRowHalves(left, right, widths, split, refRow ?? empty) };
 }
 
 /**

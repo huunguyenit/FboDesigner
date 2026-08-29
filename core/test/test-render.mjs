@@ -281,13 +281,22 @@ ok('panel tab mang height 400px', h.html.includes('height:400px;box-sizing:borde
 const headerDiv = h.html.slice(h.html.indexOf('data-dwf-region="header"'), h.html.indexOf('data-dwf-region="main"'));
 ok('dải header không bị gắn height', !headerDiv.includes('height:400px'));
 
-section('anchor và split — chỉ số cột, đi kèm cho blueprint đọc');
+section('anchor và split — chỉ số cột; split chia thành 2 FormTable');
 eq('anchor của view về vùng header', h.model.regions[0].anchor, 2);
 eq('split của view về vùng header', h.model.regions[0].split, 1);
-ok('bảng header mang data-fbo-anchor', h.html.includes('data-fbo-anchor="2"'));
-ok('bảng header mang data-fbo-split', h.html.includes('data-fbo-split="1"'));
+ok('bọc FormSplit mang data-fbo-split', h.html.includes('data-fbo-region-root="header"') && h.html.includes('data-fbo-split="1"'));
+ok('bọc FormSplit mang data-fbo-anchor', h.html.includes('data-fbo-anchor="2"'));
+ok('có FormParentTable 2 cột', h.html.includes('class="FormParentTable"'));
+const headerHtml = h.html.slice(
+  h.html.indexOf('data-dwf-region="header"'),
+  h.html.indexOf('data-dwf-region="main"'),
+);
+eq('header: đúng 2 FormTable (trái + phải)', (headerHtml.match(/class="FormTable"/g) || []).length, 2);
+ok('bảng trái gắn data-fbo-split-side=left', headerHtml.includes('data-fbo-split-side="left"'));
+ok('bảng phải gắn data-fbo-split-side=right', headerHtml.includes('data-fbo-split-side="right"'));
 eq('tab không khai thì không có', h.model.regions[1].anchor, null);
 ok('form không khai anchor/split thì HTML sạch', !renderControllerHtml(CAT).html.includes('data-fbo-anchor'));
+ok('không split → không FormSplit', !renderControllerHtml(CAT).html.includes('FormSplit'));
 // File thật viết thẻ dưới dạng tham chiếu ký tự XML — chưa giải mã thì không có `<` để nhận ra.
 eq('giải mã &lt;u&gt; rồi mới coi là HTML', sanitizeLabelHtml('Mã số &lt;u&gt;t&lt;/u&gt;huế'), 'Mã số <u>t</u>huế');
 // Giải mã hai lượt thì `&amp;lt;` (cố ý muốn hiện ra chữ) hoá thành thẻ thật.
@@ -343,6 +352,26 @@ ok('trùng khít hàng trong bảng đầy đủ', patchBase.html.includes(rowHt
 eq('hàng không tồn tại → null, để người gọi biết phải vẽ lại cả form',
   renderRowHtml(patchBase.model, 9999), null);
 eq('lưới không vá hàng được', renderRowHtml({ mode: 'grid' }, 1), null);
+
+section('renderRowHtml + split — hai <tr> trái/phải cùng item');
+{
+  const splitXml = XML.replace(
+    '<view id="Dir">',
+    '<view id="Dir" split="2">',
+  );
+  const splitDoc = renderControllerHtml(splitXml);
+  ok('form split có FormSplit', splitDoc.html.includes('data-fbo-region-root="header"'));
+  const half = renderRowHtml(splitDoc.model, 1);
+  ok('vá hàng trả hai <tr>', (half.match(/<tr class="FormRow"/g) || []).length === 2);
+  ok('có side left', half.includes('data-fbo-split-side="left"'));
+  ok('có side right', half.includes('data-fbo-split-side="right"'));
+  // Cột 0–1 ở trái (split=2), cột 2–4 ở phải — ô ma_kh Label ở cột 0 phải nằm nửa trái.
+  const leftTr = half.split('\n').find((l) => l.includes('data-fbo-split-side="left"'));
+  const rightTr = half.split('\n').find((l) => l.includes('data-fbo-split-side="right"'));
+  ok('nhãn ma_kh ở bảng trái', leftTr.includes('data-fbo-token="[ma_kh].Label"'));
+  ok('input ma_kh ở bảng trái (bắt đầu cột 1)', leftTr.includes('data-fbo-token="[ma_kh]"'));
+  ok('bảng phải không nhân đôi control ma_kh', !rightTr.includes('ma_kh'));
+}
 
 section('foreign ở cấp ô — field khai trong Include vẫn phải đánh dấu');
 const HOST_FILE = 'C:/P/App_Data/Controllers/Dir/SVTran.xml';
