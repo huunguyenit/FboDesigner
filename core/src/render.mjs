@@ -212,11 +212,27 @@ export function fieldCategories(fields) {
   return map;
 }
 
-/** Vùng của một hàng = field đầu tiên trong hàng có khai `categoryIndex`. Không có → main. */
+/**
+ * Vùng của một hàng.
+ *
+ * Runtime ưu tiên token nhãn/mô tả (`.Label`/`.Footer`/`.Description`) khi quyết vùng. Nhờ vậy,
+ * hàng kiểu `[ma_nvbh].Label, [ma_nvbh], [ten_nvbh%l], ...` vẫn ở header dù `ten_nvbh%l`
+ * lỡ mang `categoryIndex` của tab khác. Chỉ khi hàng không có token nhãn/mô tả nào (ví dụ
+ * `1: [d21]`) mới rơi về token input.
+ */
 export function rowCategoryIndex(row, categoryByField) {
   if (categoryByField.size === 0) return REGION_HEADER;
+  const hasCompanion = row.tokens.some((t) => t.kind === 'label' || t.kind === 'footer' || t.kind === 'description');
+
   for (const t of row.tokens) {
+    if (!(t.kind === 'label' || t.kind === 'footer' || t.kind === 'description')) continue;
     if (t.field !== null && categoryByField.has(t.field)) return categoryByField.get(t.field);
+  }
+
+  if (!hasCompanion) {
+    for (const t of row.tokens) {
+      if (t.field !== null && categoryByField.has(t.field)) return categoryByField.get(t.field);
+    }
   }
   return REGION_HEADER;
 }
@@ -339,6 +355,9 @@ export function buildViewModel(view, fields, {
   const fieldByName = new Map(fields.map((f) => [f.name, segments
     ? {
       ...f,
+      categoryRange: f.attrSpans?.categoryIndex
+        ? sourceRange(segments, f.attrSpans.categoryIndex.start, f.attrSpans.categoryIndex.end)
+        : null,
       rowsRange: f.attrSpans?.rows
         ? sourceRange(segments, f.attrSpans.rows.start, f.attrSpans.rows.end)
         : null,
@@ -590,6 +609,7 @@ function renderCell(cell, row, model, cellIndex) {
       + (isTrue(field.attrs?.readOnly) ? ' data-fbo-readonly="1"' : '')
       + (isTrue(field.attrs?.external) ? ' data-fbo-external="1"' : '')
       + (isTrue(field.attrs?.inactivate) ? ' data-fbo-inactivate="1"' : '')
+      + (isTrue(field.attrs?.disabled) ? ' data-fbo-disabled="1"' : '')
       + (fieldForeign ? ' data-fbo-foreign="1"' : '')
       + (fieldProduct ? ' data-fbo-product="1"' : '')
     : '';

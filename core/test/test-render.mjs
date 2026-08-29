@@ -219,6 +219,29 @@ section('categoryIndex — nhãn của hàng cũng kéo hàng theo field');
 // trong hàng có khai" phải nhìn cả token nhãn, không chỉ token input.
 eq('hàng nhãn+input của dia_chi nằm nguyên trong tab 1', cat.model.regions[1].rows.length, 1);
 
+section('categoryIndex — helper input không được kéo hàng sang tab');
+const HELPER = [
+  '<dir table="cptran">',
+  '  <fields>',
+  '    <field name="ma_nvbh"><header v="Nv bán hàng" e="Sales Employee"/></field>',
+  '    <field name="ten_nvbh%l" categoryIndex="9"><header v="Tên" e="Name"/></field>',
+  '    <field name="ty_gia"><header v="Tỷ giá" e="Ex. Rate"/></field>',
+  '    <field name="ma_nt"><header v="Mã nt" e="Currency"/></field>',
+  '    <field name="ma_dvcs" hidden="true"/>',
+  '  </fields>',
+  '  <view id="Dir">',
+  '    <item value="100, 100, 9, 120, 100, 0, 0, 8, 100, 8, 58, 42, 8, 100, 0"/>',
+  '    <item value="111000000-11011: [ma_nvbh].Label, [ma_nvbh], [ten_nvbh%l], [ty_gia].Label, [ma_nt], [ty_gia], [ma_dvcs]"/>',
+  '    <categories>',
+  '      <category index="9" columns="100, 100, 9, 120, 100, 0, 0, 8, 100, 8, 58, 42, 8, 100, 0"><header v="Khác" e="Other"/></category>',
+  '    </categories>',
+  '  </view>',
+  '</dir>',
+].join('\r\n');
+const helper = renderControllerHtml(HELPER);
+eq('hàng vẫn ở header theo token nhãn', helper.model.regions[0].rows.map((r) => r.row.tokens[0].field), ['ma_nvbh']);
+eq('tab 9 không nhận nhầm hàng', helper.model.regions[1].rows.length, 0);
+
 section('nhãn là innerHTML, không phải văn bản');
 // Runtime nhét nguyên chuỗi `<header v>` vào DOM. Escape cả cụm thì người dùng thấy thẻ.
 eq('thẻ trình bày giữ nguyên', sanitizeLabelHtml('Mã số th<u>u</u>ế'), 'Mã số th<u>u</u>ế');

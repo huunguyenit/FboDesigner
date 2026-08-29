@@ -590,38 +590,56 @@ th[data-fbo-config="fields"] { background: rgba(139, 92, 246, 0.15); }
 td[data-fbo-config="initialize"],
 th[data-fbo-config="initialize"] { background: rgba(219, 39, 119, 0.15); }
 
-/* Cột của cấu hình ẩn mà lại nằm trong cây sản phẩm `.f`: giữ nền của nguồn cấu hình, thêm vạch
-   hổ phách như mọi ca "vừa là cái này vừa là cái kia" ở trên. */
+/* 1. Config + Product – chỉ thêm vạch trái hổ phách */
 td[data-fbo-config][data-fbo-product="1"],
 th[data-fbo-config][data-fbo-product="1"] {
   box-shadow: inset 3px 0 0 0 rgba(217, 119, 6, 0.75);
 }
 
-/* ReadOnly/External markers: only on the actual input element, not the table cell. */
-td.FormCell[data-fbo-readonly="1"] input {
-  border: 0.6px solid rgba(156, 163, 175, 0.10) !important;                 /* xóa hết viền cũ */
-  border-bottom: 1px solid rgba(156, 163, 175, 0.42);
-  box-shadow: none !important;             /* bỏ box-shadow cũ */
-  border-radius: 0;       
+/* 2. Disabled + External (ưu tiên cao nhất) */
+td.FormCell[data-fbo-disabled="1"][data-fbo-external="1"] input {
+  border: 0.6px solid rgba(236, 72, 153, 0.12) !important;
+  border-bottom: 1px solid rgba(236, 72, 153, 0.55) !important;
+  box-shadow: none !important;
+  border-radius: 0;
 }
 
-td.FormCell[data-fbo-external="1"] input
-{
-  border: 0.6px solid rgba(96, 165, 250, 0.10) !important;                 /* xóa hết viền cũ */
-  border-bottom: 1px solid rgba(96, 165, 250, 0.42) !important;
-  box-shadow: none !important;             /* bỏ box-shadow cũ */
-  border-radius: 0;                        /* nếu muốn thẳng */
-}
-td.FormCell[data-fbo-inactivate="1"] input {
-  border: 0.6px solid rgba(96, 165, 250, 0.1) !important;                 /* xóa hết viền cũ */
-  border-bottom: 1px solid rgba(96, 165, 250, 0.42) !important;
-  box-shadow: none !important;             /* bỏ box-shadow cũ */
-  border-radius: 0;                        /* nếu muốn thẳng */
-}
-
+/* 3. Readonly + External */
 td.FormCell[data-fbo-readonly="1"][data-fbo-external="1"] input {
-  border: 0.6px solid rgba(168, 85, 247, 0.10) !important;   /* 3 cạnh nhạt */
-  border-bottom: 1px solid rgba(168, 85, 247, 0.42) !important; /* cạnh dưới đậm */
+  border: 0.6px solid rgba(168, 85, 247, 0.12) !important;
+  border-bottom: 1px solid rgba(168, 85, 247, 0.60) !important;
+  box-shadow: none !important;
+  border-radius: 0;
+}
+
+/* 4. Disabled thuần */
+td.FormCell[data-fbo-disabled="1"] input {
+  border: 0.6px solid rgba(0, 162, 255, 0.12) !important;
+  border-bottom: 1px solid rgba(0, 162, 255, 0.55) !important;
+  box-shadow: none !important;
+  border-radius: 0;
+}
+
+/* 5. External thuần */
+td.FormCell[data-fbo-external="1"] input {
+  border: 0.6px solid rgba(14, 165, 233, 0.12) !important;
+  border-bottom: 1px solid rgba(14, 165, 233, 0.60) !important;
+  box-shadow: none !important;
+  border-radius: 0;
+}
+
+/* 6. Inactivate */
+td.FormCell[data-fbo-inactivate="1"] input {
+  border: 0.6px solid rgba(99, 102, 241, 0.12) !important;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.55) !important;
+  box-shadow: none !important;
+  border-radius: 0;
+}
+
+/* 7. Readonly thuần */
+td.FormCell[data-fbo-readonly="1"] input {
+  border: 0.6px solid rgba(156, 163, 175, 0.12) !important;
+  border-bottom: 1px solid rgba(156, 163, 175, 0.55) !important;
   box-shadow: none !important;
   border-radius: 0;
 }
