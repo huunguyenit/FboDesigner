@@ -599,8 +599,13 @@ function renderCell(cell, row, model, cellIndex) {
   // `data-fbo-cell` là chỉ số trong MẢNG Ô của hàng, khác hẳn `data-fbo-col` (chỉ số cột).
   // Mọi phép sửa nhắm theo ô, nên nhầm hai cái này là sửa trúng ô khác — ô trống cũng là một ô,
   // nên ở hàng có ô trống hai con số này lệch nhau ngay.
-  const data = ` data-fbo-cell="${cellIndex}" data-fbo-col="${cell.col}"`
-    + ` data-fbo-span="${cell.span}" data-fbo-width="${cell.width}"`;
+  //
+  // `data-fbo-col` / `data-fbo-span` = cột/span THẬT của token (edit*). `colspan` HTML có thể
+  // ngắn hơn khi ô bị cắt ở vạch split — kéo thả phải giữ span đầy đủ, không lấy bản vẽ.
+  const editCol = cell.editCol ?? cell.col;
+  const editSpan = cell.editSpan ?? cell.span;
+  const data = ` data-fbo-cell="${cellIndex}" data-fbo-col="${editCol}"`
+    + ` data-fbo-span="${editSpan}" data-fbo-width="${cell.width}"`;
   const td = (cls, inner, extra = '') =>
     `<td class="${cls}" nowrap style="${CELL_STYLE}" colspan="${cell.span}"${data}${rowMeta}${extra}>${inner}</td>`;
 
@@ -795,7 +800,16 @@ function clipCellToHalf(cell, colStart, colEnd, widths) {
   if (end <= start) return null;
   let width = 0;
   for (let c = start; c < end; c++) width += widths[c] ?? 0;
-  return { ...cell, col: start, span: end - start, width };
+  // `span`/`col` sau clip chỉ để VẼ (colspan nửa bảng). Span/cột thật của token giữ ở
+  // `editSpan`/`editCol` — kéo thả/ghi XML phải dùng cái này, không dùng bản đã cắt ở vạch split.
+  return {
+    ...cell,
+    col: start,
+    span: end - start,
+    width,
+    editSpan: cell.editSpan ?? cell.span,
+    editCol: cell.editCol ?? cell.col,
+  };
 }
 
 /**

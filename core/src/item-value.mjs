@@ -339,19 +339,17 @@ export function moveCell(row, widths, cellIndex, toCol, { allowEntity = false } 
 }
 
 /**
- * ĐỔI CHỖ hai control trong CÙNG một hàng — hoán token, pattern đứng yên (slot giữ kích thước).
+ * ĐỔI CHỖ hai control trong CÙNG một hàng — hoán token, ưu tiên giữ col span của từng token.
  *
  * `moveCell` TỪ CHỐI khi cột đích đang có control, và đó là thái độ đúng của nó: dời một ô lên
  * chỗ đang có người là làm mất một khai báo mà không ai yêu cầu. Nhưng «đổi thứ tự hai field»
  * thì chẳng mất gì cả — nên nó cần phép RIÊNG, chứ không phải một cái công tắc nới lỏng
  * `moveCell`.
  *
- * Pattern không đổi một ký tự: cột bắt đầu và số cột chiếm của cả hai slot giữ nguyên, chỉ hai
- * token đổi chỗ. Nhờ vậy an toàn với hàng viết bằng entity ở CẢ HAI chỗ — pattern đi qua nguyên
- * văn, token đi qua bằng `t.raw` nên `[&k;]` vẫn là `[&k;]`.
- *
- * Khác span VẪN ĐƯỢC: ô trải 2 nhận token của ô trải 9 và ngược lại — đúng «giữ kích thước slot,
- * chỉ đổi vị trí input». Không đè lên ô thứ ba vì pattern không bị viết lại.
+ * SPAN theo TOKEN, không theo slot cũ:
+ *   span mới = min(span gốc của token, span slot đích).
+ * Ví dụ `ma_kh` trải 2 ↔ `dien_giai` trải 9 → cả hai về 2; phần dư của slot lớn thành ô trống.
+ * Cùng span thì pattern đứng yên, chỉ hoán token — an toàn với entity (`[&k;]` vẫn `[&k;]`).
  *
  * @returns {{ok: true, row: object} | {ok: false, reason: string}}
  */
@@ -368,8 +366,8 @@ export function swapCells(row, widths, cellIndex, otherIndex, { allowEntity = fa
   if (a.empty || b.empty) return { ok: false, reason: 'ô trống, không có control để đổi chỗ' };
 
   // Chỉ số token = số ký tự `1` đứng trước, đọc trên pattern ĐÃ bung cho đủ cột — cùng không
-  // gian với `cell.col` mà `buildCells` vừa trả. Pattern không đổi nên chỉ số trước và sau như
-  // nhau; hoán hai phần tử là xong.
+  // gian với `cell.col` mà `buildCells` vừa trả. Số `1` không đổi nên chỉ số token sau khi
+  // thu span vẫn khớp; hoán hai phần tử rồi (nếu cần) vẽ lại pattern.
   const { pattern } = resolvePattern(row.pattern, widths.length);
   const ai = tokenIndexOf(pattern, a.col);
   const bi = tokenIndexOf(pattern, b.col);
@@ -377,9 +375,24 @@ export function swapCells(row, widths, cellIndex, otherIndex, { allowEntity = fa
   if (!tokens[ai] || !tokens[bi]) return { ok: false, reason: 'một trong hai ô không có token để đổi chỗ' };
   [tokens[ai], tokens[bi]] = [tokens[bi], tokens[ai]];
 
-  // `row.pattern` đi qua NGUYÊN VĂN, không phải bản đã bung: phép này không sửa pattern, nên
-  // splice chỉ được chạm vào phần token. Ghi bản đã bung đè lên là đổi byte mà không đổi nghĩa.
-  return { ok: true, row: { ...row, tokens } };
+  // Mỗi token giữ span gốc khi slot đích đủ chỗ; thiếu thì thu về đúng chỗ còn lại.
+  const keep = Math.min(a.span, b.span);
+  if (keep === a.span && keep === b.span) {
+    // `row.pattern` đi qua NGUYÊN VĂN: cùng span thì không sửa pattern, splice chỉ chạm token.
+    return { ok: true, row: { ...row, tokens } };
+  }
+
+  const chars = Array.from(pattern);
+  for (let c = a.col; c < a.col + a.span; c++) chars[c] = '-';
+  for (let c = b.col; c < b.col + b.span; c++) chars[c] = '-';
+  const paint = (start, span) => {
+    chars[start] = '1';
+    for (let c = start + 1; c < start + span; c++) chars[c] = '0';
+  };
+  paint(a.col, keep);
+  paint(b.col, keep);
+
+  return { ok: true, row: { ...row, pattern: chars.join(''), tokens } };
 }
 
 /**

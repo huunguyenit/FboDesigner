@@ -251,7 +251,7 @@ const afterMulti = applyFor(CLUSTER, multi.edits);
 ok('Label rồi Input liền cột từ toCol',
   /value="1-11: \[ma_kh\], \[ma_nvbh\]\.Label, \[ma_nvbh\]"/.test(afterMulti), afterMulti);
 
-section('kéo ô span>1 → đặt lại span 1');
+section('kéo ô span>1 → giữ span gốc khi đích đủ chỗ trống');
 const NUDGE = [
   '<?xml version="1.0" encoding="utf-8"?>',
   '<dir table="ct">',
@@ -272,16 +272,47 @@ const nudge = build(NUDGE);
 const nudgeFrom = rowOf(nudge, 'ma_kh');
 const nudgeTo = rowOf(nudge, 'ma_thue');
 const nudgeInput = nudgeFrom.cells.findIndex((c) => c.token?.field === 'ma_kh' && c.token.kind === 'input');
+eq('ma_kh input đang span 2 (pattern 110-----)', nudgeFrom.cells[nudgeInput].span, 2);
 const nudged = planMoveControl(nudge,
   { item: nudgeFrom.index, cell: nudgeInput, toItem: nudgeTo.index, toCol: 4 },
   () => NUDGE);
-ok('dời được (chỉ Input, span 1)', nudged.ok, nudged.reason);
+ok('dời được (chỉ Input)', nudged.ok, nudged.reason);
 eq('neo đúng cột thả', nudged.dropAnchor, 4);
 const afterNudge = applyFor(NUDGE, nudged.edits);
-ok('chỉ [ma_kh] ở cột 5; Label nguồn ở lại; không kéo theo cụm',
-  /value="11011---: \[ma_thue\]\.Label, \[ma_thue\], \[thue_suat\], \[ma_kh\]"/.test(afterNudge)
+ok('Input giữ span 2 tại cột thả; Label nguồn ở lại',
+  /value="110110--: \[ma_thue\]\.Label, \[ma_thue\], \[thue_suat\], \[ma_kh\]"/.test(afterNudge)
   && /\[ma_kh\]\.Label/.test(afterNudge),
   afterNudge);
+
+section('dời token span 7 vào 7 slot trống → giữ span 7');
+const WIDE_MOVE = [
+  '<?xml version="1.0" encoding="utf-8"?>',
+  '<dir table="dmkh">',
+  '  <fields>',
+  '    <field name="ten_kh%l"><header v="Ten" e="Name"/></field>',
+  '    <field name="ong_ba"><header v="Ong" e="O"/></field>',
+  '  </fields>',
+  '  <view id="Dir">',
+  '    <item value="100,100,100,100,100,100,100,100"/>',
+  '    <item value="1000000-: [ten_kh%l]"/>',
+  '    <item value="1-------: [ong_ba]"/>',
+  '  </view>',
+  '</dir>',
+].join(NL);
+const wm = build(WIDE_MOVE);
+const wmFrom = rowOf(wm, 'ten_kh%l');
+const wmTo = rowOf(wm, 'ong_ba');
+const wmCell = cellOf(wmFrom, 'ten_kh%l');
+eq('ten_kh%l span 7', wmFrom.cells[wmCell].span, 7);
+const wmPlan = planMoveControl(wm,
+  { item: wmFrom.index, cell: wmCell, toItem: wmTo.index, toCol: 1 },
+  () => WIDE_MOVE);
+ok('dời được', wmPlan.ok, wmPlan.reason);
+const afterWm = applyFor(WIDE_MOVE, wmPlan.edits);
+ok('hàng ong_ba nhận ten_kh%l span 7',
+  /value="11000000: \[ong_ba\], \[ten_kh%l\]"/.test(afterWm), afterWm);
+ok('hàng nguồn không còn ten_kh%l',
+  !/1000000-:\s*\[ten_kh%l\]/.test(afterWm), afterWm);
 
 section('qua vùng — Label/Input tách hàng vẫn dời được từng ô');
 const SPLIT_CLUSTER = CLUSTER
@@ -377,7 +408,7 @@ ok('có file Include', files.some((f) => String(f).replace(/\\/g, '/').endsWith(
  * 6. ĐỔI CHỖ qua hàng khác.
  * ══════════════════════════════════════════════════════════════════════════ */
 
-section('đổi chỗ hai control ở HAI HÀNG khác nhau — pattern cả hai hàng đứng yên');
+section('đổi chỗ hai control ở HAI HÀNG khác nhau — cùng span thì pattern đứng yên');
 const swapTwo = build(TWO_ROWS);
 const sr0 = rowOf(swapTwo, 'ma_kh');
 const sr1 = rowOf(swapTwo, 'dia_chi');
@@ -390,16 +421,18 @@ const afterSwap = applyFor(TWO_ROWS, crossSwap.edits);
 ok('hàng 0 nay mang dia_chi', /value="1-1-: \[dia_chi\], \[ten_kh\]"/.test(afterSwap), afterSwap);
 ok('hàng 1 nay mang ma_kh', /value="1---: \[ma_kh\]"/.test(afterSwap), afterSwap);
 
-section('đổi chỗ khác hàng — khác span thì vẫn TỪ CHỐI');
+section('đổi chỗ khác hàng — khác span: giữ span gốc, thu về min');
 const WIDE = TWO_ROWS.replace('<item value="1---: [dia_chi]"/>', '<item value="10--: [dia_chi]"/>');
 const wide = build(WIDE);
 const wr0 = rowOf(wide, 'ma_kh');
 const wr1 = rowOf(wide, 'dia_chi');
-const badSpan = planSwapControl(wide,
+const wideCross = planSwapControl(wide,
   { item: wr0.index, cell: cellOf(wr0, 'ma_kh'), toItem: wr1.index, other: cellOf(wr1, 'dia_chi') },
   () => WIDE);
-ok('từ chối', !badSpan.ok);
-ok('nói rõ hai bề rộng', badSpan.reason.includes('trải 1 và 2 cột'), badSpan.reason);
+ok('đổi chỗ được', wideCross.ok, wideCross.reason);
+const afterWide = applyFor(WIDE, wideCross.edits);
+ok('hàng hẹp nhận dia_chi span 1', /value="1-1-: \[dia_chi\], \[ten_kh\]"/.test(afterWide), afterWide);
+ok('hàng rộng thu ma_kh về span 1', /value="1---: \[ma_kh\]"/.test(afterWide), afterWide);
 
 /* ══════════════════════════════════════════════════════════════════════════
  * 7. Từ chối khi phép dời hất một hàng KHÁC sang vùng khác.

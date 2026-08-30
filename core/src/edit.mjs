@@ -19,6 +19,17 @@ import { segmentAt } from './entities.mjs';
 import { fieldCategories, rowCategoryIndex } from './render.mjs';
 import { splitPatternAt, mergePatternAt, splitWidthsAt, mergeWidthsAt } from './columns.mjs';
 
+/** Số cột trống (`-`) liền nhau từ `fromCol` — «span slot đích» khi thả vào chỗ trống. */
+function emptyRunFrom(row, widths, fromCol) {
+  const chars = Array.from(resolvePattern(row.pattern, widths.length).pattern);
+  let n = 0;
+  for (let c = fromCol; c < chars.length; c++) {
+    if (chars[c] !== '-') break;
+    n++;
+  }
+  return n;
+}
+
 /**
  * Hàng này có sửa tại chỗ được không.
  *
@@ -1502,8 +1513,8 @@ function rowWritePatch(model, row, nextRow, what) {
 /**
  * Phần THUẦN, KHÔNG CẦN VĂN BẢN của phép dời — trả danh sách patch kèm `expect`.
  *
- * Mỗi control đặt lại với span = 1. Không gom cụm Label/Description tự động — muốn dời nhiều
- * ô thì webview gửi `targets` (Shift+click multi-select).
+ * Mỗi token giữ span gốc, thu về `min(span, số cột trống liền từ cột thả)`. Multi-select gửi
+ * `targets` (Shift+click); mỗi ô đặt lần lượt, cột kế tiếp sau span đã giữ của ô trước.
  *
  * Tách khỏi phần đối chiếu vì có đúng cái vòng luẩn quẩn mà `rowEditTargetFile` đã gỡ một lần:
  * muốn so nguyên văn thì phải đọc file, mà biết đọc file nào thì phải tính xong patch. Tính
@@ -1518,8 +1529,8 @@ function buildMovePatches(model, op) {
 }
 
 /**
- * Dời một hoặc nhiều ô tới hàng đích, mỗi ô đặt với span = 1.
- * `targets`: [{ item, cell }] — thứ tự giữ nguyên; cột đích lần lượt `baseCol`, `baseCol+1`, …
+ * Dời một hoặc nhiều ô tới hàng đích.
+ * `targets`: [{ item, cell }] — thứ tự giữ nguyên; mỗi ô giữ span gốc (thu về chỗ trống còn lại).
  */
 function buildMoveManyPatches(model, targets, toItem, baseCol) {
   const to = model.rows.find((r) => r.index === toItem);
@@ -1561,20 +1572,29 @@ function buildMoveManyPatches(model, targets, toItem, baseCol) {
     rowState.set(ri, cur);
   }
 
-  // Đặt lên đích, mỗi control span = 1, cột liên tiếp từ baseCol.
+  // Đặt lên đích: mỗi token giữ span gốc, thu về min(span, số slot trống liền từ cột thả).
   let dst = rowState.has(to.index) ? rowState.get(to.index) : to.row;
   let at = base;
   for (const p of picks) {
     if (at >= to.widths.length) {
       return {
         ok: false,
-        reason: `không đủ cột từ cột ${base + 1} để đặt ${picks.length} control (span 1)`,
+        reason: `đặt tại cột ${at + 1} thì control trải 1 cột vượt khỏi hàng (${to.widths.length} cột)`,
       };
     }
-    const done = placeCell(dst, to.widths, at, 1, p.token, { allowEntity: true });
+    const avail = emptyRunFrom(dst, to.widths, at);
+    const keep = Math.min(p.src.span, avail);
+    if (keep < 1) {
+      // Probe span 1 để lấy lý do chi tiết của placeCell (ô đang có người / vượt hàng…).
+      const probe = placeCell(dst, to.widths, at, 1, p.token, { allowEntity: true });
+      return probe.ok
+        ? { ok: false, reason: `cột ${at + 1} không còn slot trống để đặt [${p.token?.field ?? '?'}]` }
+        : probe;
+    }
+    const done = placeCell(dst, to.widths, at, keep, p.token, { allowEntity: true });
     if (!done.ok) return done;
     dst = done.row;
-    at += 1;
+    at += keep;
   }
   rowState.set(to.index, dst);
 
@@ -1623,7 +1643,7 @@ function buildMoveManyPatches(model, targets, toItem, baseCol) {
 /**
  * Phần THUẦN của phép ĐỔI CHỖ — hai token hoán vị, có thể ở HAI HÀNG khác nhau.
  *
- * Pattern/slot đứng yên ở cả hai bên; khác span vẫn được (giữ kích thước slot, chỉ đổi input).
+ * Mỗi token giữ span gốc, chỉ thu về `min(span mình, span slot đích)` khi chỗ mới hẹp hơn.
  */
 function buildSwapPatches(model, { item, cell, toItem, other }) {
   const ra = model.rows.find((r) => r.index === item);
@@ -1637,7 +1657,7 @@ function buildSwapPatches(model, { item, cell, toItem, other }) {
   if (!b || b.empty || !b.token) return { ok: false, reason: 'ô trống, không có control để đổi chỗ' };
   if (ra.index === rb.index && cell === other) return { ok: false, reason: 'không có gì thay đổi' };
 
-  // CÙNG HÀNG → `swapCells` lo trọn: pattern đứng yên, hai token hoán vị (kể cả khác span).
+  // CÙNG HÀNG → `swapCells` lo trọn (hoán token + thu span về min khi khác bề rộng).
   if (ra.index === rb.index) {
     const done = swapCells(ra.row, ra.widths, cell, other, { allowEntity: true });
     if (!done.ok) return done;
@@ -1647,8 +1667,8 @@ function buildSwapPatches(model, { item, cell, toItem, other }) {
   }
 
   /*
-   * HAI HÀNG: thay token TẠI CHỖ ở cả hai bên. Không đi qua remove+place — pattern của CẢ HAI
-   * hàng đứng yên (slot giữ kích thước), kể cả khi hai ô khác span.
+   * HAI HÀNG: thay token TẠI CHỖ ở cả hai bên, rồi thu span về `min` nếu slot đích hẹp hơn
+   * span gốc của token tới (cùng luật với `swapCells` cùng hàng).
    */
   const swapIn = (row, cells, at, token) => {
     const ti = tokenIndexOfCell(cells, at);
@@ -1657,9 +1677,21 @@ function buildSwapPatches(model, { item, cell, toItem, other }) {
     tokens[ti] = token;
     return { ...row, tokens };
   };
-  const nextA = swapIn(ra.row, ra.cells, a, b.token);
-  const nextB = swapIn(rb.row, rb.cells, b, a.token);
+  let nextA = swapIn(ra.row, ra.cells, a, b.token);
+  let nextB = swapIn(rb.row, rb.cells, b, a.token);
   if (!nextA || !nextB) return { ok: false, reason: 'không map được token của một trong hai ô' };
+
+  const keep = Math.min(a.span, b.span);
+  if (keep < a.span) {
+    const shrunk = setSpan(nextA, ra.widths, cell, keep, { allowEntity: true });
+    if (!shrunk.ok) return shrunk;
+    nextA = shrunk.row;
+  }
+  if (keep < b.span) {
+    const shrunk = setSpan(nextB, rb.widths, other, keep, { allowEntity: true });
+    if (!shrunk.ok) return shrunk;
+    nextB = shrunk.row;
+  }
 
   /*
    * Qua VÙNG khác thì cụm phải đi cùng — mà ĐỔI CHỖ không chở cụm đi được: chỗ bên kia đã có

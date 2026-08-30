@@ -1521,16 +1521,21 @@ function drawMoveShadow(frag, stageBox) {
 
   const { col, fromCol } = moveDrag;
   const members = moveDrag.members || [{ td: moveDrag.cell, token: moveDrag.cell.dataset.fboToken || '?' }];
-  const footprint = members.map((m, i) => ({
-    col: col + i,
-    span: 1,
-    label: tokenDisplayName(m.td) || m.token || '?',
-  }));
-
   const verdict = moveVerdict(moveDrag, widths.length);
   const tone = verdict.kind === 'bad' ? ' bp-move-bad' : (verdict.kind === 'swap' ? ' bp-move-swap' : '');
 
-  if (col === fromCol && drop.toItem === moveDrag.fromItem && members.length === 1) return;
+  if (col === fromCol && drop.toItem === moveDrag.fromItem && members.length === 1
+    && drop.cell === moveDrag.cell) {
+    return;
+  }
+
+  // Bóng mờ hiện span SẼ GIỮ: min(span gốc, slot đích) — cả move lẫn swap.
+  const ghostSpan = members.length === 1 ? (verdict.keepSpan || 1) : 1;
+  const footprint = members.map((m, i) => ({
+    col: col + i,
+    span: ghostSpan,
+    label: tokenDisplayName(m.td) || m.token || '?',
+  }));
 
   for (const part of footprint) {
     if (part.col < 0 || part.col >= widths.length) continue;
@@ -1546,14 +1551,14 @@ function drawMoveShadow(frag, stageBox) {
     const lab = el('span', 'bp-move-label');
     lab.textContent = part.label;
     shadow.appendChild(lab);
-    shadow.title = (MOVE_HINT[verdict.kind](part.col, 1)) + ` · ${part.label}`;
+    shadow.title = (MOVE_HINT[verdict.kind](part.col, part.span)) + ` · ${part.label}`;
     frag.appendChild(shadow);
   }
 }
 
 const MOVE_HINT = {
   move: (col, span) => `dời tới cột ${col + 1}${span > 1 ? ` (trải ${span})` : ''}`,
-  swap: (col, span) => `đổi chỗ với control ở cột ${col + 1}${span > 1 ? ` (slot trải ${span})` : ''}`,
+  swap: (col, span) => `đổi chỗ · giữ trải ${span} cột tại cột ${col + 1}`,
   bad: (col) => `cột ${col + 1} không nhận được — vượt hàng, hoặc đang có control khác bề rộng`,
 };
 
@@ -1586,22 +1591,29 @@ function tokenInfoFromTd(td) {
 /**
  * Chỗ sắp thả xuống nhận được kiểu gì — `'move'`, `'swap'`, hay `'bad'`.
  *
- * Footprint mỗi control đang kéo = 1 cột (điểm thả). Multi → nhiều cột liên tiếp từ cột thả.
- * `'swap'` khi đúng một ô kéo thả trúng ĐÚNG đầu một control khác — pattern/slot đứng yên,
- * chỉ hoán token (kể cả khi hai bên khác span: ma_kh@2 ↔ dien_giai@9).
+ * Một ô: footprint = `min(span gốc, số cột trống liền từ cột thả)` — cùng luật ghi xuống.
+ * Multi: mỗi control 1 cột liên tiếp từ cột thả.
+ * `'swap'` khi đúng một ô kéo thả trúng ĐÚNG đầu một control khác.
  */
 function moveVerdict(md, columnCount) {
   const drop = md.drop ?? { cell: md.cell, col: md.col, toItem: md.fromItem, span: 1 };
   const { col } = md;
   const members = md.members || [{ td: md.cell }];
-  const parts = members.map((m, i) => ({ col: col + i, span: 1, td: m.td }));
+  const srcSpan = Number(md.cell?.dataset?.fboSpan) || 1;
+  const emptyRun = members.length === 1 ? emptyRunAt(drop.cell, col) : 1;
+  const keepSpan = members.length === 1 ? Math.max(1, Math.min(srcSpan, emptyRun || 1)) : 1;
+  const parts = members.map((m, i) => ({
+    col: col + i,
+    span: members.length === 1 ? keepSpan : 1,
+    td: m.td,
+  }));
 
   if (parts.some((p) => p.col < 0 || p.col + p.span > columnCount)) {
-    return { kind: 'bad', other: null };
+    return { kind: 'bad', other: null, keepSpan };
   }
 
   const row = drop.cell.closest('tr.FormRow');
-  if (!row) return { kind: 'bad', other: null };
+  if (!row) return { kind: 'bad', other: null, keepSpan };
 
   const hits = [];
   for (const td of row.querySelectorAll('td[data-fbo-cell]:not(.DwfEmptyCell)')) {
@@ -1616,13 +1628,47 @@ function moveVerdict(md, columnCount) {
     }
   }
   let verdict;
-  if (hits.length === 0) verdict = { kind: 'move', other: null };
+  if (hits.length === 0) verdict = { kind: 'move', other: null, keepSpan };
   else if (members.length === 1 && hits.length === 1 && hits[0].col === col) {
     const other = Number(hits[0].td.dataset.fboCell);
-    if (Number.isFinite(other)) verdict = { kind: 'swap', other, toItem: drop.toItem };
+    if (Number.isFinite(other)) {
+      verdict = {
+        kind: 'swap',
+        other,
+        toItem: drop.toItem,
+        keepSpan: Math.min(srcSpan, hits[0].span),
+      };
+    }
   }
-  if (!verdict) verdict = { kind: 'bad', other: null };
+  if (!verdict) verdict = { kind: 'bad', other: null, keepSpan };
   return verdict;
+}
+
+/** Số cột trống liền nhau từ `col` trên hàng chứa `td` (DOM). */
+function emptyRunAt(td, col) {
+  const row = td?.closest('tr.FormRow');
+  if (!row) return 0;
+  const nCols = colCountOf(td);
+  const taken = new Uint8Array(nCols);
+  for (const cell of row.querySelectorAll('td[data-fbo-cell]:not(.DwfEmptyCell)')) {
+    const c = Number(cell.dataset.fboCol) || 0;
+    const n = Number(cell.dataset.fboSpan) || 1;
+    for (let i = c; i < c + n && i < nCols; i++) taken[i] = 1;
+  }
+  // Cùng hàng nguồn: cột ô đang kéo coi như trống (sắp nhường chỗ).
+  if (moveDrag?.cell && moveDrag.fromItem === Number(row.dataset.fboItem)) {
+    for (const m of moveDrag.members || [{ td: moveDrag.cell }]) {
+      const c = Number(m.td.dataset.fboCol) || 0;
+      const n = Number(m.td.dataset.fboSpan) || 1;
+      for (let i = c; i < c + n && i < nCols; i++) taken[i] = 0;
+    }
+  }
+  let run = 0;
+  for (let i = col; i < nCols; i++) {
+    if (taken[i]) break;
+    run++;
+  }
+  return run;
 }
 
 /** Số cột của vùng chứa ô — đọc từ list px ĐẦY ĐỦ của vùng (`.FormSplit` hoặc FormTable). */
@@ -1956,7 +2002,7 @@ let drag = null;
  *
  * `armed` là chốt phân biệt bấm-để-chọn với kéo-để-dời. Bắt đầu kéo ngay từ `mousedown` thì mọi
  * cú bấm chọn ô đều trở thành một phép dời dài 0px, và người dùng mất luôn thao tác chọn. Chỉ
- * khi con trỏ đi quá `MOVE_ARM_PX` mới coi là kéo.
+ * khi con trỏ đi quá `MOVE_ARM_PX` (khoảng cách 2D — ngang hoặc dọc) mới coi là kéo.
  */
 let moveDrag = null;
 const MOVE_ARM_PX = 4;
@@ -1986,32 +2032,44 @@ function resizeEdgeAt(cell, clientX) {
   return null;
 }
 
-/** Mốc cột gần con trỏ nhất trong một bảng — dùng cho phép kéo cạnh trái. */
+/** Mốc cột gần con trỏ nhất — trả `data-fbo-col` tuyệt đối, không phải index mảng th. */
 function colAt(cell, clientX) {
   const table = cell.closest('table[data-fbo-col-widths]');
   if (!table) return 0;
-  const edges = columnEdges(table);
-  let best = 0;
+  const root = regionRootOf(table) || table;
+  const ths = [...root.querySelectorAll('.DwfColRow th[data-fbo-col]')]
+    .sort((a, b) => (Number(a.dataset.fboCol) || 0) - (Number(b.dataset.fboCol) || 0));
+  if (ths.length === 0) return 0;
+  let best = Number(ths[0].dataset.fboCol) || 0;
   let bestGap = Infinity;
-  edges.forEach((e, i) => {
-    const gap = Math.abs(e.left - clientX);
-    if (gap < bestGap) { bestGap = gap; best = i; }
-  });
+  for (const th of ths) {
+    const gap = Math.abs(th.getBoundingClientRect().left - clientX);
+    if (gap < bestGap) {
+      bestGap = gap;
+      best = Number(th.dataset.fboCol) || 0;
+    }
+  }
   return best;
 }
 
-/** Ô đang nằm dưới con trỏ để làm đích thả của phép dời, hoặc null nếu trượt ra ngoài form. */
+/**
+ * Ô dưới con trỏ cho phép dời. `col` = data-fbo-col của td hit (đầu ô / slot trống).
+ * Miss khi đang kéo → giữ `rawDrop` trước đó.
+ */
 function moveDropAt(md, clientX, clientY) {
   const hit = document.elementFromPoint(clientX, clientY)?.closest?.('td[data-fbo-cell]') ?? null;
-  const cell = hit || md.cell;
-  if (!cell) return null;
-  const row = cell.closest('tr.FormRow');
+  if (!hit) return md.armed ? (md.rawDrop ?? null) : null;
+  const row = hit.closest('tr.FormRow');
   const toItem = Number(row?.dataset.fboItem);
-  const other = Number(cell.dataset.fboCell);
-  const col = Number(cell.dataset.fboCol) || 0;
-  const span = Number(cell.dataset.fboSpan) || 1;
-  if (!Number.isFinite(toItem) || !Number.isFinite(other)) return null;
-  return { cell, toItem, other, col, span };
+  const other = Number(hit.dataset.fboCell);
+  const col = Number(hit.dataset.fboCol) || 0;
+  const span = Number(hit.dataset.fboSpan) || 1;
+  if (!Number.isFinite(toItem) || !Number.isFinite(other)) {
+    return md.armed ? (md.rawDrop ?? null) : null;
+  }
+  const raw = { cell: hit, toItem, other, col, span };
+  md.rawDrop = raw;
+  return raw;
 }
 
 function columnEdges(table) {
@@ -2066,7 +2124,6 @@ function wireResize() {
         && (cell === focused || multiSelected.has(cell))) {
         const t = editTarget(cell);
         if (t) {
-          const col = Number(cell.dataset.fboCol) || 0;
           const block = (multiSelected.size > 1 && multiSelected.has(cell))
             ? selectedItemBlock()
             : null;
@@ -2095,6 +2152,7 @@ function wireResize() {
               label: tokenDisplayName(td),
             })).filter((m) => m.target);
           if (members.length === 0) return;
+          const startCol = Number(cell.dataset.fboCol) || 0;
           moveDrag = {
             cell,
             target: t,
@@ -2103,12 +2161,14 @@ function wireResize() {
             blockItems: isBlock ? block.items : null,
             x0: e.clientX,
             y0: e.clientY,
-            col,
-            fromCol: col,
+            col: startCol,
+            fromCol: startCol,
+            // Luôn neo đầu token dưới con trỏ — không trừ offset trong ô (cột width=0 làm lệch).
+            grabOffset: 0,
             span: 1,
             fromItem: t.item,
             toItem: t.item,
-            drop: { cell, toItem: t.item, other: t.cell, col, span: 1 },
+            drop: { cell, toItem: t.item, other: t.cell, col: startCol, span: 1 },
             armed: false,
           };
         }
@@ -2131,17 +2191,21 @@ function wireResize() {
   window.addEventListener('mousemove', (e) => {
     if (moveDrag) {
       if (!moveDrag.armed) {
-        if (Math.abs(e.clientX - moveDrag.x0) < MOVE_ARM_PX) return;
+        // Arm theo khoảng cách 2D — kéo thẳng đứng cùng cột cũng phải kích hoạt.
+        const dist = Math.hypot(e.clientX - moveDrag.x0, e.clientY - moveDrag.y0);
+        if (dist < MOVE_ARM_PX) return;
         moveDrag.armed = true;
         document.body.classList.add('fbo-dragging-move');
       }
       // Bám MỐC CỘT, không bám con trỏ: cột là đơn vị duy nhất định dạng cho phép, và bóng phải
       // nói đúng thứ sắp được ghi xuống.
-      const drop = moveDropAt(moveDrag, e.clientX, e.clientY);
-      if (!drop) return;
-      moveDrag.drop = drop;
-      moveDrag.col = drop.col;
-      moveDrag.toItem = drop.toItem;
+      const raw = moveDropAt(moveDrag, e.clientX, e.clientY);
+      if (!raw) return;
+      // placeCol = cột đầu token = cột của ô/slot đang trỏ (grabOffset luôn 0).
+      const placeCol = raw.col;
+      moveDrag.drop = { ...raw, col: placeCol };
+      moveDrag.col = placeCol;
+      moveDrag.toItem = raw.toItem;
       drawBlueprintSoon();
       return;
     }
@@ -2165,14 +2229,6 @@ function wireResize() {
             postEdit({ op: 'moveBlock', items, toItem: md.toItem, side: 'before' });
           }
         } else if (md.col !== md.fromCol || md.toItem !== md.fromItem) {
-          /*
-           * Thả lên một control CÙNG SPAN là ĐỔI CHỖ, không phải dời — và đó là con đường trực
-           * tiếp mà trước đây không có: `moveCell` từ chối chỗ đã có người, nên đổi thứ tự hai
-           * field phải làm tay qua hai bước.
-           *
-           * `'bad'` vẫn gửi đi dưới dạng `move`: bóng đỏ nói ĐƯỢC/KHÔNG, còn câu từ chối của host
-           * mới nói RÕ VÌ SAO (vượt hàng? khác bề rộng?). Nuốt lặng cú thả là để người dùng đoán.
-           */
           const v = moveVerdict(md, colCountOf(md.drop?.cell ?? md.cell));
           if (v.kind === 'swap' && (!md.members || md.members.length <= 1)) {
             postEdit({ op: 'swap', ...md.target, toItem: v.toItem, other: v.other });

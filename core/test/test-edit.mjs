@@ -752,7 +752,8 @@ section('dời control — phần ngoài splice không đổi một byte');
 applyAndCheck('move', MOVE, moved.splice);
 
 /* ══════════════════════════════════════════════════════════════════════════
- * ĐỔI CHỖ hai control — hoán vị, pattern đứng yên.
+ * ĐỔI CHỖ hai control — hoán vị; cùng span thì pattern đứng yên, khác span thì
+ * mỗi token giữ span gốc (thu về min với slot đích).
  * ══════════════════════════════════════════════════════════════════════════ */
 
 section('đổi chỗ — hai ô cùng span thì token hoán vị, pattern không đổi một ký tự');
@@ -789,16 +790,43 @@ const farSwap = planRowEdit(swapModel.model, { kind: 'swap', item: swapRow.index
 ok('đổi chỗ ô đầu với ô cuối được', farSwap.ok);
 eq('token đầu và cuối hoán vị', farSwap.splice.text, '1-1-1: [ngay_ct], [ten_kh], [&k;]');
 
-section('đổi chỗ — khác span vẫn được: pattern đứng yên, chỉ hoán token');
+section('đổi chỗ — khác span: giữ span gốc của token, thu về min(slot đích)');
 /*
- * `10--1`: ô 0 trải 2 cột, ô 3 (cột 4) trải 1. Pattern không đổi — mỗi slot giữ kích thước,
- * chỉ hai token đổi chỗ (đúng «giữ slot, đổi input»).
+ * `10--1`: ô 0 trải 2 cột, ô 3 (cột 4) trải 1.
+ * Token span-2 sang slot 1 → thu về 1; token span-1 sang slot 2 → giữ 1; phần dư thành trống.
+ * Pattern: `10--1` → `1---1`.
  */
 const diffSpan = planRowEdit(moveModel.model, { kind: 'swap', item: moveRow.index, cell: 0, other: 3 }, MOVE);
 ok('đổi chỗ khác span được', diffSpan.ok, diffSpan.reason);
-eq('PATTERN không đổi', diffSpan.ok ? diffSpan.splice.text.split(':')[0] : null, '10--1');
-eq('hai token hoán vị, slot giữ nguyên', diffSpan.ok ? diffSpan.splice.text : null,
-  '10--1: [ten_kh], [&k;].Label');
+eq('pattern thu về min span', diffSpan.ok ? diffSpan.splice.text.split(':')[0] : null, '1---1');
+eq('hai token hoán vị, mỗi bên giữ/thu đúng span', diffSpan.ok ? diffSpan.splice.text : null,
+  '1---1: [ten_kh], [&k;].Label');
+
+section('đổi chỗ — ma_kh@2 ↔ dien_giai@9 → cả hai về 2, phần dư thành trống');
+const WIDE_SWAP = [
+  '<?xml version="1.0" encoding="utf-8"?>',
+  '<dir table="dmkh" xmlns="urn:schemas-fast-com:data-dir">',
+  '  <fields>',
+  '    <field name="ma_kh"><header v="Mã" e="Code"/></field>',
+  '    <field name="dien_giai"><header v="Diễn giải" e="Desc"/></field>',
+  '  </fields>',
+  '  <views><view id="Dir">',
+  '    <item value="100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100"/>',
+  '    <item value="10100000000: [ma_kh], [dien_giai]"/>',
+  '  </view></views>',
+  '</dir>',
+].join('\r\n');
+const wideSwapModel = build(WIDE_SWAP);
+const wideSwapRow = wideSwapModel.model.rows.find((r) => r.row.tokens.length === 2);
+eq('bố cục ma_kh@2 + dien_giai@9', wideSwapRow.row.pattern, '10100000000');
+const wideSwapped = planRowEdit(
+  wideSwapModel.model,
+  { kind: 'swap', item: wideSwapRow.index, cell: 0, other: 1 },
+  WIDE_SWAP,
+);
+ok('đổi chỗ được', wideSwapped.ok, wideSwapped.reason);
+eq('cả hai về span 2, dư thành trống', wideSwapped.ok ? wideSwapped.splice.text : null,
+  '1010-------: [dien_giai], [ma_kh]');
 
 section('đổi chỗ — ô trống và chính nó thì TỪ CHỐI');
 const swapEmpty = swapCells(swapRow.row, swapRow.widths, 0, 1, { allowEntity: true });
