@@ -235,13 +235,23 @@ body.debug-on .fbo-status { max-height: 55%; }
 
 /* --- chỗ duy nhất được chạm tới DOM của form ---
    Hàng cột ẩn `<tr class="DwfColRow">` chỉ tồn tại để khai bề rộng cột cho table-layout:fixed;
-   nó không có ô nào và không được chiếm chiều cao.
+   nó không có ô nào và không được chiếm chiều cao — nếu còn vài px thì panel form
+   (`overflow-y:hidden`) cắt mất hàng cuối, và trước đây với `overflow-y:auto` còn mọc scroll Y.
 
    Chọn bằng `tr.DwfColRow > th` chứ không `.DwfColRow th`: base pack nạp SAU file này và có
    `.GridTable th { height: 30px; padding: 4px }` — cùng độ đặc hiệu thì bản sau thắng, và
    lưới mọc ra một dải trắng 30px phía trên hàng tiêu đề. Thêm một type selector là đủ thắng
    mà không phải `!important` (thứ sẽ chặn luôn CSS của program). */
-tr.DwfColRow > th { height: 0; padding: 0; border: 0; line-height: 0; }
+tr.DwfColRow { height: 0; font-size: 0; line-height: 0; }
+tr.DwfColRow > th {
+  height: 0;
+  padding: 0;
+  border: 0;
+  line-height: 0;
+  font-size: 0;
+  overflow: hidden;
+  vertical-align: top;
+}
 
 /* Dấu của designer — CHỈ màu, không đụng hình học. `FormRequiredLabel` không có ở runtime. */
 .FormRequiredLabel { color: #b45309; }

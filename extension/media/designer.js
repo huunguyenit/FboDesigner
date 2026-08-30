@@ -659,6 +659,8 @@ function revealCell(cell, ev) {
 
   const hostStart = Number(anchor.dataset.fboHostStart);
   const hostEnd = Number(anchor.dataset.fboHostEnd);
+  const related = (cell.closest('[data-fbo-related]')?.dataset.fboRelated || '')
+    .split('|').filter((f) => f !== '');
   vscode.postMessage({
     type: 'select',
     start,
@@ -668,15 +670,14 @@ function revealCell(cell, ev) {
     hostEnd: Number.isFinite(hostEnd) ? hostEnd : null,
     foreign: anchor.dataset.fboForeign === '1',
     /*
-     * Mọi file cùng góp phần khai ra ô này — cho `fboDesigner.revealRelatedFiles = "all"`.
+     * File cùng góp phần khai ra Ô này — cho `fboDesigner.revealRelatedFiles = "all"`.
      *
-     * Đọc từ tổ tiên gần nhất mang `data-fbo-related` (panel của lưới), không phải từ chính ô:
-     * danh sách ấy nói về CẢ LƯỚI, và gắn nó lên từng ô là chép cùng một chuỗi vài chục lần vào
-     * HTML. Không có tổ tiên nào thì gửi mảng rỗng — form thường chỉ có hai chỗ (file khai và
-     * dòng `&Name;`), và cả hai đã nằm trong `file` với `hostStart`.
+     * Đọc từ tổ tiên gần nhất mang `data-fbo-related`. Lưới gắn dấu ấy trên chính ô (view +
+     * field của đúng cột), không còn trên panel cả lưới — nếu không, bấm cột chỉ thuộc file
+     * chủ vẫn mở kèm `Initialize.xml`. Form thường không gắn dấu này: hai chỗ (file khai và
+     * dòng `&Name;`) đã nằm trong `file` với `hostStart`.
      */
-    related: (cell.closest('[data-fbo-related]')?.dataset.fboRelated || '')
-      .split('|').filter((f) => f !== ''),
+    related,
     // Mặc định: nhảy tới chỗ ĐỊNH NGHĨA hàng, kể cả khi nó nằm trong file Include — đó là
     // câu hỏi người ta thật sự đang hỏi khi đi tới nguồn của một ô.
     // Giữ thêm Alt: ở lại file đang mở, chỉ trỏ vào `&Name;` đã kéo hàng đó vào.

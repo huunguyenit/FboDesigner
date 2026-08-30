@@ -33,7 +33,7 @@ function config() {
     confirmForeignEdit: c.get('confirmForeignEdit') !== false,
     confirmDelete: c.get('confirmDelete') !== false,
     entityEditTarget: c.get('entityEditTarget') || 'ask',
-    revealRelatedFiles: c.get('revealRelatedFiles') || 'one',
+    revealRelatedFiles: c.get('revealRelatedFiles') || 'all',
   };
 }
 
@@ -260,13 +260,29 @@ function loadGridConfig(core, hostPath, readFile, cache) {
            * nhảy tới vị trí cùng số ấy tính từ đầu file — cách chỗ đúng đúng bằng khoảng cách
            * tới thẻ `<group>`, mà file thật khai cả trăm controller nên đó là hàng chục nghìn ký
            * tự. Con trỏ đáp xuống giữa cấu hình của một controller khác hẳn.
+           *
+           * `chainFiles` = chuỗi Include dẫn tới group: Initialize → Controller.NNN → Group.NNN.
+           * `revealRelatedFiles = "all"` mở cả chuỗi ấy kèm View/Field Include — thiếu mắt xích
+           * nào thì không truy được vì sao cột này xuất hiện trên lưới.
            */
+          const chainFiles = [];
+          const addChain = (f) => {
+            if (typeof f !== 'string' || f === '') return;
+            if (chainFiles.some((x) => x.toLowerCase() === f.toLowerCase())) return;
+            chainFiles.push(f);
+          };
+          addChain(initFile);
+          // `<controller name="ARTran" …>` nằm trong Include Controller, không trong Initialize.
+          addChain(core.segmentAt(init.segments, decl.index)?.file);
+          // Thân `<group id="001">` nằm trong Include Group.
+          addChain(core.segmentAt(init.segments, body.index)?.file);
           parts.push({
             text: body[0],
             segments: core.shiftSegments(init.segments, body.index),
             file: initFile,
             kind: 'initialize',
             rank: 2,
+            chainFiles,
           });
         }
       }
@@ -276,7 +292,7 @@ function loadGridConfig(core, hostPath, readFile, cache) {
   const fieldsFile = path.join(configDir, 'Fields', `${name}.xml`);
   if (fs.existsSync(fieldsFile)) {
     const own = expand(fieldsFile);
-    if (own) parts.push({ ...own, kind: 'fields', rank: 1 });
+    if (own) parts.push({ ...own, kind: 'fields', rank: 1, chainFiles: [fieldsFile] });
   }
 
   cache.set(name, parts);
@@ -627,9 +643,13 @@ async function revealIn(document, viewColumn, start, end) {
   const editor = await vscode.window.showTextDocument(document, {
     viewColumn,
     preserveFocus: true,
+    // Preview (mặc định) tái sử dụng cùng một tab — mở file B là đè mất file A vừa mở.
+    // `all` mở nhiều file nên phải khóa tab: mỗi file một tab riêng trong cùng nhóm.
+    preview: false,
     selection: range,
   });
   editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+  return editor;
 }
 
 /**
@@ -655,20 +675,15 @@ async function revealIn(document, viewColumn, start, end) {
  * file đang sửa.
  */
 /**
- * Mở kèm MỌI file cùng góp phần khai ra ô này — `fboDesigner.revealRelatedFiles = "all"`.
+ * Mở kèm file cùng góp phần khai ra ô này — `fboDesigner.revealRelatedFiles = "all"`.
  *
- * Vì sao đáng có: một cột lưới có thể được khai ở tới bốn chỗ (view của controller,
- * `Config/Fields/<Tên>.xml`, `<group>` trong `Config/Initialize.xml`, và `<fields>` của bất kỳ
- * file nào trong số đó), còn một hàng form đến từ Include thì sống ở hai chỗ — file Include khai
- * nó, và dòng `&Name;` trong controller kéo nó vào. Nhảy tới đúng MỘT chỗ trả lời được câu «nó
- * khai ở đâu», nhưng không trả lời được câu hay hỏi ngay sau đó: «còn chỗ nào khác nói về nó
- * nữa?».
+ * Danh sách đến từ `msg.related` (ô gắn `data-fbo-related` = view + field của đúng cột), cộng
+ * file chủ tại dòng `&Name;` khi có `hostStart`. Không còn mở mọi mảnh cấu hình của cả lưới.
  *
- * Mặc định vẫn là `one`: mở bốn tab cho một cú bấm là thứ phải tự chọn, không phải thứ ập vào
- * mặt người chỉ định liếc một cái.
+ * File phụ mở với `preserveFocus` + `preview: false`, cùng một view column — mỗi file một tab
+ * trong nhóm bên cạnh, không đè preview lên nhau. Chỉ file chính (mở sau) mới đặt selection.
  *
- * File phụ mở với `preserveFocus` và KHÔNG cuộn tới đâu cả — chỉ file chính mới được đặt con
- * trỏ. Đặt con trỏ ở cả bốn thì không còn biết cái nào là chỗ vừa hỏi.
+ * @returns {number|null} view column đã dùng cho file phụ — file chính nên mở cùng cột ấy.
  */
 async function revealRelated(msg, hostPath, target, output) {
   const seen = new Set([target.toLowerCase()]);
@@ -685,6 +700,7 @@ async function revealRelated(msg, hostPath, target, output) {
     extras.push({ file: f, start: null, end: null });
   }
 
+  let sideColumn = null;
   for (const e of extras) {
     const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(e.file)).then(
       (d) => d,
@@ -692,20 +708,28 @@ async function revealRelated(msg, hostPath, target, output) {
     );
     if (!doc) continue;
     const visible = vscode.window.visibleTextEditors.find((v) => samePath(v.document.uri.fsPath, e.file));
+    // File đã mở → giữ cột của nó. File mới → cùng cột với file phụ trước (tab cạnh nhau),
+    // lần đầu thì Beside. Mọi lần `Beside` riêng sẽ tách cột hoặc đè preview.
+    const column = visible?.viewColumn ?? sideColumn ?? vscode.ViewColumn.Beside;
+    let editor;
     if (e.start === null) {
-      await vscode.window.showTextDocument(doc, {
-        viewColumn: visible?.viewColumn ?? vscode.ViewColumn.Beside,
+      editor = await vscode.window.showTextDocument(doc, {
+        viewColumn: column,
         preserveFocus: true,
+        preview: false,
       });
     } else {
-      await revealIn(doc, visible?.viewColumn ?? vscode.ViewColumn.Beside, e.start, e.end);
+      editor = await revealIn(doc, column, e.start, e.end);
     }
+    if (editor && sideColumn === null) sideColumn = editor.viewColumn;
   }
+  return sideColumn;
 }
 
 async function revealSource(msg, hostDocument, output) {
   const hostPath = hostDocument?.uri.fsPath ?? '';
   const target = msg.file || hostPath;
+  const mode = config().revealRelatedFiles;
 
   // Alt-click: ở lại file đang mở, trỏ vào chính `&Name;`.
   if (msg.hostRefOnly && !samePath(target, hostPath) && Number.isFinite(msg.hostStart)) {
@@ -714,8 +738,9 @@ async function revealSource(msg, hostDocument, output) {
     if (hostDocument) return revealIn(hostDocument, vscode.ViewColumn.Beside, msg.hostStart, msg.hostEnd);
   }
 
-  // Mở kèm TRƯỚC, file chính SAU: file mở sau cùng là file nằm trên, và đó phải là chỗ vừa hỏi.
-  if (config().revealRelatedFiles === 'all') await revealRelated(msg, hostPath, target, output);
+  // Mở kèm TRƯỚC, file chính SAU: file mở sau cùng là tab nằm trên trong cùng nhóm.
+  let sideColumn = null;
+  if (mode === 'all') sideColumn = await revealRelated(msg, hostPath, target, output);
 
   // File đã mở sẵn thì dùng lại tab đó, đừng mở thêm một bản nữa ở cột khác.
   const visible = vscode.window.visibleTextEditors.find((e) => samePath(e.document.uri.fsPath, target));
@@ -726,7 +751,8 @@ async function revealSource(msg, hostDocument, output) {
     (err) => { output.appendLine(`không mở được ${target}: ${err.message}`); return null; },
   );
   if (!opened) return;
-  return revealIn(opened, vscode.ViewColumn.Beside, msg.start, msg.end);
+  // Cùng cột với file phụ vừa mở → thành tab cạnh nhau, không tách cột mới / đè preview.
+  return revealIn(opened, sideColumn ?? vscode.ViewColumn.Beside, msg.start, msg.end);
 }
 
 module.exports = {

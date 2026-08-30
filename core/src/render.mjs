@@ -713,25 +713,26 @@ export function renderViewHtml(model) {
   const tabs = model.regions.filter((r) => r.kind === 'category');
   const footer = model.regions.find((r) => r.kind === 'footer');
 
-  // `view@height` ghim chiều cao vùng main, và ghim trên PANEL chứ không trên bảng: bảng cao
-  // theo số hàng, panel mới là cái runtime cho cuộn khi hàng vượt quá chiều cao khai.
+  // `view@height` ghim chiều cao vùng main trên PANEL (không trên bảng). Bảng cao theo số hàng;
+  // panel cắt phần thừa — runtime form tab KHÔNG cuộn dọc dù hàng vượt height khai.
   // `box-sizing:border-box` để con số khai trong XML LÀ chiều cao đo được. Không có nó thì
   // padding + viền của `.DwfTabPanel` cộng thêm 13px, và `height="302"` đo ra 315.
   /*
-   * Trục NGANG của panel: mỗi tab được nhiều nhất MỘT thanh cuộn ngang, và tab có lưới thì
-   * thanh ấy thuộc về lưới.
+   * Overflow của panel:
    *
-   * Lý do phải phân biệt: lưới nhúng đã tự giới hạn `max-width:100%` rồi tự cho `divGrid` cuộn
-   * ngang phần cột thừa (xem `renderGridHtml`). Để panel cũng `overflow-x:auto` thì cùng một
-   * dãy cột có hai thanh cuộn xếp chồng nhau, kéo cái này thì cái kia đứng yên — đúng cảnh
-   * «scroll render dư» đang phải sửa. Tab không có lưới thì ngược lại: bảng của vùng rộng đúng
-   * bằng `<category columns>` và có thể rộng hơn form, nên panel phải là chỗ cuộn nó.
+   *   Trục Y — LUÔN `hidden` cho mọi tab form. Runtime không bao giờ hiện thanh cuộn dọc trên
+   *   panel tab; hàng thừa bị cắt. Để `auto` là blueprint (dải px / vạch cột) hoặc bảng hơi
+   *   cao hơn height khai sẽ mọc scroll Y — lệch preview so với form thật.
+   *
+   *   Trục X — tab có lưới: `hidden` (lưới nhúng đã `max-width:100%` và tự cuộn cột trong
+   *   `divGrid`/`divFooter`; panel `auto` là hai thanh xếp chồng). Tab form: `auto`, vì bảng
+   *   rộng đúng `<category columns>` và có thể rộng hơn form.
    */
   const panelStyleOf = (t) => {
     const hasGrid = gridFieldOf(t, model) !== null;
     if (model.mainHeight === null) return '';
     return ` style="height:${model.mainHeight}px;box-sizing:border-box;`
-      + `overflow-y:${hasGrid ? 'hidden' : 'auto'};overflow-x:${hasGrid ? 'hidden' : 'auto'};"`;
+      + `overflow-y:hidden;overflow-x:${hasGrid ? 'hidden' : 'auto'};"`;
   };
 
   const mainHtml = tabs.length === 0 ? '' : [
@@ -1065,6 +1066,8 @@ function scanGridConfig(parts) {
       // `kind` để tô màu và để nói ra nguồn; `rank` để xếp thứ tự cột. Xem `mergeGridConfig`.
       kind: p.kind ?? null,
       rank: Number.isFinite(p.rank) ? p.rank : 1,
+      // Chuỗi Include dẫn tới mảnh này (Initialize → Controller → Group). Xem `relatedFilesOf`.
+      chainFiles: Array.isArray(p.chainFiles) ? p.chainFiles.filter(Boolean) : [],
     };
   });
 }

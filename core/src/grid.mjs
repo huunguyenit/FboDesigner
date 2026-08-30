@@ -481,7 +481,11 @@ export function buildGridModel(view, fields, {
        * cả ba thì người dùng không có cách nào biết mình đang đứng trước cái nào.
        */
       configKind: col.source?.kind ?? null,
+      // Chuỗi Include của mảnh cấu hình (Initialize → Controller → Group). Xem `relatedFilesOf`.
+      chainFiles: col.source?.chainFiles ?? [],
     });
+    // Sau khi đủ range/fieldTagStart/widthRange/chainFiles — xem `relatedFilesOf`.
+    columns[columns.length - 1].relatedFiles = relatedFilesOf(columns[columns.length - 1]);
   });
 
   columns.forEach((c) => { c.frozen = c.index < frozen; });
@@ -525,12 +529,38 @@ function headerTitle(col, label) {
     : `${base} · từ ${file} (bản riêng của controller này)`;
 }
 
+/**
+ * File cùng góp phần khai ra ĐÚNG cột này — không phải mọi mảnh cấu hình của cả lưới.
+ *
+ * Với cột từ `Initialize` group, chuỗi dẫn chứng là Initialize → Controller.NNN → Group.NNN
+ * rồi mới tới View/Field Include. Thiếu mắt xích nào cũng không truy được vì sao cột xuất hiện.
+ * Cột của chính file lưới thì chỉ còn đúng file ấy — không kéo `Initialize.xml` vào.
+ */
+function relatedFilesOf(col) {
+  const out = [];
+  const add = (f) => {
+    if (typeof f !== 'string' || f === '') return;
+    if (out.some((x) => x.toLowerCase() === f.toLowerCase())) return;
+    out.push(f);
+  };
+  for (const f of col.chainFiles ?? col.source?.chainFiles ?? []) add(f);
+  add(col.range?.file);
+  add(col.fieldTagStart?.file);
+  add(col.widthRange?.file);
+  return out;
+}
+
 function anchorAttrs(col) {
   const origin = col.range
     ? ` data-fbo-file="${esc(col.range.file)}" data-fbo-src-start="${col.range.start}" data-fbo-src-end="${col.range.end}"`
     : '';
   const hostRef = col.hostRef ? ` data-fbo-host-start="${col.hostRef.start}" data-fbo-host-end="${col.hostRef.end}"` : '';
-  return origin + hostRef + (col.foreign ? ' data-fbo-foreign="1"' : '')
+  // Gắn trên Ô, không trên panel: `closest` lấy đúng cột đang bấm. Một file thì khỏi gắn —
+  // trùng `data-fbo-file`, và để trống thì không kéo nhầm danh sách cả lưới từ tổ tiên.
+  const related = (col.relatedFiles ?? []).length > 1
+    ? ` data-fbo-related="${esc(col.relatedFiles.join('|'))}"`
+    : '';
+  return origin + hostRef + related + (col.foreign ? ' data-fbo-foreign="1"' : '')
     + (col.product ? ' data-fbo-product="1"' : '')
     + (col.configKind ? ` data-fbo-config="${esc(col.configKind)}"` : '');
 }
@@ -804,9 +834,6 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null } = 
      * không sao, `closest` lấy cái GẦN NHẤT, tức chính panel này, và hai dấu mang cùng một tên.
      */
     `<div class="${panelClass}" data-fbo-mode="grid"${model.controller ? ` data-fbo-grid="${esc(model.controller)}"` : ''}`
-      // Ngăn bằng `|`: đường dẫn Windows không bao giờ chứa ký tự này, nên tách lại ở webview
-      // không cần biết gì về cú pháp đường dẫn.
-      + `${(model.relatedFiles ?? []).length > 1 ? ` data-fbo-related="${esc(model.relatedFiles.join('|'))}"` : ''}`
       + `${blockPx === null ? '' : ` data-fbo-block="${blockPx}"`}`
       // `data-fbo-rows` = đúng `field@rows` (body), không gồm toolbar/split/footer.
       + `${bodyHeight === null ? '' : ` data-fbo-rows="${bodyHeight}"`}${panelStyle}>`,
@@ -981,7 +1008,11 @@ function mergeGridConfig(view, fields, config, warnings) {
   for (const part of ordered) {
     // Nguồn đóng dấu lên TỪNG field, không suy từ nguồn của cột: một cột của mảnh A hoàn toàn có
     // thể trỏ vào `<field>` khai trong controller. Suy chéo là quy offset của file này về file kia.
-    const source = { segments: part.segments ?? null, file: part.file ?? '' };
+    const source = {
+      segments: part.segments ?? null,
+      file: part.file ?? '',
+      chainFiles: part.chainFiles ?? [],
+    };
     for (const f of part.fields ?? []) {
       if (byName.has(f.name)) continue;
       const tagged = { ...f, source };
@@ -993,7 +1024,12 @@ function mergeGridConfig(view, fields, config, warnings) {
       seen.add(c.name);
       outColumns.push({
         ...c,
-        source: { segments: part.segments ?? null, file: part.file ?? '', kind: part.kind ?? null },
+        source: {
+          segments: part.segments ?? null,
+          file: part.file ?? '',
+          kind: part.kind ?? null,
+          chainFiles: part.chainFiles ?? [],
+        },
       });
     }
     /*
@@ -1052,10 +1088,9 @@ export function renderGrid(views, fields, opts = {}) {
   /*
    * MỌI file cùng góp cột vào lưới này — file lưới cộng từng mảnh cấu hình ẩn.
    *
-   * Tầng vỏ dùng nó cho `fboDesigner.revealRelatedFiles = "all"`: một cột có thể được khai ở
-   * tới bốn chỗ, và câu hỏi ngay sau «nó khai ở đâu» thường là «còn chỗ nào khác nói về nó
-   * nữa». Danh sách lấy từ chính các mảnh đã gộp, không đoán theo quy ước thư mục — mảnh nào
-   * thật sự được đọc mới có tên ở đây.
+   * Giữ trên model để soi/debug. `revealRelatedFiles = "all"` KHÔNG còn đọc danh sách này:
+   * mỗi ô mang `data-fbo-related` riêng (view + field của đúng cột), nếu không thì Ctrl+bấm
+   * `ma_nt` sẽ mở cả `Initialize.xml` chỉ vì lưới có dùng group.
    */
   model.relatedFiles = [...new Set([
     opts.hostFile ?? '',

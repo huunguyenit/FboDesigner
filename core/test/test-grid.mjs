@@ -344,9 +344,10 @@ ok('cuộn dọc đặt ở divGrid', emb.html.includes('class="GridStyle divGri
  * Panel của tab chỉ mang `overflow` khi `view@height` ghim chiều cao — không ghim thì không có
  * gì để cuộn, và HOST_GRID cố tình không khai height. Nên phần này đo trên một bản CÓ height.
  *
- * Luật cần khoá: tab CÓ lưới thì trục ngang là `hidden`, vì lưới đã tự lo cuộn cột; tab KHÔNG
- * có lưới thì `auto`, vì bảng của vùng rộng đúng bằng `<category columns>` và có thể rộng hơn
- * form. Để cả hai cùng `auto` là hai thanh cuộn xếp chồng cho cùng một dãy cột.
+ * Luật cần khoá:
+ *   - Trục Y luôn `hidden` (tab form runtime không cuộn dọc; hàng thừa cắt).
+ *   - Tab CÓ lưới: trục ngang `hidden` — lưới đã tự lo cuộn cột.
+ *   - Tab KHÔNG lưới: trục ngang `auto` — bảng rộng theo `<category columns>`, có thể rộng hơn form.
  */
 const TWO_TABS = HOST_GRID
   .replace('<view id="Dir">', '<view id="Dir" height="300">')
@@ -354,7 +355,7 @@ const TWO_TABS = HOST_GRID
   .replace('    </categories>', '      <category index="5" columns="100, 400"><header v="Khác" e="Other"/></category>\r\n    </categories>');
 const withHeight = renderControllerHtml(TWO_TABS, { loadDetail });
 ok('panel của tab CÓ lưới: cả hai trục hidden', withHeight.html.includes('overflow-y:hidden;overflow-x:hidden;'));
-ok('panel của tab KHÔNG lưới: trục ngang auto', withHeight.html.includes('overflow-y:auto;overflow-x:auto;'));
+ok('panel của tab KHÔNG lưới: Y hidden, X auto', withHeight.html.includes('overflow-y:hidden;overflow-x:auto;'));
 
 section('grid nhúng — thiếu file Detail thì NÓI, không vẽ ô rỗng');
 // Ô rỗng nhìn y hệt "tab này vốn không có gì" — im lặng ở đây là nói dối.
@@ -1317,16 +1318,20 @@ eq('cột của Initialize', cfgKindOf('tu_group'), 'initialize');
 ok('dấu đi ra HTML để CSS tô màu', cfgMarked.html.includes('data-fbo-config="initialize"')
   && cfgMarked.html.includes('data-fbo-config="fields"'));
 
-section('lưới nói ra MỌI file đã góp cột vào nó');
-// Cho `fboDesigner.revealRelatedFiles = "all"`: một cột có thể khai ở tới bốn chỗ, và câu hỏi
-// ngay sau «nó khai ở đâu» thường là «còn chỗ nào khác nói về nó nữa».
-eq('đủ ba file: lưới + hai mảnh cấu hình', cfgMarked.model.relatedFiles, [
+section('mỗi cột nói ra file cùng góp phần khai ra NÓ');
+/*
+ * `revealRelatedFiles = "all"` mở kèm file liên quan của ĐÚNG cột, không phải mọi mảnh của cả
+ * lưới. `model.relatedFiles` vẫn liệt kê toàn lưới (debug); `data-fbo-related` gắn trên ô.
+ */
+eq('model vẫn nhớ đủ ba file đã góp vào lưới', cfgMarked.model.relatedFiles, [
   'C:/P/App_Data/Controllers/Grid/SVTran.xml',
   'C:/P/App_Data/Controllers/Grid/Config/Initialize.xml',
   'C:/P/App_Data/Controllers/Grid/Config/Fields/SVTran.xml',
 ]);
-ok('và đi ra HTML trên panel', cfgMarked.html.includes('data-fbo-related="'));
-// Lưới KHÔNG có mảnh cấu hình nào thì không phát dấu — một danh sách một phần tử chẳng nói gì.
-ok('lưới trơn thì không có data-fbo-related',
-  !renderControllerHtml(CFG_OWN, withBase({ hostFile: 'C:/P/App_Data/Controllers/Grid/SVTran.xml' }))
-    .html.includes('data-fbo-related='));
+// Panel không còn mang danh sách cả lưới — nếu mang, bấm cột chỉ thuộc file chủ vẫn mở kèm
+// Initialize.xml.
+ok('panel không còn data-fbo-related cả lưới', !cfgMarked.html.includes('data-fbo-related='));
+eq('cột của chính controller: view+field cùng nguồn → một file, không mở kèm',
+  cfgMarked.model.columns.find((c) => c.name === 'ma_kh').relatedFiles.length <= 1, true);
+eq('cột từ Initialize cũng chỉ một file khi segments null (test fixture)',
+  cfgMarked.model.columns.find((c) => c.name === 'tu_group').relatedFiles.length <= 1, true);

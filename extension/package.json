@@ -184,7 +184,7 @@
             "%fboDesigner.revealRelatedFiles.one%",
             "%fboDesigner.revealRelatedFiles.all%"
           ],
-          "default": "one",
+          "default": "all",
           "category": "FBO Designer",
           "description": "%fboDesigner.revealRelatedFiles.desc%"
         },
