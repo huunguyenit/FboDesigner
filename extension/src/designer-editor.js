@@ -24,6 +24,7 @@ const { handleEdit } = require('./edit-host');
 const { history } = require('./edit-history');
 const { OverlayDialogs } = require('./dialog/dialog-overlay');
 const { runWithDialogs } = require('./dialog/dialog-service');
+const { trackDesignerWebview } = require('./designer-webview');
 
 const VIEW_TYPE = 'fboDesigner.form';
 
@@ -53,6 +54,8 @@ class FboDesignerProvider {
     // điều kiện để `url(../Images/…)` trong CSS thật phân giải được sang webview URI.
     const roots = [vscode.Uri.joinPath(this.context.extensionUri, 'media')];
     if (paths) roots.push(vscode.Uri.file(paths.programRoot));
+
+    trackDesignerWebview(panel.webview, panel);
 
     let bust = 0;
     const buildShell = () => {

@@ -647,14 +647,15 @@ export function planRemoveField(model, fieldName, fieldSpan) {
 // Cột của lưới
 //
 // Lưới khai layout bằng THỨ TỰ, không bằng pattern — nên phép sửa của nó khác hẳn form, và hai
-// bên KHÔNG dùng chung hàm nào. Ba phép, và chúng đụng vào hai chỗ khác nhau trong file:
+// bên KHÔNG dùng chung hàm nào. Bốn phép, và chúng đụng vào hai chỗ khác nhau trong file:
 //
 //   kéo giãn  → `width="N"` trong `<fields><field>`   (khai báo)
 //   xoá cột   → `<field name="x"/>` trong `<view>`    (thứ tự hiển thị)
 //   chèn cột  → `<field name="x"/>` trong `<view>`
+//   dời cột   → cắt/chèn lại `<field name="x"/>` trong `<view>`
 //
-// Xoá cột KHÔNG xoá khai báo: cùng một `<field>` có thể được view khác dùng, và bỏ cột khỏi
-// lưới là chuyện hiển thị chứ không phải bỏ dữ liệu.
+// Xoá cột mặc định KHÔNG xoá khai báo: cùng một `<field>` có thể được view khác dùng.
+// Shift+Delete (`withField`) mới cắt thêm thẻ `<field>` trong `<fields>` (phía host).
 
 /**
  * Đổi bề rộng một cột.
@@ -742,6 +743,102 @@ export function planInsertColumn(model, columnName, side, newName, sourceText) {
       end: at,
       text: side === 'left' ? `${indent}${tag}${eol}` : `${eol}${indent}${tag}`,
     },
+  };
+}
+
+/**
+ * Có luật `arrangement` neo cột `name` không — nếu có thì reorder view sẽ bị ghi đè lúc merge.
+ */
+function arrangementTargets(arrangement, name) {
+  const raw = String(arrangement ?? '').trim();
+  if (raw === '') return false;
+  for (const rule of raw.split(';')) {
+    const cut = rule.indexOf(':');
+    if (cut === -1) continue;
+    if (rule.slice(0, cut).trim() === name) return true;
+  }
+  return false;
+}
+
+/**
+ * Dời một cột trong VIEW — cắt dòng `<field name="x"/>` rồi chèn cạnh cột neo.
+ *
+ * Chỉ cột controller (`configKind`/`source` null), cùng file, không bị `arrangement` neo.
+ * Trả `edits[]` hai splice (xoá + chèn) trên toạ độ gốc — `applySplices` áp từ phải sang trái.
+ *
+ * @param side {'before'|'after'}
+ */
+export function planMoveColumn(model, columnName, anchorName, side, sourceText) {
+  if (columnName === anchorName) {
+    return { ok: false, reason: 'cột đích trùng cột đang kéo' };
+  }
+  const from = model.columns.find((c) => c.name === columnName);
+  const anchor = model.columns.find((c) => c.name === anchorName);
+  if (!from) return { ok: false, reason: `không có cột "${columnName}"` };
+  if (!anchor) return { ok: false, reason: `không có cột neo "${anchorName}"` };
+  if (!from.range) return { ok: false, reason: `không xác định được vị trí cột "${columnName}" trong file nguồn` };
+  if (!anchor.range) return { ok: false, reason: `không xác định được vị trí cột neo "${anchorName}" trong file nguồn` };
+  if (from.range.file !== anchor.range.file) {
+    return { ok: false, reason: 'hai cột nằm ở hai file khác nhau — không dời qua biên nguồn' };
+  }
+  // Cột Config/Initialize mang configKind; cột controller thì null.
+  if (from.configKind || from.source) {
+    return { ok: false, reason: `cột "${columnName}" đến từ cấu hình ẩn — chỉ dời cột khai trong file lưới` };
+  }
+  if (anchor.configKind || anchor.source) {
+    return { ok: false, reason: `cột neo "${anchorName}" đến từ cấu hình ẩn — không chèn cạnh nó bằng reorder view` };
+  }
+  if (arrangementTargets(model.arrangement, columnName)) {
+    return {
+      ok: false,
+      reason: `cột "${columnName}" bị arrangement neo — sửa Config/Fields trước, nếu không thứ tự view sẽ bị ghi đè`,
+    };
+  }
+
+  const rawFrom = sourceText.slice(from.range.start, from.range.end);
+  if (!/^<field\b/i.test(rawFrom)) {
+    return { ok: false, reason: 'văn bản trong file khác bản đã bung — sửa tại file khai nó' };
+  }
+
+  const fromLineStart = sourceText.lastIndexOf('\n', from.range.start - 1) + 1;
+  const fromOnlyIndent = /^[ \t]*$/.test(sourceText.slice(fromLineStart, from.range.start));
+  const fromAfter = /^\r?\n/.exec(sourceText.slice(from.range.end));
+  const removeStart = fromOnlyIndent ? fromLineStart : from.range.start;
+  const removeEnd = fromOnlyIndent && fromAfter ? from.range.end + fromAfter[0].length : from.range.end;
+  const movedText = sourceText.slice(removeStart, removeEnd);
+
+  const anchorLineStart = sourceText.lastIndexOf('\n', anchor.range.start - 1) + 1;
+  const anchorAfter = /^\r?\n/.exec(sourceText.slice(anchor.range.end));
+  let insertAt;
+  if (side === 'before') {
+    insertAt = /^[ \t]*$/.test(sourceText.slice(anchorLineStart, anchor.range.start))
+      ? anchorLineStart
+      : anchor.range.start;
+  } else {
+    insertAt = anchorAfter ? anchor.range.end + anchorAfter[0].length : anchor.range.end;
+  }
+
+  // Đã đứng đúng chỗ (trước/sau neo liền kề) → không ghi.
+  if (side === 'before' && removeEnd === insertAt) {
+    return { ok: false, reason: 'không có gì thay đổi' };
+  }
+  if (side === 'after' && removeStart === insertAt) {
+    return { ok: false, reason: 'không có gì thay đổi' };
+  }
+
+  // Hai splice không chồng: xoá khối cũ, chèn cùng chữ tại chỗ neo (toạ độ gốc).
+  if (removeStart < insertAt && insertAt < removeEnd) {
+    return { ok: false, reason: 'vị trí chèn nằm trong dòng cột đang kéo' };
+  }
+
+  const file = from.range.file;
+  return {
+    ok: true,
+    file,
+    edits: [
+      { file, start: removeStart, end: removeEnd, text: '' },
+      { file, start: insertAt, end: insertAt, text: movedText },
+    ],
   };
 }
 

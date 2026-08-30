@@ -735,15 +735,19 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null } = 
     : TOOLBAR_PX + bodyHeight + SPLIT_PX + FOOTER_PX;
   /*
    * Theo HTML runtime chuẩn của tab lưới:
-   *   divGrid  -> cuộn dọc
-   *   divFooter -> cuộn ngang
+   *   divGrid  -> cuộn dọc; overflow-x:hidden để nhận scrollLeft đồng bộ từ footer
+   *   divFooter -> cuộn ngang (thanh duy nhất)
    *   divHeader -> đứng yên, chỉ nhận scrollLeft đồng bộ
+   *
+   * `overflow-x` trên divGrid BẮT BUỘC kể cả lưới đứng riêng: nếu để `visible` thì
+   * `scrollLeft` không ăn (bảng thân đứng yên), trong khi divHeader (`overflow:hidden`)
+   * vẫn trượt — đúng bug «scroll footer → header lệch, input đứng». Nội dung rộng còn
+   * lọt lên `.GridTabPanel { overflow:auto }` thành thanh cuộn thứ hai.
    *
    * `auto` chứ không `scroll` để thanh chỉ hiện khi thật sự thiếu chỗ.
    */
-  const bodyStyle = embedded || fitWidth
-    ? ` style="${scrollPx === null ? '' : `height:${scrollPx}px;`}overflow-x:hidden;overflow-y:auto;"`
-    : '';
+  const bodyStyle = ` style="${scrollPx === null ? '' : `height:${scrollPx}px;`}`
+    + 'overflow-x:hidden;overflow-y:auto;"';
 
   // Lưới đứng riêng bị ghim bề rộng để đối chiếu với runtime. Lưới nhúng thì KHÔNG: ô chứa nó
   // đã có bề rộng của cột trong form, ghim thêm một lần nữa là lưới thò ra ngoài tab.
@@ -752,8 +756,8 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null } = 
    *
    * Lưới nhiều cột (có cái 15–20 cột) rộng hơn hẳn bề ngang form. Để nó tự giãn thì nó đẩy
    * toàn bộ tab phình ra và form mất luôn hình dạng thật. Runtime cũng không làm vậy: nó giới
-   * hạn theo ô rồi cho CUỘN NGANG phần còn lại — `divGrid` mang `overflow:auto`, và `divHeader`
-   * được kéo theo bằng `scrollLeft` (xem `syncGridScroll` phía webview).
+   * hạn theo ô rồi cho CUỘN NGANG phần còn lại — `divFooter` mang `overflow-x:auto`, và
+   * `divHeader` / `divGrid` được kéo theo bằng `scrollLeft` (xem `syncGridScroll` phía webview).
    */
   /*
    * Lưới ĐỨNG RIÊNG kiểu danh sách (`Voucher` / `Report`) rộng bằng khung nhìn, không bằng tổng
@@ -780,7 +784,7 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null } = 
     ? ' style="max-width:100%;overflow:hidden;"'
     : (fitWidth
       ? ' style="width:100%;overflow:hidden;"'
-      : ` style="width:${model.totalWidth + 2}px;"`);
+      : ` style="width:${model.totalWidth + 2}px;overflow:hidden;"`);
   const panelClass = embedded
     ? 'GridTabPanel GridEmbedded'
     : `FormParent GridTabPanel${fitWidth ? ' GridFitWidth' : ''}`;
@@ -1066,6 +1070,11 @@ export function renderGrid(views, fields, opts = {}) {
    */
   model.controller = opts.controller
     ?? String(opts.hostFile ?? '').split(/[\\/]/).pop().replace(/\.(xml|f)$/i, '');
+  /*
+   * Chuỗi arrangement đã lấy từ Config — tầng edit dùng để từ chối reorder cột bị neo
+   * (`planMoveColumn`), vì applyArrangement chạy sau cùng và sẽ hoàn tác thứ tự view.
+   */
+  model.arrangement = merged.arrangement ?? '';
   /*
    * MỌI file cùng góp cột vào lưới này — file lưới cộng từng mảnh cấu hình ẩn.
    *

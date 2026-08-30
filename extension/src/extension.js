@@ -15,6 +15,7 @@ const { isControllerDocument, config, panelColumn } = require('./render-host');
 const { declareFilter } = require('./filter-host');
 const { addColumns } = require('./add-column-host');
 const { initDialogs } = require('./dialog/dialog-service');
+const { postToActiveDesigner } = require('./designer-webview');
 
 /**
  * Core nằm ở hai chỗ khác nhau tuỳ cách chạy, và đó là chuyện cố ý:
@@ -90,6 +91,14 @@ async function activate(context) {
     vscode.commands.registerCommand('fboDesigner.showDialogDemo', async () => {
       const result = await dialogService.demo();
       output.appendLine(`Dialog demo result: ${JSON.stringify(result)}`);
+    }),
+  );
+
+  // Delete không tới document của webview — host bắt phím rồi gửi hotkey sang webview đang active.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('fboDesigner.deleteSelection', (args) => {
+      const shiftKey = !!(args && args.shift);
+      postToActiveDesigner({ type: 'hotkey', key: 'Delete', shiftKey });
     }),
   );
 }

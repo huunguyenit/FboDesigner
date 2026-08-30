@@ -64,6 +64,11 @@
         "command": "fboDesigner.showDialogDemo",
         "category": "FBO Designer",
         "title": "Show Dialog Demo"
+      },
+      {
+        "command": "fboDesigner.deleteSelection",
+        "category": "FBO Designer",
+        "title": "Xoá ô / cột đang chọn"
       }
     ],
     "keybindings": [
@@ -76,6 +81,28 @@
         "command": "fboDesigner.declareFilter",
         "key": "ctrl+alt+f",
         "when": "resourceScheme == file && resourceExtname =~ /\\.(xml|f)$/ && editorTextFocus"
+      },
+      {
+        "command": "fboDesigner.deleteSelection",
+        "key": "delete",
+        "when": "activeCustomEditorId == 'fboDesigner.form'"
+      },
+      {
+        "command": "fboDesigner.deleteSelection",
+        "key": "shift+delete",
+        "when": "activeCustomEditorId == 'fboDesigner.form'",
+        "args": { "shift": true }
+      },
+      {
+        "command": "fboDesigner.deleteSelection",
+        "key": "delete",
+        "when": "activeWebviewPanelId == 'fboDesigner.preview'"
+      },
+      {
+        "command": "fboDesigner.deleteSelection",
+        "key": "shift+delete",
+        "when": "activeWebviewPanelId == 'fboDesigner.preview'",
+        "args": { "shift": true }
       }
     ],
     "menus": {

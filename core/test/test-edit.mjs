@@ -9,7 +9,7 @@ import { ok, eq, section } from './harness.mjs';
 import { renderControllerHtml } from '../src/render.mjs';
 import {
   planRowEdit, planAddRow, planAddField, canEditRow, planRemoveField,
-  planColumnWidth, planRemoveColumn, planInsertColumn, planViewHeight, planFieldRows,
+  planColumnWidth, planRemoveColumn, planInsertColumn, planMoveColumn, planViewHeight, planFieldRows,
   rowEditTargetFile,
   planRegionMetadata,
   planRemoveControl, planInlineEntity,
@@ -363,6 +363,30 @@ const rUnd = renderControllerHtml(exUnd.clearText,
   { segments: exUnd.segments, hostFile: 'C:/P/App_Data/Controllers/Grid/CT.f' });
 ok('nhưng có cảnh báo nêu đúng tên', rUnd.warnings.some((x) => x.message.includes('chua_khai')));
 ok('và cột đó không được vẽ', !rUnd.model.columns.some((c) => c.name === 'chua_khai'));
+
+section('cột lưới — dời cột trong VIEW (planMoveColumn)');
+const mv = planMoveColumn(gm, 'ma_bp0', 'ten_bp0', 'after', GRID);
+ok('lập được kế hoạch dời', mv.ok);
+ok('hai splice xoá+chèn', Array.isArray(mv.edits) && mv.edits.length === 2);
+const afterMv = applySplices(GRID, mv.edits);
+eq('ma_bp0 đứng sau ten_bp0', buildGrid(afterMv).columns.map((c) => c.name),
+  ['ma_kh', 'ten_bp0', 'ma_bp0']);
+ok('khai báo fields không đổi', afterMv.includes('<field name="ma_bp0" width="100">'));
+
+const mvBefore = planMoveColumn(gm, 'ten_bp0', 'ma_bp0', 'before', GRID);
+eq('dời trước ma_bp0', buildGrid(applySplices(GRID, mvBefore.edits)).columns.map((c) => c.name),
+  ['ma_kh', 'ten_bp0', 'ma_bp0']);
+ok('đứng im thì từ chối', !planMoveColumn(gm, 'ma_bp0', 'ten_bp0', 'before', GRID).ok);
+ok('trùng tên thì từ chối', !planMoveColumn(gm, 'ma_bp0', 'ma_bp0', 'after', GRID).ok);
+
+// Cột Config / arrangement — từ chối theo đúng thứ tự ưu tiên merge.
+const gmCfg = buildGrid(GRID);
+gmCfg.columns.find((c) => c.name === 'ma_bp0').configKind = 'fields';
+ok('cột configKind thì từ chối', !planMoveColumn(gmCfg, 'ma_bp0', 'ten_bp0', 'after', GRID).ok);
+const gmArr = buildGrid(GRID);
+gmArr.arrangement = 'ma_bp0:%a(ten_bp0)';
+ok('bị arrangement neo thì từ chối', !planMoveColumn(gmArr, 'ma_bp0', 'ten_bp0', 'after', GRID).ok);
+ok('neo arrangement không chặn cột khác', planMoveColumn(gmArr, 'ten_bp0', 'ma_kh', 'after', GRID).ok);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Chiều cao. Hai con số ở hai chỗ, và chọn nhầm là kéo vùng này nhưng vùng kia co lại.

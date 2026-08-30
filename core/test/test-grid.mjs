@@ -466,8 +466,9 @@ ok('lowercase cũng nhận', renderControllerHtml(
 // thói tự chế đã phải dọn ở fbo-grid.css.
 for (const type of ['Detail', 'Inquiry']) {
   const g = listGrid(type);
-  ok(`${type}: vẫn ghim theo tổng px`, /style="width:\d+px;"/.test(g.html));
+  ok(`${type}: vẫn ghim theo tổng px`, /style="width:\d+px;overflow:hidden;"/.test(g.html));
   ok(`${type}: không mang GridFitWidth`, !g.html.includes('GridFitWidth'));
+  ok(`${type}: thân lưới khoá cuộn ngang (đồng bộ scrollLeft)`, g.html.includes('overflow-x:hidden;overflow-y:auto;'));
   eq(`${type}: cờ tắt`, g.fitWidth, false);
 }
 

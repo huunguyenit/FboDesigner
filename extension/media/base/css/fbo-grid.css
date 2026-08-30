@@ -183,10 +183,10 @@
    lệch khỏi hàng dữ liệu đúng 1px, đo được. Khung ngoài bao cả ba nên không ai lệch với ai. */
 .FormCellGrid { padding: 0 !important; }
 .GridTabPanel {
-  /* runtime */
+  /* runtime — khung ngoài không cuộn; cuộn ngang ở divFooter, cuộn dọc ở divGrid */
   margin: 0 !important;
   padding: 0 !important;
-  overflow: auto;
+  overflow: hidden;
   /* keo dán */
   width: 100%;
   border-left: 1px solid #d2d6d9;

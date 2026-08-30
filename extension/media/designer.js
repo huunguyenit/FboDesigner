@@ -212,6 +212,10 @@ window.addEventListener('message', (event) => {
   if (msg.type === 'idle') return showIdle(msg);
   if (msg.type === 'patchRow') return patchRow(msg);
   if (msg.type === 'dialog-show') return showDialog(msg.id, msg.options);
+  // Host bắt Delete (VS Code nuốt phím trước webview) rồi gửi sang đây.
+  if (msg.type === 'hotkey' && (msg.key === 'Delete' || msg.key === 'Del')) {
+    return handleDeleteKey({ shiftKey: !!msg.shiftKey });
+  }
   if (msg.type !== 'render') return;
 
   formLayer.innerHTML = msg.html;
@@ -555,6 +559,9 @@ function selectCell(cell, { additive = false } = {}) {
   selected = cell;
   focused = cell;
   selectAnchor = cell;
+  // Giữ focus trong webview để phím (kể cả khi VS Code không nuốt) vẫn tới document.
+  if (formLayer.tabIndex < 0) formLayer.tabIndex = -1;
+  try { formLayer.focus({ preventScroll: true }); } catch { /* ignore */ }
   renderDebug();
   drawBlueprint();
 }
@@ -675,20 +682,21 @@ function drawBlueprint() {
 
   const stageBox = stage.getBoundingClientRect();
   // metaDrag cần vẽ lại split/anchor theo value mới — không dùng đường nhẹ.
-  const light = !!(drag || moveDrag) && !metaDrag;
+  const light = !!(drag || moveDrag || colMoveDrag) && !metaDrag;
 
   /*
    * Đường NHẸ khi đang kéo: giữ thước/slot đã vẽ, chỉ thay bóng. Xóa cả blueprint mỗi
    * mousemove là nguồn giật chính so với WinForms.
    */
   if (light && blueprint.childNodes.length > 0) {
-    for (const node of [...blueprint.querySelectorAll('.bp-drag, .bp-move, .bp-move-bad, .bp-move-swap, .bp-bar, .bp-focus, .bp-grip, .bp-span, .bp-row-add, .bp-slot-add')]) {
+    for (const node of [...blueprint.querySelectorAll('.bp-drag, .bp-move, .bp-move-bad, .bp-move-swap, .bp-bar, .bp-focus, .bp-grip, .bp-span, .bp-row-add, .bp-col-add, .bp-slot-add, .bp-col-ghost, .bp-col-insert')]) {
       node.remove();
     }
     const frag = document.createDocumentFragment();
     drawHandles(frag, stageBox);
     drawDragShadow(frag, stageBox);
     drawMoveShadow(frag, stageBox);
+    drawColMoveShadow(frag, stageBox);
     blueprint.appendChild(frag);
     return;
   }
@@ -704,9 +712,11 @@ function drawBlueprint() {
   drawTabHeightHandles(frag, stageBox);
   drawHandles(frag, stageBox);
   drawRowAddButtons(frag, stageBox);
+  drawColAddButtons(frag, stageBox);
   drawColumnHandles(frag, stageBox);
   drawDragShadow(frag, stageBox);
   drawMoveShadow(frag, stageBox);
+  drawColMoveShadow(frag, stageBox);
 
   blueprint.appendChild(frag);
 }
@@ -1914,6 +1924,48 @@ function drawRowAddButtons(frag, stageBox) {
   if (isSplit) makeBtn(xRight, 'right');
 }
 
+/**
+ * Dấu + mép phải tiêu đề cột lưới — chèn cột bên phải cột ĐANG CHỌN.
+ *
+ * Bám `focused` (click chọn), không theo hover: rê chuột không làm mất nút; chỉ mất khi chọn
+ * cột/ô khác hoặc bỏ chọn.
+ */
+function drawColAddButtons(frag, stageBox) {
+  if (!blueprintOn || !focused) return;
+  if (!focused.matches('.GridHeader td[data-fbo-column]')) return;
+  if (focused.dataset.fboHidden) return;
+  const target = gridColTarget(focused);
+  if (!target) return;
+
+  const box = focused.getBoundingClientRect();
+  if (box.width === 0 && box.height === 0) return;
+
+  // Cùng công thức zoom với gridTicks: rect là visual, left/top CSS trong #fbo-zoom là layout.
+  const table = focused.closest('table') || focused;
+  const k = table.offsetWidth > 0 ? table.getBoundingClientRect().width / table.offsetWidth : 1;
+  const lay = (v) => v / k;
+  const x = lay(box.right - stageBox.left) + 10;
+  const y = lay((box.top + box.bottom) / 2 - stageBox.top);
+  const btn = el('button', 'bp-col-add', {
+    left: px(Math.max(2, x)),
+    top: px(y),
+  });
+  btn.type = 'button';
+  btn.textContent = '+';
+  btn.title = `Chèn cột bên phải "${target.column}"`;
+  btn.addEventListener('mousedown', (e) => e.stopPropagation());
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    postEdit({
+      op: 'colInsert',
+      grid: target.grid,
+      column: target.column,
+      side: 'right',
+    });
+  });
+  frag.appendChild(btn);
+}
+
 /** Dải mép ngoài giữ hover khi rê từ hàng sang nút + (tránh mất nút ở khoảng trống). */
 const ROW_ADD_HIT_PX = 28;
 
@@ -1944,7 +1996,7 @@ function wireRowHover() {
    * chuột kịp vào nút. Giữ hover nếu Y còn trong dải hàng và X còn trong mép ± ROW_ADD_HIT_PX.
    */
   stage.addEventListener('mousemove', (e) => {
-    if (drag || moveDrag || colDrag || metaDrag) return;
+    if (drag || moveDrag || colDrag || colMoveDrag || metaDrag) return;
     if (e.target.closest?.('.bp-row-add')) {
       return;
     }
@@ -2005,6 +2057,9 @@ let drag = null;
  * khi con trỏ đi quá `MOVE_ARM_PX` (khoảng cách 2D — ngang hoặc dọc) mới coi là kéo.
  */
 let moveDrag = null;
+
+/** Kéo-thả reorder cột lưới — khai sớm vì `drawBlueprint` / hover đọc nó. */
+let colMoveDrag = null;
 const MOVE_ARM_PX = 4;
 
 /** Dải bắt kéo ở cạnh PHẢI — dùng cho cột lưới, thứ chỉ kéo giãn được từ một phía. */
@@ -2302,7 +2357,30 @@ function drawDragShadow(frag, stageBox) {
  * Ba kind ấy chỉ tô điểm cho ô Input, không sống độc lập: để chúng ở lại là để lại một cái nhãn
  * trỏ vào hư không và một dòng chú thích của một control không còn tồn tại. Việc gom cụm nằm ở
  * host (`removeControl`), vì nó phải mở những file khác — hàng `.Description` có thể ở Include.
+ *
+ * Phím Delete thường KHÔNG tới webview (VS Code nuốt trước) — host gửi `{type:'hotkey'}` qua
+ * `fboDesigner.deleteSelection`. Listener `keydown` giữ cho trường hợp phím vẫn lọt được.
  */
+function handleDeleteKey(e = {}) {
+  const shiftKey = e.shiftKey === true;
+  if (!focused) return false;
+  // Cột lưới (tiêu đề hoặc ô dữ liệu cùng cột): bỏ cột khỏi view, giữ <field>.
+  // Shift+Delete: bỏ cả khai báo <field> (host nhận withField).
+  if (focused.matches('td[data-fbo-column]') && focused.closest('.GridTabPanel')) {
+    const colTarget = gridColTarget(focused);
+    if (!colTarget) return false;
+    if (typeof e.preventDefault === 'function') e.preventDefault();
+    postEdit({ op: 'colRemove', ...colTarget, withField: shiftKey });
+    return true;
+  }
+  if (focused.classList.contains('DwfEmptyCell')) return false;
+  const target = editTarget(focused);
+  if (!target) return false;
+  if (typeof e.preventDefault === 'function') e.preventDefault();
+  postEdit({ op: 'remove', ...target, withField: shiftKey });
+  return true;
+}
+
 window.addEventListener('keydown', (e) => {
   // Esc bỏ chọn biên cột — thanh lệnh của nó không có nút đóng, và bấm ra ngoài thì rơi vào ô
   // của form (tức chọn một Ô), không phải lúc nào cũng là điều người dùng muốn.
@@ -2311,12 +2389,8 @@ window.addEventListener('keydown', (e) => {
     drawBlueprint();
     return;
   }
-  if (e.key !== 'Delete' || !focused) return;
-  if (focused.classList.contains('DwfEmptyCell')) return;
-  const target = editTarget(focused);
-  if (!target) return;
-  e.preventDefault();
-  postEdit({ op: 'remove', ...target, withField: e.shiftKey === true });
+  if (e.key !== 'Delete' && e.key !== 'Del' && e.code !== 'Delete') return;
+  handleDeleteKey(e);
 });
 
 /**
@@ -2475,16 +2549,10 @@ function wireGridColumns() {
 }
 
 /**
- * Thanh lệnh của một cột lưới — cùng bố cục với thanh của ô form, cùng lý do.
+ * Vạch kéo giãn cột lưới đang chọn — KHÔNG còn thanh lệnh (+← +→ ×).
  *
- * Bản trước đặt `+` phải tại `left + box.width`, tức đúng dải bắt kéo giãn cột của
- * `wireGridColumns`: chọn một cột xong là không kéo giãn nó được nữa. Nay mọi nút nằm trên một
- * thanh phía trên tiêu đề, cạnh phải trả lại cho phép kéo, và có thêm một vạch chỉ chỗ kéo.
- *
- * Không có `+↑` / `+↓`: thêm HÀNG của lưới là việc của runtime lúc nhập liệu (nút «Thêm» trên
- * toolbar), không phải việc của designer. Designer chỉ định nghĩa CỘT. Cũng không có nút
- * gộp/tách: cột lưới có bề rộng riêng bằng px, không có `colspan` nào để gộp — kéo giãn mới là
- * phép sửa đúng ở đây.
+ * Thêm cột bằng dấu + mép phải khi chọn tiêu đề (`drawColAddButtons`); xoá bằng Delete;
+ * reorder bằng kéo thân header (`wireColMove`).
  */
 function drawColumnHandles(frag, stageBox) {
   if (!focused || !blueprintOn) return;
@@ -2497,46 +2565,161 @@ function drawColumnHandles(frag, stageBox) {
   if (box.width === 0 && box.height === 0) return;
   const left = box.left - stageBox.left;
   const top = box.top - stageBox.top;
-  const width = Number(focused.dataset.fboWidth) || Math.round(box.width);
 
   frag.appendChild(el('div', 'bp-grip', {
     left: px(left + box.width - 3), top: px(top), height: px(box.height),
   }));
+}
 
-  const bar = el('div', 'bp-bar', {
-    left: px(left + box.width / 2),
-    top: px(top < ACTION_BAR_H + 2 ? top + box.height + ACTION_BAR_H + 2 : top - 2),
+/**
+ * Chỗ thả khi kéo cột — nửa trái/phải của tiêu đề dưới con trỏ → before/after.
+ *
+ * Cột Config (`data-fbo-config`) và cột ẩn không nhận thả; cột đang kéo đứng đúng chỗ cũng bad.
+ */
+function colMoveDropAt(md, clientX, clientY) {
+  const elAt = document.elementFromPoint(clientX, clientY);
+  const th = elAt?.closest?.('.GridHeader td[data-fbo-column]');
+  if (!th || !formLayer.contains(th) || th.dataset.fboHidden) {
+    return { ok: false, reason: 'ngoài tiêu đề cột' };
+  }
+  const target = gridColTarget(th);
+  if (!target || target.grid !== md.target.grid) {
+    return { ok: false, reason: 'lưới khác' };
+  }
+  if (th.dataset.fboConfig) {
+    return { ok: false, reason: 'cột cấu hình ẩn', th, target, side: 'after' };
+  }
+  const box = th.getBoundingClientRect();
+  const side = clientX < box.left + box.width / 2 ? 'before' : 'after';
+  if (target.column === md.target.column) {
+    return { ok: false, reason: 'cùng cột', th, target, side };
+  }
+  // Đứng liền kề đúng hướng → không có gì để ghi.
+  const row = th.parentElement;
+  const headers = row
+    ? [...row.querySelectorAll('td[data-fbo-column]:not([data-fbo-hidden])')]
+    : [];
+  const fromIdx = headers.findIndex((h) => h.dataset.fboColumn === md.target.column);
+  const toIdx = headers.findIndex((h) => h.dataset.fboColumn === target.column);
+  if (fromIdx >= 0 && toIdx >= 0) {
+    if (side === 'before' && fromIdx === toIdx - 1) {
+      return { ok: false, reason: 'đã đúng chỗ', th, target, side };
+    }
+    if (side === 'after' && fromIdx === toIdx + 1) {
+      return { ok: false, reason: 'đã đúng chỗ', th, target, side };
+    }
+  }
+  // Cột đang kéo cũng không được là config — bắt lúc mousedown, nhưng phòng thủ lại.
+  if (md.th.dataset.fboConfig) {
+    return { ok: false, reason: 'cột cấu hình ẩn', th, target, side };
+  }
+  return { ok: true, th, target, side };
+}
+
+/** Ghost cột đang kéo + vạch chèn giữa hai cột. */
+function drawColMoveShadow(frag, stageBox) {
+  if (!colMoveDrag || !colMoveDrag.armed) return;
+
+  const box = colMoveDrag.th.getBoundingClientRect();
+  if (box.width === 0 && box.height === 0) return;
+
+  // Cao theo cả cột trong panel (header → data → footer) nếu gom được.
+  let top = box.top;
+  let bottom = box.bottom;
+  for (const td of colMoveDrag.column.cells || [colMoveDrag.th]) {
+    const r = td.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue;
+    top = Math.min(top, r.top);
+    bottom = Math.max(bottom, r.bottom);
+  }
+
+  const drop = colMoveDrag.drop;
+  const bad = drop && drop.ok === false;
+  const ghost = el('div', `bp-col-ghost${bad ? ' bp-move-bad' : ''}`, {
+    left: px(box.left - stageBox.left),
+    top: px(top - stageBox.top),
+    width: px(box.width),
+    height: px(Math.max(1, bottom - top)),
   });
-  bar.classList.toggle('bp-bar-below', top < ACTION_BAR_H + 2);
+  frag.appendChild(ghost);
 
-  const make = (cls, label, title, onClick) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = `bp-act ${cls}`;
-    b.textContent = label;
-    b.title = title;
-    b.addEventListener('mousedown', (ev) => ev.stopPropagation());
-    b.addEventListener('click', (ev) => { ev.stopPropagation(); onClick(); });
-    bar.appendChild(b);
-  };
+  if (!drop?.th) return;
+  const tb = drop.th.getBoundingClientRect();
+  const x = drop.side === 'before' ? tb.left : tb.right;
+  // Vạch chèn cao theo cùng dải cột.
+  let insTop = tb.top;
+  let insBottom = tb.bottom;
+  const dropCells = gridColumnCells(drop.th);
+  for (const td of dropCells.cells || [drop.th]) {
+    const r = td.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue;
+    insTop = Math.min(insTop, r.top);
+    insBottom = Math.max(insBottom, r.bottom);
+  }
+  frag.appendChild(el('div', `bp-col-insert${drop.ok ? '' : ' bp-move-bad'}`, {
+    left: px(x - stageBox.left),
+    top: px(insTop - stageBox.top),
+    height: px(Math.max(1, insBottom - insTop)),
+  }));
+}
 
-  make('bp-add', '+←', `Chèn cột bên trái "${target.column}"`,
-    () => postEdit({ op: 'colInsert', ...target, side: 'left' }));
-  make('bp-add', '+→', `Chèn cột bên phải "${target.column}"`,
-    () => postEdit({ op: 'colInsert', ...target, side: 'right' }));
-  bar.appendChild(el('span', 'bp-act-sep', {}));
-  make('bp-del', '×', `Bỏ cột "${target.column}" khỏi lưới`,
-    () => postEdit({ op: 'colRemove', ...target }));
+const COL_MOVE_ARM_PX = 4;
 
-  const tag = el('span', 'bp-act-note', {});
-  tag.textContent = `${width}px`;
-  tag.title = 'Kéo mép phải của tiêu đề cột để đổi bề rộng';
-  bar.appendChild(tag);
+function wireColMove() {
+  formLayer.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    if (colDrag || drag || moveDrag || metaDrag) return;
+    const th = e.target.closest('.GridHeader td[data-fbo-column]');
+    if (!th || th.dataset.fboHidden || edgeOf(th, e.clientX)) return;
+    const target = gridColTarget(th);
+    if (!target) return;
+    // Cột Config/Initialize: cho kéo để thấy bad ghost, host vẫn từ chối nếu lọt.
 
-  frag.appendChild(bar);
+    e.preventDefault();
+    selectCell(th);
+    colMoveDrag = {
+      th,
+      target,
+      column: gridColumnCells(th),
+      x0: e.clientX,
+      y0: e.clientY,
+      armed: false,
+      drop: null,
+    };
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!colMoveDrag) return;
+    if (!colMoveDrag.armed) {
+      const dist = Math.hypot(e.clientX - colMoveDrag.x0, e.clientY - colMoveDrag.y0);
+      if (dist < COL_MOVE_ARM_PX) return;
+      colMoveDrag.armed = true;
+      document.body.classList.add('fbo-dragging');
+    }
+    colMoveDrag.drop = colMoveDropAt(colMoveDrag, e.clientX, e.clientY);
+    drawBlueprintSoon();
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!colMoveDrag) return;
+    const md = colMoveDrag;
+    colMoveDrag = null;
+    document.body.classList.remove('fbo-dragging');
+    formLayer.classList.remove('fbo-resizing');
+    drawBlueprintSoon();
+    if (!md.armed || !md.drop?.ok) return;
+    postEdit({
+      op: 'colMove',
+      grid: md.target.grid,
+      column: md.target.column,
+      anchor: md.drop.target.column,
+      side: md.drop.side,
+    });
+  });
 }
 
 wireGridColumns();
+wireColMove();
 
 /**
  * Lưới nhiều cột: footer cuộn ngang, tiêu đề và thân nhận `scrollLeft` đồng bộ.

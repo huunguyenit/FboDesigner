@@ -302,7 +302,7 @@ async function askNewControl(core, { width = false } = {}) {
 async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
   // Cột của LƯỚI đi đường riêng: chúng nằm ở file Detail khác, và lưới khai layout bằng thứ tự
   // chứ không bằng pattern — không dùng chung phép nào với hàng của form.
-  if (msg.op === 'colWidth' || msg.op === 'colRemove' || msg.op === 'colInsert') {
+  if (msg.op === 'colWidth' || msg.op === 'colRemove' || msg.op === 'colInsert' || msg.op === 'colMove') {
     return handleColumnEdit(msg, core, hostDocument, output, rebuild);
   }
 
@@ -841,7 +841,7 @@ function gridModelFor(msg, core, hostDocument, rebuild) {
   return detailGridModel(core, hostDocument, msg.grid);
 }
 
-/** Kéo giãn / chèn / xoá một cột lưới. Mọi splice rơi vào file của LƯỚI, không vào form chứa nó. */
+/** Kéo giãn / chèn / xoá / dời một cột lưới. Mọi splice rơi vào file của LƯỚI, không vào form chứa nó. */
 async function handleColumnEdit(msg, core, hostDocument, output, rebuild) {
   const grid = gridModelFor(msg, core, hostDocument, rebuild);
   if (!grid) {
@@ -856,22 +856,64 @@ async function handleColumnEdit(msg, core, hostDocument, output, rebuild) {
   if (msg.op === 'colWidth') {
     plan = core.planColumnWidth(grid.model, msg.column, Number(msg.width), sourceText);
   } else if (msg.op === 'colRemove') {
-    // Cùng công tắc với xoá control trên form (`fboDesigner.confirmDelete`): hai thao tác cùng
-    // họ thì cùng một luật hỏi, không phải cái hỏi cái không.
+    // Delete = bỏ khỏi <view>, giữ <field>. Shift+Delete = bỏ cả hai (cùng luật form).
+    const withField = msg.withField === true;
+    const col = grid.model.columns.find((c) => c.name === msg.column);
+    // Cột từ Config/Initialize là khai báo DÙNG CHUNG — Shift+Delete không được cắt <field>
+    // của cả nhóm controller. Chỉ cho bỏ khỏi view của lưới này.
+    if (withField && col?.configKind) {
+      vscode.window.showWarningMessage(
+        `FBO Designer: cột "${msg.column}" đến từ cấu hình ẩn (${col.configKind}) — không xoá <field> dùng chung bằng Shift+Delete. Bấm Delete để chỉ bỏ khỏi view.`,
+      );
+      return false;
+    }
     if (config().confirmDelete) {
       const answer = await dialogs().ask({
         type: 'warning',
-        title: `Bỏ cột "${msg.column}" khỏi lưới?`,
+        title: withField
+          ? `Xoá cột "${msg.column}" và khai báo <field>?`
+          : `Bỏ cột "${msg.column}" khỏi lưới?`,
         size: 'small',
-        body: [{ type: 'text', content: 'Khai báo <field> vẫn giữ nguyên.' }],
+        body: [{
+          type: 'text',
+          content: withField
+            ? 'Xoá chỗ dùng trong <view> và cả thẻ <field> trong <fields>.'
+            : 'Khai báo <field> vẫn giữ nguyên.',
+        }],
         buttons: [
           { id: 'cancel', label: 'Huỷ', variant: 'secondary', action: 'cancel' },
-          { id: 'go', label: 'Bỏ cột', variant: 'danger', action: 'confirm' },
+          {
+            id: 'go',
+            label: withField ? 'Xoá cột + field' : 'Bỏ cột',
+            variant: 'danger',
+            action: 'confirm',
+          },
         ],
       });
       if (answer !== 'go') return false;
     }
     plan = core.planRemoveColumn(grid.model, msg.column, sourceText);
+    if (plan.ok && withField) {
+      // Khai báo <field> thường cùng file lưới; nếu nằm Include thì fieldTagStart chỉ file.
+      const fieldFile = col?.fieldTagStart?.file || grid.file;
+      const fieldDoc = await openTarget(fieldFile, hostDocument);
+      const decl = fieldTagSpan(fieldDoc.getText(), msg.column);
+      if (!decl) {
+        vscode.window.showWarningMessage(
+          `FBO Designer: đã bỏ cột khỏi view nhưng không tìm thấy <field name="${msg.column}"> để xoá.`,
+        );
+      } else {
+        plan = { ...plan, extra: { ...decl, file: fieldFile } };
+      }
+    }
+  } else if (msg.op === 'colMove') {
+    const side = msg.side === 'before' ? 'before' : 'after';
+    const anchor = msg.anchor || msg.before || msg.after;
+    if (!anchor) {
+      vscode.window.showWarningMessage('FBO Designer: thiếu cột neo để dời.');
+      return false;
+    }
+    plan = core.planMoveColumn(grid.model, msg.column, anchor, side, sourceText);
   } else {
     // Chèn cột: chọn trong các field ĐÃ KHAI mà lưới chưa dùng, hoặc tạo hẳn field mới.
     const inGrid = new Set(grid.model.columns.map((c) => c.name));

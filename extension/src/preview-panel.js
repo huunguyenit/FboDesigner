@@ -25,9 +25,9 @@ const { handleEdit } = require('./edit-host');
 const { history } = require('./edit-history');
 const { OverlayDialogs } = require('./dialog/dialog-overlay');
 const { runWithDialogs } = require('./dialog/dialog-service');
+const { trackDesignerWebview } = require('./designer-webview');
 
 const VIEW_TYPE = 'fboDesigner.preview';
-
 /** Xem `renderSoon`. Đủ để gộp cả chùm nhịp của một thao tác, dưới ngưỡng mắt thấy được. */
 const RENDER_DEBOUNCE_MS = 40;
 
@@ -39,6 +39,7 @@ class PreviewPanel {
     this.panel = panel;
     // Hộp thoại của panel NÀY vẽ vào chính webview này, không mở tab riêng — xem `dialog-overlay.js`.
     this.dialogs = new OverlayDialogs(panel.webview);
+    trackDesignerWebview(panel.webview, panel);
 
     this.document = null;      // TextDocument đang vẽ
     this.programKey = null;    // chỉ dựng lại shell khi ĐỔI program, không phải mỗi lần đổi file
