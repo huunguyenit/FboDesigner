@@ -9,6 +9,8 @@
 // bất biến — KHÔNG phải đổi một con số px của riêng ô.
 //
 // Mọi hàm ở đây THUẦN: nhận dữ liệu, trả dữ liệu. Không đọc file, không chạm DOM.
+import { msg } from './msg.mjs';
+
 
 const RE_ENTITY_REF = /&[A-Za-z_][\w.:-]*;/;
 
@@ -220,8 +222,8 @@ export function removeCell(row, widths, cellIndex, { allowEntity = false } = {})
 
   const { cells } = buildCells(row, widths);
   const cell = cells[cellIndex];
-  if (!cell) return { ok: false, reason: `không có ô thứ ${cellIndex}` };
-  if (cell.empty) return { ok: false, reason: 'ô trống, không có gì để xoá' };
+  if (!cell) return { ok: false, reason: msg('item.cell_missing', { cellIndex }) };
+  if (cell.empty) return { ok: false, reason: msg('common.empty_delete') };
 
   const columnCount = widths.length;
   const chars = Array.from(resolvePattern(row.pattern, columnCount).pattern);
@@ -248,30 +250,30 @@ export function insertCell(row, widths, cellIndex, side, tokenRaw, { allowEntity
 
   const parsed = list.map((t) => parseToken(String(t ?? '').trim()));
   const bad = parsed.find((t) => !t.valid);
-  if (bad) return { ok: false, reason: `token "${bad.raw}" không đọc được` };
+  if (bad) return { ok: false, reason: msg('item.token_invalid', { raw: bad.raw }) };
 
   const columnCount = widths.length;
   const { cells } = buildCells(row, widths);
   const cell = cells[cellIndex];
-  if (!cell) return { ok: false, reason: `không có ô thứ ${cellIndex}` };
+  if (!cell) return { ok: false, reason: msg('item.cell_missing', { cellIndex }) };
 
   // Một control có thể cần NHIỀU cột (textbox = nhãn + ô nhập). Cả dải phải trống, và phải nằm
   // gọn trong hàng — thiếu một cột cũng từ chối, chứ không đặt được bao nhiêu hay bấy nhiêu.
   const n = parsed.length;
   if (side === 'in') {
-    if (!cell.empty) return { ok: false, reason: 'ô đang có control — chọn ô trống để thêm field vào' };
+    if (!cell.empty) return { ok: false, reason: msg('item.cell_occupied_insert') };
   }
   const from = side === 'in' ? cell.col
     : side === 'left' ? cell.col - n
     : cell.col + cell.span;
-  if (from < 0) return { ok: false, reason: `bên trái chỉ còn ${cell.col} cột trống, cần ${n}` };
+  if (from < 0) return { ok: false, reason: msg('item.left_space_short', { col: cell.col, n }) };
   if (from + n > columnCount) {
-    return { ok: false, reason: `bên phải chỉ còn ${columnCount - (cell.col + cell.span)} cột trống, cần ${n}` };
+    return { ok: false, reason: msg('item.right_space_short', { p0: columnCount - (cell.col + cell.span), n }) };
   }
 
   const chars = Array.from(resolvePattern(row.pattern, columnCount).pattern);
   for (let c = from; c < from + n; c++) {
-    if (chars[c] !== '-') return { ok: false, reason: `cột ${c + 1} đang có control — bỏ nó trước rồi mới thêm được` };
+    if (chars[c] !== '-') return { ok: false, reason: msg('item.col_occupied', { p0: c + 1, action: 'thêm' }) };
   }
 
   // Đặt cột trước, tính chỉ số token sau: `tokenIndexOf` đếm số `1` đứng trước, nên phải đếm
@@ -307,27 +309,27 @@ export function moveCell(row, widths, cellIndex, toCol, { allowEntity = false } 
   const columnCount = widths.length;
   const { cells } = buildCells(row, widths);
   const cell = cells[cellIndex];
-  if (!cell) return { ok: false, reason: `không có ô thứ ${cellIndex}` };
-  if (cell.empty) return { ok: false, reason: 'ô trống, không có gì để dời' };
+  if (!cell) return { ok: false, reason: msg('item.cell_missing', { cellIndex }) };
+  if (cell.empty) return { ok: false, reason: msg('common.empty_move') };
 
   const span = cell.span;
   const to = Math.trunc(Number(toCol));
-  if (!Number.isFinite(to) || to < 0) return { ok: false, reason: `cột đích ${toCol} không hợp lệ` };
+  if (!Number.isFinite(to) || to < 0) return { ok: false, reason: msg('common.target_col_invalid', { col: toCol }) };
   if (to + span > columnCount) {
-    return { ok: false, reason: `dời tới cột ${to + 1} thì control trải ${span} cột vượt khỏi hàng` };
+    return { ok: false, reason: msg('item.move_overflow', { p0: to + 1, span }) };
   }
-  if (to === cell.col) return { ok: false, reason: 'không có gì thay đổi' };
+  if (to === cell.col) return { ok: false, reason: msg('common.no_change') };
 
   // Gỡ token TRƯỚC khi đổi pattern: `tokenIndexOf` đếm số `1` đứng trước, nên chỉ số cũ chỉ đọc
   // đúng trên pattern CŨ.
   const chars = Array.from(resolvePattern(row.pattern, columnCount).pattern);
   const fromTi = tokenIndexOf(chars.join(''), cell.col);
   const token = row.tokens[fromTi];
-  if (!token) return { ok: false, reason: `ô thứ ${cellIndex} không có token nào để dời` };
+  if (!token) return { ok: false, reason: msg('item.no_token_to_move', { cellIndex }) };
 
   for (let c = cell.col; c < cell.col + span; c++) chars[c] = '-';
   for (let c = to; c < to + span; c++) {
-    if (chars[c] !== '-') return { ok: false, reason: `cột ${c + 1} đang có control — bỏ nó trước rồi mới dời được` };
+    if (chars[c] !== '-') return { ok: false, reason: msg('item.col_occupied', { p0: c + 1, action: 'dời' }) };
   }
   chars[to] = '1';
   for (let c = to + 1; c < to + span; c++) chars[c] = '0';
@@ -360,10 +362,10 @@ export function swapCells(row, widths, cellIndex, otherIndex, { allowEntity = fa
   const { cells } = buildCells(row, widths);
   const a = cells[cellIndex];
   const b = cells[otherIndex];
-  if (!a) return { ok: false, reason: `không có ô thứ ${cellIndex}` };
-  if (!b) return { ok: false, reason: `không có ô thứ ${otherIndex}` };
-  if (cellIndex === otherIndex) return { ok: false, reason: 'không có gì thay đổi' };
-  if (a.empty || b.empty) return { ok: false, reason: 'ô trống, không có control để đổi chỗ' };
+  if (!a) return { ok: false, reason: msg('item.cell_missing', { cellIndex }) };
+  if (!b) return { ok: false, reason: msg('item.cell_missing', { cellIndex: otherIndex }) };
+  if (cellIndex === otherIndex) return { ok: false, reason: msg('common.no_change') };
+  if (a.empty || b.empty) return { ok: false, reason: msg('common.empty_swap') };
 
   // Chỉ số token = số ký tự `1` đứng trước, đọc trên pattern ĐÃ bung cho đủ cột — cùng không
   // gian với `cell.col` mà `buildCells` vừa trả. Số `1` không đổi nên chỉ số token sau khi
@@ -372,7 +374,7 @@ export function swapCells(row, widths, cellIndex, otherIndex, { allowEntity = fa
   const ai = tokenIndexOf(pattern, a.col);
   const bi = tokenIndexOf(pattern, b.col);
   const tokens = [...row.tokens];
-  if (!tokens[ai] || !tokens[bi]) return { ok: false, reason: 'một trong hai ô không có token để đổi chỗ' };
+  if (!tokens[ai] || !tokens[bi]) return { ok: false, reason: msg('item.swap_no_token') };
   [tokens[ai], tokens[bi]] = [tokens[bi], tokens[ai]];
 
   // Mỗi token giữ span gốc khi slot đích đủ chỗ; thiếu thì thu về đúng chỗ còn lại.
@@ -417,20 +419,20 @@ export function swapCells(row, widths, cellIndex, otherIndex, { allowEntity = fa
 export function placeCell(row, widths, col, span, token, { allowEntity = false } = {}) {
   const refuse = refuseEdit(row, allowEntity);
   if (refuse) return { ok: false, reason: refuse };
-  if (!token) return { ok: false, reason: 'không có token nào để đặt' };
+  if (!token) return { ok: false, reason: msg('item.no_token_to_place') };
 
   const columnCount = widths.length;
   const to = Math.trunc(Number(col));
   const n = Math.trunc(Number(span));
-  if (!Number.isFinite(to) || to < 0) return { ok: false, reason: `cột đích ${col} không hợp lệ` };
-  if (!Number.isFinite(n) || n < 1) return { ok: false, reason: `span ${span} không hợp lệ` };
+  if (!Number.isFinite(to) || to < 0) return { ok: false, reason: msg('common.target_col_invalid', { col }) };
+  if (!Number.isFinite(n) || n < 1) return { ok: false, reason: msg('item.span_invalid', { span }) };
   if (to + n > columnCount) {
-    return { ok: false, reason: `đặt tại cột ${to + 1} thì control trải ${n} cột vượt khỏi hàng (${columnCount} cột)` };
+    return { ok: false, reason: msg('item.place_overflow', { p0: to + 1, n, columnCount }) };
   }
 
   const chars = Array.from(resolvePattern(row.pattern, columnCount).pattern);
   for (let c = to; c < to + n; c++) {
-    if (chars[c] !== '-') return { ok: false, reason: `cột ${c + 1} đang có control — bỏ nó trước rồi mới đặt được` };
+    if (chars[c] !== '-') return { ok: false, reason: msg('item.col_occupied', { p0: c + 1, action: 'đặt' }) };
   }
 
   // Đặt cột TRƯỚC, tính chỉ số token SAU — `tokenIndexOf` đếm số `1` đứng trước, nên phải đếm
@@ -473,10 +475,10 @@ export function newRow(widths, tokenRaw) {
   const list = Array.isArray(tokenRaw) ? tokenRaw : [tokenRaw];
   const parsed = list.map((t) => parseToken(String(t ?? '').trim()));
   const bad = parsed.find((t) => !t.valid);
-  if (bad) return { ok: false, reason: `token "${bad.raw}" không đọc được` };
+  if (bad) return { ok: false, reason: msg('item.token_invalid', { raw: bad.raw }) };
 
   if (parsed.length > widths.length && widths.length > 0) {
-    return { ok: false, reason: `control cần ${parsed.length} cột nhưng view chỉ có ${widths.length}` };
+    return { ok: false, reason: msg('item.span_exceeds_view', { length: parsed.length, length2: widths.length }) };
   }
   const cols = Math.max(widths.length, parsed.length);
   return {
@@ -614,23 +616,23 @@ export function newSplitBlankRow(widths, refRow, split, blankSide) {
 export function setSpan(row, widths, cellIndex, newSpan, { allowEntity = false } = {}) {
   const refuse = allowEntity ? null : refuseEdit(row);
   if (refuse) return { ok: false, reason: refuse };
-  if (newSpan < 1) return { ok: false, reason: 'span tối thiểu là 1' };
+  if (newSpan < 1) return { ok: false, reason: msg('item.span_min') };
 
   const { cells } = buildCells(row, widths);
   const cell = cells[cellIndex];
-  if (!cell) return { ok: false, reason: `không có ô thứ ${cellIndex}` };
-  if (cell.empty) return { ok: false, reason: 'ô trống không có span để đổi' };
+  if (!cell) return { ok: false, reason: msg('item.cell_missing', { cellIndex }) };
+  if (cell.empty) return { ok: false, reason: msg('item.empty_no_span') };
 
   const columnCount = widths.length;
   if (cell.col + newSpan > columnCount) {
-    return { ok: false, reason: `nở tới cột ${cell.col + newSpan} nhưng view chỉ có ${columnCount} cột` };
+    return { ok: false, reason: msg('item.grow_overflow', { p0: cell.col + newSpan, columnCount }) };
   }
 
   const chars = Array.from(resolvePattern(row.pattern, columnCount).pattern);
   if (newSpan > cell.span) {
     for (let c = cell.col + cell.span; c < cell.col + newSpan; c++) {
       if (chars[c] !== '-' && chars[c] !== '0') {
-        return { ok: false, reason: `cột ${c + 1} đang có control — bỏ nó trước rồi mới nở được` };
+        return { ok: false, reason: msg('item.col_occupied', { p0: c + 1, action: 'nở' }) };
       }
     }
   }
@@ -665,18 +667,18 @@ export function setStart(row, widths, cellIndex, newCol, { allowEntity = false }
 
   const { cells } = buildCells(row, widths);
   const cell = cells[cellIndex];
-  if (!cell) return { ok: false, reason: `không có ô thứ ${cellIndex}` };
-  if (cell.empty) return { ok: false, reason: 'ô trống không có cạnh trái để kéo' };
+  if (!cell) return { ok: false, reason: msg('item.cell_missing', { cellIndex }) };
+  if (cell.empty) return { ok: false, reason: msg('item.empty_no_left_edge') };
 
-  if (newCol < 0) return { ok: false, reason: 'cột bắt đầu không thể âm' };
+  if (newCol < 0) return { ok: false, reason: msg('item.start_negative') };
   const end = cell.col + cell.span; // cột kết thúc (không bao gồm) — đứng yên
-  if (newCol >= end) return { ok: false, reason: 'cạnh trái không vượt qua được cạnh phải' };
+  if (newCol >= end) return { ok: false, reason: msg('item.left_past_right') };
 
   const chars = Array.from(resolvePattern(row.pattern, widths.length).pattern);
   if (newCol < cell.col) {
     for (let c = newCol; c < cell.col; c++) {
       if (chars[c] !== '-') {
-        return { ok: false, reason: `cột ${c + 1} đang có control — bỏ nó trước rồi mới nở được` };
+        return { ok: false, reason: msg('item.col_occupied', { p0: c + 1, action: 'nở' }) };
       }
     }
   }

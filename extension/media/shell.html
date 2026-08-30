@@ -5,8 +5,8 @@
 <header class="fbo-bar">
   <span class="fbo-bar-left"><span id="fbo-file">—</span><span class="fbo-mode" id="fbo-mode" hidden></span></span>
   <span class="fbo-bar-right">
-    <label class="fbo-toggle" hidden title="Vẽ đè thước, vạch cột theo list px ở item dòng 1, và khung slot của từng ô"><input type="checkbox" id="fbo-blueprint-toggle"> Blueprint</label>
-    <label class="fbo-toggle" title="Chỉ phóng to để nhìn. Không đổi một px nào của form — thước blueprint vẫn ghi px khai trong XML.">Tỉ lệ
+    <label class="fbo-toggle" hidden title="{{webview.blueprint_title}}"><input type="checkbox" id="fbo-blueprint-toggle"> {{webview.blueprint}}</label>
+    <label class="fbo-toggle" title="{{webview.zoom_title}}">{{webview.zoom}}
       <select id="fbo-zoom-select">
         <option value="1">100%</option>
         <option value="1.25">125%</option>
@@ -15,12 +15,18 @@
         <option value="3">300%</option>
       </select>
     </label>
+    <label class="fbo-toggle" title="{{webview.lang_title}}">{{webview.lang}}
+      <select id="fbo-lang-select">
+        <option value="vi">Tiếng Việt</option>
+        <option value="en">English</option>
+      </select>
+    </label>
     <!-- Debug ẩn khỏi thanh trên: nó là công cụ chẩn đoán tài nguyên (stylesheet/ảnh), không
          phải thứ dùng hằng ngày, và một ô check luôn hiện làm thanh trên rối thêm.
          Phần máy móc GIỮ NGUYÊN — ô check vẫn tồn tại trong DOM, chỉ không hiện ra. Bật lại khi
          cần chẩn đoán bằng cách gỡ `hidden` ở dòng dưới, hoặc gõ trong Developer Tools của
          webview: `fbo-debug-toggle`.click() -->
-    <label class="fbo-toggle" hidden title="Liệt kê từng stylesheet và từng ảnh thật sự đang được dùng, kèm URL, kích thước thật và trạng thái nạp"><input type="checkbox" id="fbo-debug-toggle"> Debug</label>
+    <label class="fbo-toggle" hidden title="{{webview.debug_title}}"><input type="checkbox" id="fbo-debug-toggle"> {{webview.debug}}</label>
     <span id="fbo-meta"></span>
   </span>
 </header>
@@ -28,7 +34,7 @@
   <div id="fbo-zoom">
     <style id="fbo-controller-css" data-fbo-css="controller"></style>
   <div id="fbo-stage">
-      <div id="fbo-form"><p class="fbo-hint">Đang dựng…</p></div>
+      <div id="fbo-form"><p class="fbo-hint">{{webview.building}}</p></div>
       <div id="fbo-blueprint" aria-hidden="true"></div>
     </div>
   </div>
@@ -44,8 +50,8 @@
   <div id="fbo-nav-hint" class="fbo-ok"><b>Click</b> = chọn ô · <b>Ctrl+click</b> hoặc <b>double click</b> = nhảy tới khai báo trong XML (thêm <b>Alt</b> để ở lại file đang mở) · kéo mép ô = gộp/tách · <b>Del</b> = xoá control / bỏ cột lưới khỏi view · <b>Shift+Del</b> = xoá cả nhãn/chú thích hoặc cả &lt;field&gt; của cột · kéo tiêu đề cột = sắp xếp · <b>Ctrl+Z</b> = hoàn tác · <b>Shift+Click</b> = chọn nhiều ô</div>
   <section id="fbo-debug" hidden>
     <div class="fbo-debug-head">
-      <strong>Debug</strong>
-      <button type="button" id="fbo-reload-assets" title="Dựng lại shell với dấu phiên bản mới trên mọi URL — dùng khi nghi webview còn giữ bản cũ trong cache">Nạp lại tài nguyên</button>
+      <strong>{{webview.debug}}</strong>
+      <button type="button" id="fbo-reload-assets" title="Dựng lại shell với dấu phiên bản mới trên mọi URL — dùng khi nghi webview còn giữ bản cũ trong cache">{{webview.reload_assets}}</button>
     </div>
     <div id="fbo-debug-body"></div>
   </section>

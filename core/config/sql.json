@@ -1,0 +1,50 @@
+{
+  "identPattern": "^[A-Za-z_][\\w$]*$",
+  "typeByFbo": {
+    "datetime": "smalldatetime",
+    "decimal": "numeric(19,4)",
+    "boolean": "bit"
+  },
+  "stringFboTypes": ["", "string"],
+  "stringSql": "varchar({n})",
+  "backfill": {
+    "varchar": "''",
+    "bit": "0",
+    "numeric": "0"
+  },
+  "defaultPartitionField": "ngay_ct",
+  "partitionTemplate": [
+    "DECLARE @ngay_ct1 smalldatetime, @ngay_ct2 smalldatetime",
+    "SELECT @ngay_ct1 = ngay_gh1, @ngay_ct2 = ngay_gh2 from dmstt",
+    "",
+    "IF NOT EXISTS(SELECT 1 FROM syscolumns WHERE id IN (SELECT id FROM sysobjects WHERE name = '{{primeMaster}}') AND name = '{{column}}')",
+    "BEGIN",
+    "\tALTER TABLE {{primeMaster}} ADD {{column}} {{sqlType}}",
+    "\tDECLARE @strsql NVARCHAR(4000)",
+    "\tSET @strsql = 'alter table {{primePattern}} add {{column}} {{sqlType}}'",
+    "\tEXEC FastBusiness$Partition$Execute @strsql, '', '{{partitionField}}', @ngay_ct1, @ngay_ct2, 1, 1",
+    "\tSET @strsql = 'update {{primePattern}} set {{column}} = {{backfill}} where %[{{column}} is null]%'",
+    "\tEXEC FastBusiness$Partition$Execute @strsql, '', '{{partitionField}}', @ngay_ct1, @ngay_ct2, 1, 1",
+    "END"
+  ],
+  "entityAppDatabaseSql": [
+    "SET NOCOUNT ON;",
+    "SELECT TOP 1 RTRIM(code) AS code, RTRIM(cname) AS cname, RTRIM(cdata) AS cdata",
+    "FROM entity WHERE cdata <> ''",
+    "ORDER BY code;"
+  ],
+  "stringLengthTypes": ["varchar", "char"],
+  "filterDeclareColumns": [
+    "controller",
+    "id",
+    "name",
+    "exname",
+    "xtable",
+    "fieldkey",
+    "exfieldkey",
+    "reftable",
+    "reffieldkey",
+    "joinclause",
+    "conditionalreplace"
+  ]
+}

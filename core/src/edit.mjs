@@ -18,6 +18,8 @@ import { segmentAt } from './entities.mjs';
 // phải tính lại vùng SAU một phép dời, nên nó dùng chung hàm chứ không chép luật sang đây.
 import { fieldCategories, rowCategoryIndex } from './render.mjs';
 import { splitPatternAt, mergePatternAt, splitWidthsAt, mergeWidthsAt } from './columns.mjs';
+import { msg } from './msg.mjs';
+
 
 /** Số cột trống (`-`) liền nhau từ `fromCol` — «span slot đích» khi thả vào chỗ trống. */
 function emptyRunFrom(row, widths, fromCol) {
@@ -44,11 +46,11 @@ function emptyRunFrom(row, widths, fromCol) {
  * trước, chứ không tự quyết thay họ.
  */
 export function canEditRow(row, sourceText) {
-  if (!row) return { ok: false, reason: 'không tìm thấy hàng' };
+  if (!row) return { ok: false, reason: msg('edit.row_not_found') };
   if (row.row.hasEntity) {
-    return { ok: false, reason: 'hàng có entity (&…;) — sửa ở file khai entity, không sửa tại controller' };
+    return { ok: false, reason: msg('edit.row_has_entity') };
   }
-  if (!row.range) return { ok: false, reason: 'không xác định được hàng này nằm ở đâu trong file nguồn' };
+  if (!row.range) return { ok: false, reason: msg('edit.row_range_unknown') };
 
   /*
    * Chốt chặn thật sự: văn bản TRONG FILE ở đúng dải sắp ghi đè phải GIỐNG HỆT thứ ta đang cầm.
@@ -63,12 +65,12 @@ export function canEditRow(row, sourceText) {
    * phép biến đổi nào khác chen vào giữa file và model — mà không cần biết trước nó là gì.
    */
   if (typeof sourceText !== 'string') {
-    return { ok: false, reason: 'chưa đọc được văn bản nguồn để đối chiếu trước khi ghi' };
+    return { ok: false, reason: msg('edit.source_unread') };
   }
   if (sourceText.slice(row.range.start, row.range.end) !== row.item.value) {
     return {
       ok: false,
-      reason: 'văn bản trong file khác với bản đã bung (có &entity; hoặc tham số chen vào)'
+      reason: msg('edit.source_mismatch_entity')
         + ' — sửa tại file khai nó, không sửa ở đây',
     };
   }
@@ -124,7 +126,7 @@ function patternPlan(model, row, op) {
 
   const before = row.row.patternRaw;
   const after = reindentPattern(before, result.row.pattern);
-  if (after === before) return { ok: false, reason: 'không có gì thay đổi' };
+  if (after === before) return { ok: false, reason: msg('common.no_change') };
   return textPatch(model.segments, row.item.valueSpan.start, before, after, 'pattern');
 }
 
@@ -142,7 +144,7 @@ function patternPlan(model, row, op) {
  * @returns {{ok:true, file, splice, expect}|{ok:false, reason:string}}
  */
 function textPatch(segments, base, before, after, what) {
-  if (!segments) return { ok: false, reason: `không xác định được nguồn của ${what}` };
+  if (!segments) return { ok: false, reason: msg('edit.source_of_unknown', { what }) };
 
   // Đầu và đuôi giống nhau thì không phải ghi lại. Chặn hai mốc không cho vượt qua nhau, để
   // đoạn đổi luôn là một dải hợp lệ kể cả khi văn bản dài ra hay ngắn đi.
@@ -158,11 +160,11 @@ function textPatch(segments, base, before, after, what) {
   const text = after.slice(head, after.length - tail);
 
   const seg = segmentAt(segments, from);
-  if (!seg) return { ok: false, reason: `không xác định được nguồn của ${what}` };
+  if (!seg) return { ok: false, reason: msg('edit.source_of_unknown', { what }) };
   if (to > seg.end) {
     return {
       ok: false,
-      reason: `chỗ cần sửa ${what} vắt qua ranh giới entity — sửa thẳng trong file khai entity`,
+      reason: msg('edit.cross_entity_boundary', { what }),
     };
   }
 
@@ -231,26 +233,26 @@ export function rowEditTargetFile(model, op) {
  *      làm chỉ số ô/token trỏ sai chỗ, và ghi theo chỉ số sai là cắt trúng token khác.
  */
 function sourceRow(row, sourceText, model) {
-  if (!row || !row.range) return { ok: false, reason: 'không xác định được hàng này nằm ở đâu trong file nguồn' };
+  if (!row || !row.range) return { ok: false, reason: msg('edit.row_range_unknown') };
   if (typeof sourceText !== 'string') {
-    return { ok: false, reason: 'chưa đọc được văn bản nguồn để đối chiếu trước khi ghi' };
+    return { ok: false, reason: msg('edit.source_unread') };
   }
   const value = sourceText.slice(row.range.start, row.range.end);
   const parsed = parseRow(value);
 
   if (/&[A-Za-z_][\w.:-]*;/.test(parsed.patternRaw)) {
-    return { ok: false, reason: 'pattern của hàng viết bằng entity — sửa ở file khai entity' };
+    return { ok: false, reason: msg('edit.pattern_is_entity') };
   }
   if (parsed.pattern !== row.row.pattern) {
     return {
       ok: false,
-      reason: `pattern trong file là "${parsed.pattern}", bản đang vẽ là "${row.row.pattern}" — file nguồn đã đổi?`,
+      reason: msg('edit.pattern_mismatch', { pattern: parsed.pattern, pattern2: row.row.pattern }),
     };
   }
   if (parsed.tokens.length !== row.row.tokens.length) {
     return {
       ok: false,
-      reason: `file có ${parsed.tokens.length} token, bản đã bung có ${row.row.tokens.length}`
+      reason: msg('edit.token_count_mismatch', { length: parsed.tokens.length, length2: row.row.tokens.length })
         + ' — có entity bung ra nhiều token, không map được chỉ số',
     };
   }
@@ -265,7 +267,7 @@ export function planRowEdit(model, op, sourceText) {
     if (!patch.ok) return patch;
     const actual = sourceText.slice(patch.splice.start, patch.splice.end);
     if (actual !== patch.expect) {
-      return { ok: false, reason: `dải sắp ghi đè mang "${actual}", không phải "${patch.expect}" — file nguồn đã đổi?` };
+      return { ok: false, reason: msg('edit.patch_expect_mismatch', { actual, expect: patch.expect }) };
     }
     return {
       ok: true,
@@ -314,7 +316,7 @@ export function planRowEdit(model, op, sourceText) {
     }
 
     const text = serializeRow(result.row);
-    if (text === src.value) return { ok: false, reason: 'không có gì thay đổi' };
+    if (text === src.value) return { ok: false, reason: msg('common.no_change') };
     return {
       ok: true,
       file: row.range.file,
@@ -328,12 +330,12 @@ export function planRowEdit(model, op, sourceText) {
 
   let result;
   if (op.kind === 'resize') result = setSpan(row.row, widths, op.cell, op.span);
-  else return { ok: false, reason: `phép sửa không biết: ${op.kind}` };
+  else return { ok: false, reason: msg('edit.unknown_op', { kind: op.kind }) };
 
   if (!result.ok) return result;
 
   const text = serializeRow(result.row);
-  if (text === row.item.value) return { ok: false, reason: 'không có gì thay đổi' };
+  if (text === row.item.value) return { ok: false, reason: msg('common.no_change') };
 
   return {
     ok: true,
@@ -367,13 +369,13 @@ export function planAddRow(model, op, sourceText, itemRange) {
    * trong một file dùng chung.
    */
   if (!row || !row.range) {
-    return { ok: false, reason: 'không xác định được hàng này nằm ở đâu trong file nguồn' };
+    return { ok: false, reason: msg('edit.row_range_unknown') };
   }
   if (typeof sourceText !== 'string') {
-    return { ok: false, reason: 'chưa đọc được văn bản nguồn để đối chiếu trước khi ghi' };
+    return { ok: false, reason: msg('edit.source_unread') };
   }
   const allowed = { ok: true, warning: row.foreign ? row.range.file : null };
-  if (!itemRange) return { ok: false, reason: 'không xác định được vị trí thẻ <item> trong file nguồn' };
+  if (!itemRange) return { ok: false, reason: msg('edit.item_tag_unknown') };
 
   const split = Number(op.split);
   const blankSide = op.splitSide === 'left' || op.splitSide === 'right' ? op.splitSide : null;
@@ -453,7 +455,7 @@ function planSplitHalfCascade(model, { anchor, side, blankSide, split, sourceTex
   const widths = anchor.widths;
   const columnCount = Math.max(1, widths.length);
   const region = model.regions.find((r) => r.rows.some((x) => x.index === anchor.index));
-  if (!region) return { ok: false, reason: 'không xác định được vùng chứa hàng' };
+  if (!region) return { ok: false, reason: msg('edit.region_unknown') };
 
   const after = region.rows
     .filter((r) => (side === 'above' ? r.index < anchor.index : r.index > anchor.index))
@@ -485,7 +487,7 @@ function planSplitHalfCascade(model, { anchor, side, blankSide, split, sourceTex
   let warning = anchor.foreign ? anchor.range.file : null;
   for (const r of chain) {
     if (r.range?.file && r.range.file !== anchor.range.file) {
-      return { ok: false, reason: 'không dồn nửa split khi các hàng nằm ở file khác nhau' };
+      return { ok: false, reason: msg('edit.split_cascade_multi_file') };
     }
     const src = sourceRow(r, sourceText, model);
     if (!src.ok) return src;
@@ -527,7 +529,7 @@ function planSplitHalfCascade(model, { anchor, side, blankSide, split, sourceTex
     if (actual !== r.expect) {
       return {
         ok: false,
-        reason: `dải sắp ghi đè mang "${actual}", không phải "${r.expect}" — file nguồn đã đổi?`,
+        reason: msg('edit.patch_expect_mismatch', { actual, expect: r.expect }),
       };
     }
   }
@@ -575,11 +577,11 @@ function rowHasEmbeddedGrid(row, model) {
  */
 export function planAddField(sourceText, xml, fieldName) {
   if (fieldName && new RegExp(`<field\\b[^>]*\\bname\\s*=\\s*(["'])${escapeRe(fieldName)}\\1`, 'i').test(sourceText)) {
-    return { ok: false, reason: `field "${fieldName}" đã tồn tại trong file` };
+    return { ok: false, reason: msg('edit.field_exists', { fieldName }) };
   }
 
   const close = sourceText.search(/<\/fields\s*>/i);
-  if (close === -1) return { ok: false, reason: 'file không có <fields> để thêm khai báo vào' };
+  if (close === -1) return { ok: false, reason: msg('edit.no_fields_section') };
 
   // Thụt lề và xuống dòng bắt chước khai báo cuối cùng đang có, để field mới trông như do người
   // viết file đặt vào chứ không phải do máy nhét.
@@ -635,11 +637,11 @@ export function planRemoveField(model, fieldName, fieldSpan) {
   if (usedBy.length > 0) {
     return {
       ok: false,
-      reason: `field "${fieldName}" còn được ${usedBy.length} hàng dùng (item ${usedBy.join(', ')}) — bỏ chúng trước`,
+      reason: msg('edit.field_still_used', { fieldName, length: usedBy.length, p2: usedBy.join(', ') }),
       usedBy,
     };
   }
-  if (!fieldSpan) return { ok: false, reason: `không tìm thấy khai báo <field name="${fieldName}">` };
+  if (!fieldSpan) return { ok: false, reason: msg('edit.field_decl_missing', { name: fieldName }) };
   return { ok: true, splice: { start: fieldSpan.start, end: fieldSpan.end, text: '' } };
 }
 
@@ -665,15 +667,15 @@ export function planRemoveField(model, fieldName, fieldSpan) {
  */
 export function planColumnWidth(model, columnName, width, sourceText) {
   const col = model.columns.find((c) => c.name === columnName);
-  if (!col) return { ok: false, reason: `không có cột "${columnName}"` };
-  if (!Number.isFinite(width) || width < 0) return { ok: false, reason: 'bề rộng phải là số ≥ 0' };
+  if (!col) return { ok: false, reason: msg('edit.column_missing', { columnName }) };
+  if (!Number.isFinite(width) || width < 0) return { ok: false, reason: msg('edit.width_invalid') };
 
   const n = Math.round(width);
   if (col.widthRange) {
     if (sourceText.slice(col.widthRange.start, col.widthRange.end) !== String(col.field.attrs.width)) {
-      return { ok: false, reason: 'khai báo width trong file khác bản đã bung — sửa tại file khai nó' };
+      return { ok: false, reason: msg('edit.width_foreign') };
     }
-    if (String(n) === String(col.field.attrs.width)) return { ok: false, reason: 'không có gì thay đổi' };
+    if (String(n) === String(col.field.attrs.width)) return { ok: false, reason: msg('common.no_change') };
     return {
       ok: true,
       file: col.widthRange.file,
@@ -682,10 +684,10 @@ export function planColumnWidth(model, columnName, width, sourceText) {
   }
 
   // Chưa có `width=` → chèn vào ngay sau `<field`, chỗ chắc chắn nằm trong thẻ mở.
-  if (!col.fieldTagStart) return { ok: false, reason: `không tìm thấy khai báo <field name="${columnName}">` };
+  if (!col.fieldTagStart) return { ok: false, reason: msg('edit.field_decl_missing', { name: columnName }) };
   const at = col.fieldTagStart.start + '<field'.length;
   if (sourceText.slice(col.fieldTagStart.start, at) !== '<field') {
-    return { ok: false, reason: 'không xác định được thẻ <field> trong file nguồn' };
+    return { ok: false, reason: msg('edit.field_tag_unknown') };
   }
   return { ok: true, file: col.fieldTagStart.file, splice: { start: at, end: at, text: ` width="${n}"` } };
 }
@@ -697,13 +699,13 @@ export function planColumnWidth(model, columnName, width, sourceText) {
  */
 export function planRemoveColumn(model, columnName, sourceText) {
   const col = model.columns.find((c) => c.name === columnName);
-  if (!col) return { ok: false, reason: `không có cột "${columnName}"` };
-  if (!col.range) return { ok: false, reason: 'không xác định được vị trí cột trong file nguồn' };
-  if (model.columns.length <= 1) return { ok: false, reason: 'lưới phải còn ít nhất một cột' };
+  if (!col) return { ok: false, reason: msg('edit.column_missing', { columnName }) };
+  if (!col.range) return { ok: false, reason: msg('edit.column_range_unknown') };
+  if (model.columns.length <= 1) return { ok: false, reason: msg('edit.grid_min_one_col') };
 
   const raw = sourceText.slice(col.range.start, col.range.end);
   if (!/^<field\b/i.test(raw)) {
-    return { ok: false, reason: 'văn bản trong file khác bản đã bung — sửa tại file khai nó' };
+    return { ok: false, reason: msg('edit.source_mismatch') };
   }
 
   const lineStart = sourceText.lastIndexOf('\n', col.range.start - 1) + 1;
@@ -723,10 +725,10 @@ export function planRemoveColumn(model, columnName, sourceText) {
 /** Chèn một cột cạnh cột đang chọn. `side` là `left` (trước) hoặc `right` (sau). */
 export function planInsertColumn(model, columnName, side, newName, sourceText) {
   const col = model.columns.find((c) => c.name === columnName);
-  if (!col) return { ok: false, reason: `không có cột "${columnName}"` };
-  if (!col.range) return { ok: false, reason: 'không xác định được vị trí cột trong file nguồn' };
+  if (!col) return { ok: false, reason: msg('edit.column_missing', { columnName }) };
+  if (!col.range) return { ok: false, reason: msg('edit.column_range_unknown') };
   if (model.columns.some((c) => c.name === newName)) {
-    return { ok: false, reason: `cột "${newName}" đã có trong lưới` };
+    return { ok: false, reason: msg('edit.column_exists', { newName }) };
   }
 
   const lineStart = sourceText.lastIndexOf('\n', col.range.start - 1) + 1;
@@ -770,34 +772,34 @@ function arrangementTargets(arrangement, name) {
  */
 export function planMoveColumn(model, columnName, anchorName, side, sourceText) {
   if (columnName === anchorName) {
-    return { ok: false, reason: 'cột đích trùng cột đang kéo' };
+    return { ok: false, reason: msg('edit.column_same_target') };
   }
   const from = model.columns.find((c) => c.name === columnName);
   const anchor = model.columns.find((c) => c.name === anchorName);
-  if (!from) return { ok: false, reason: `không có cột "${columnName}"` };
-  if (!anchor) return { ok: false, reason: `không có cột neo "${anchorName}"` };
-  if (!from.range) return { ok: false, reason: `không xác định được vị trí cột "${columnName}" trong file nguồn` };
-  if (!anchor.range) return { ok: false, reason: `không xác định được vị trí cột neo "${anchorName}" trong file nguồn` };
+  if (!from) return { ok: false, reason: msg('edit.column_missing', { columnName }) };
+  if (!anchor) return { ok: false, reason: msg('edit.anchor_missing', { anchorName }) };
+  if (!from.range) return { ok: false, reason: msg('edit.column_pos_unknown', { columnName }) };
+  if (!anchor.range) return { ok: false, reason: msg('edit.anchor_pos_unknown', { anchorName }) };
   if (from.range.file !== anchor.range.file) {
-    return { ok: false, reason: 'hai cột nằm ở hai file khác nhau — không dời qua biên nguồn' };
+    return { ok: false, reason: msg('edit.column_cross_file') };
   }
   // Cột Config/Initialize mang configKind; cột controller thì null.
   if (from.configKind || from.source) {
-    return { ok: false, reason: `cột "${columnName}" đến từ cấu hình ẩn — chỉ dời cột khai trong file lưới` };
+    return { ok: false, reason: msg('edit.column_hidden_config', { columnName }) };
   }
   if (anchor.configKind || anchor.source) {
-    return { ok: false, reason: `cột neo "${anchorName}" đến từ cấu hình ẩn — không chèn cạnh nó bằng reorder view` };
+    return { ok: false, reason: msg('edit.anchor_hidden_config', { anchorName }) };
   }
   if (arrangementTargets(model.arrangement, columnName)) {
     return {
       ok: false,
-      reason: `cột "${columnName}" bị arrangement neo — sửa Config/Fields trước, nếu không thứ tự view sẽ bị ghi đè`,
+      reason: msg('edit.column_arrangement_pinned', { columnName }),
     };
   }
 
   const rawFrom = sourceText.slice(from.range.start, from.range.end);
   if (!/^<field\b/i.test(rawFrom)) {
-    return { ok: false, reason: 'văn bản trong file khác bản đã bung — sửa tại file khai nó' };
+    return { ok: false, reason: msg('edit.source_mismatch') };
   }
 
   const fromLineStart = sourceText.lastIndexOf('\n', from.range.start - 1) + 1;
@@ -820,15 +822,15 @@ export function planMoveColumn(model, columnName, anchorName, side, sourceText) 
 
   // Đã đứng đúng chỗ (trước/sau neo liền kề) → không ghi.
   if (side === 'before' && removeEnd === insertAt) {
-    return { ok: false, reason: 'không có gì thay đổi' };
+    return { ok: false, reason: msg('common.no_change') };
   }
   if (side === 'after' && removeStart === insertAt) {
-    return { ok: false, reason: 'không có gì thay đổi' };
+    return { ok: false, reason: msg('common.no_change') };
   }
 
   // Hai splice không chồng: xoá khối cũ, chèn cùng chữ tại chỗ neo (toạ độ gốc).
   if (removeStart < insertAt && insertAt < removeEnd) {
-    return { ok: false, reason: 'vị trí chèn nằm trong dòng cột đang kéo' };
+    return { ok: false, reason: msg('edit.insert_inside_moving') };
   }
 
   const file = from.range.file;
@@ -855,21 +857,21 @@ export function planMoveColumn(model, columnName, anchorName, side, sourceText) 
 /** Chèn hoặc ghi đè một thuộc tính số trên thẻ mở. Dùng chung cho `height` và `rows`. */
 function planNumericAttr({ range, tagStart, tagName, attr, current, value, sourceText }) {
   const n = Math.round(value);
-  if (!Number.isFinite(n) || n < 0) return { ok: false, reason: `${attr} phải là số ≥ 0` };
+  if (!Number.isFinite(n) || n < 0) return { ok: false, reason: msg('edit.attr_must_be_number', { attr }) };
 
   if (range) {
     if (sourceText.slice(range.start, range.end) !== String(current)) {
-      return { ok: false, reason: `khai báo ${attr} trong file khác bản đã bung — sửa tại file khai nó` };
+      return { ok: false, reason: msg('edit.attr_foreign', { attr }) };
     }
-    if (String(n) === String(current)) return { ok: false, reason: 'không có gì thay đổi' };
+    if (String(n) === String(current)) return { ok: false, reason: msg('common.no_change') };
     return { ok: true, file: range.file, splice: { start: range.start, end: range.end, text: String(n) } };
   }
 
   // Chưa khai thuộc tính → chèn ngay sau tên thẻ, chỗ chắc chắn nằm trong thẻ mở.
-  if (!tagStart) return { ok: false, reason: `không tìm thấy thẻ <${tagName}> trong file nguồn` };
+  if (!tagStart) return { ok: false, reason: msg('edit.tag_not_found', { tagName }) };
   const at = tagStart.start + tagName.length + 1;
   if (sourceText.slice(tagStart.start, at) !== `<${tagName}`) {
-    return { ok: false, reason: `không xác định được thẻ <${tagName}> trong file nguồn` };
+    return { ok: false, reason: msg('edit.tag_unknown', { tagName }) };
   }
   return { ok: true, file: tagStart.file, splice: { start: at, end: at, text: ` ${attr}="${n}"` } };
 }
@@ -902,18 +904,18 @@ export function planViewHeight(model, height, sourceText) {
  */
 export function planRegionMetadata(model, regionId, attr, value, sourceText) {
   if (attr !== 'anchor' && attr !== 'split') {
-    return { ok: false, reason: `thuộc tính không sửa được: ${attr}` };
+    return { ok: false, reason: msg('edit.attr_readonly', { attr }) };
   }
   const region = (model.regions ?? []).find((r) => r.id === regionId);
-  if (!region) return { ok: false, reason: `không có vùng "${regionId}"` };
+  if (!region) return { ok: false, reason: msg('edit.region_missing', { region: regionId }) };
   if (!region.writeback) {
-    return { ok: false, reason: 'không xác định được thẻ khai vùng này trong file nguồn' };
+    return { ok: false, reason: msg('edit.region_tag_unknown') };
   }
 
   const n = Math.round(value);
-  if (!Number.isFinite(n) || n < 0) return { ok: false, reason: `${attr} phải là số ≥ 0` };
+  if (!Number.isFinite(n) || n < 0) return { ok: false, reason: msg('edit.attr_must_be_number', { attr }) };
   if (n > region.widths.length) {
-    return { ok: false, reason: `${attr}=${n} vượt quá ${region.widths.length} cột của vùng này` };
+    return { ok: false, reason: msg('edit.attr_exceeds_cols', { attr, n, length: region.widths.length }) };
   }
 
   const { tagName, tagStart, anchorRange, splitRange } = region.writeback;
@@ -965,19 +967,19 @@ function widthsOwnerOf(model, key) {
     const cat = (model.categories ?? []).find((c) => c.index === index);
     const span = cat?.attrSpans?.columns ?? null;
     if (!span) {
-      return { ok: false, reason: `không xác định được <category index="${index}" columns> trong file nguồn` };
+      return { ok: false, reason: msg('edit.category_columns_unknown', { index }) };
     }
     return { ok: true, span, value: String(cat.columns), label: `<category index="${index}" columns>` };
   }
   if (model.inferredWidths || !model.widthsItem) {
     return {
       ok: false,
-      reason: 'view không khai list px (<item> đầu tiên) — số cột đang suy từ pattern,'
+      reason: msg('edit.no_width_list')
         + ' không có biên nào để tách hay gộp',
     };
   }
   if (!model.widthsItem.span) {
-    return { ok: false, reason: 'không xác định được <item> list px trong file nguồn' };
+    return { ok: false, reason: msg('edit.width_item_unknown') };
   }
   return {
     ok: true,
@@ -1027,7 +1029,7 @@ function shiftMarker(attr, value, kind, col) {
   if (v === col + 1) {
     return {
       ok: false,
-      reason: `split=${v} trỏ đúng vào vạch sắp bị bỏ — đổi hoặc xoá nó trước rồi mới gộp được`,
+      reason: msg('edit.split_on_merge_edge', { v }),
     };
   }
   return { ok: true, value: v > col + 1 ? v - 1 : v };
@@ -1044,8 +1046,8 @@ function shiftMarker(attr, value, kind, col) {
  */
 function buildColumnPlan(model, op) {
   const region = (model.regions ?? []).find((r) => r.id === op.region);
-  if (!region) return { ok: false, reason: `không có vùng "${op.region}"` };
-  if (!model.segments) return { ok: false, reason: 'không xác định được nguồn của list px' };
+  if (!region) return { ok: false, reason: msg('edit.region_missing', { region: op.region }) };
+  if (!model.segments) return { ok: false, reason: msg('edit.width_list_source_unknown') };
 
   const key = widthsOwnerKey(model, region.index);
   const owner = widthsOwnerOf(model, key);
@@ -1054,10 +1056,10 @@ function buildColumnPlan(model, op) {
   const count = region.widths.length;
   const col = Math.trunc(Number(op.col));
   if (!Number.isInteger(col) || col < 0 || col >= count) {
-    return { ok: false, reason: `không có cột ${col + 1} trong vùng này (${count} cột)` };
+    return { ok: false, reason: msg('edit.region_col_missing', { p0: col + 1, count }) };
   }
   if (op.kind === 'mergeColumn' && col + 1 >= count) {
-    return { ok: false, reason: `cột ${col + 1} là cột cuối — bên phải không còn cột nào để gộp vào` };
+    return { ok: false, reason: msg('edit.merge_last_col', { p0: col + 1 }) };
   }
 
   // 1 — LIST PX. Tách thì chia đôi bề rộng cũ (người gọi đưa số khác thì theo số đó); gộp thì
@@ -1072,7 +1074,7 @@ function buildColumnPlan(model, op) {
   } else if (op.kind === 'mergeColumn') {
     next = mergeWidthsAt(owner.value, col);
   } else {
-    return { ok: false, reason: `phép sửa cột không biết: ${op.kind}` };
+    return { ok: false, reason: msg('edit.unknown_column_op', { kind: op.kind }) };
   }
   if (!next.ok) return next;
 
@@ -1088,7 +1090,7 @@ function buildColumnPlan(model, op) {
   for (const row of model.rows ?? []) {
     if (widthsOwnerKey(model, row.categoryIndex) !== key) continue;
     if (!row.item?.valueSpan) {
-      return { ok: false, reason: `item ${row.index}: không xác định được vị trí trong file nguồn` };
+      return { ok: false, reason: msg('edit.item_pos_unknown', { index: row.index }) };
     }
 
     let pattern;
@@ -1096,7 +1098,7 @@ function buildColumnPlan(model, op) {
       pattern = splitPatternAt(row.row.pattern, col);
     } else {
       const m = mergePatternAt(row.row.pattern, col);
-      if (!m.ok) return { ok: false, reason: `item ${row.index}: ${m.reason}` };
+      if (!m.ok) return { ok: false, reason: msg('edit.item_reason', { index: row.index, reason: m.reason }) };
       pattern = m.pattern;
     }
 
@@ -1120,14 +1122,14 @@ function buildColumnPlan(model, op) {
       const from = r[attr];
       if (from === null || from === undefined) continue;
       const moved = shiftMarker(attr, from, op.kind, col);
-      if (!moved.ok) return { ok: false, reason: `vùng ${r.id}: ${moved.reason}` };
+      if (!moved.ok) return { ok: false, reason: msg('edit.region_reason', { id: r.id, reason: moved.reason }) };
       if (moved.value === Math.trunc(Number(from))) continue;
 
       const range = attr === 'anchor' ? r.writeback?.anchorRange : r.writeback?.splitRange;
       if (!range) {
         return {
           ok: false,
-          reason: `vùng ${r.id}: không xác định được vị trí ${attr}="${from}" trong file nguồn`,
+          reason: msg('edit.region_attr_pos_unknown', { id: r.id, attr, from }),
         };
       }
       patches.push({
@@ -1168,7 +1170,7 @@ function mergePatches(patches) {
         if (e.text !== prev.text) {
           return {
             ok: false,
-            reason: `hai chỗ đòi ghi hai thứ khác nhau vào cùng một dải của ${file}`
+            reason: msg('edit.conflict_writes', { file })
               + ' — khai báo dùng chung này phải sửa bằng tay',
           };
         }
@@ -1177,7 +1179,7 @@ function mergePatches(patches) {
       if (prev && e.start < prev.end) {
         return {
           ok: false,
-          reason: `hai chỗ cần sửa chồng lên nhau trong ${file} — khai báo dùng chung này phải sửa bằng tay`,
+          reason: msg('edit.overlap_writes', { file }),
         };
       }
       list.push(e);
@@ -1225,13 +1227,13 @@ export function planRegionColumns(model, op, readSource) {
   for (const e of plan.edits) {
     const text = readSource(e.file);
     if (typeof text !== 'string') {
-      return { ok: false, reason: `chưa đọc được ${e.file} để đối chiếu trước khi ghi` };
+      return { ok: false, reason: msg('edit.file_unread', { file: e.file }) };
     }
     const actual = text.slice(e.start, e.end);
     if (actual !== e.expect) {
       return {
         ok: false,
-        reason: `dải sắp ghi đè trong ${e.file} mang "${actual}", không phải "${e.expect}" — file nguồn đã đổi?`,
+        reason: msg('edit.patch_expect_mismatch_file', { file: e.file, actual, expect: e.expect }),
       };
     }
   }
@@ -1250,7 +1252,7 @@ export function planRegionColumns(model, op, readSource) {
 /** Chiều cao một tab có lưới — `field@rows` trên chính field mang `<items style="Grid">`. */
 export function planFieldRows(model, fieldName, rows, sourceText) {
   const field = model.fieldByName.get(fieldName);
-  if (!field) return { ok: false, reason: `không có field "${fieldName}"` };
+  if (!field) return { ok: false, reason: msg('edit.field_missing', { fieldName }) };
   return planNumericAttr({
     range: field.rowsRange ?? null,
     tagStart: field.tagStart ?? null,
@@ -1352,14 +1354,14 @@ const COMPANION_KINDS = new Set(['label', 'footer', 'description']);
  */
 function valuePatch(model, row, nextRow, what) {
   if (!row.item?.valueSpan || !model.segments) {
-    return { ok: false, reason: `${what}: không xác định được vị trí trong file nguồn` };
+    return { ok: false, reason: msg('edit.what_pos_unknown', { what }) };
   }
   const tokens = nextRow.tokens.map((t) => t.raw).join(nextRow.separator ?? ', ');
   const pattern = reindentPattern(row.row.patternRaw, nextRow.pattern);
   const after = !nextRow.hasColon && tokens === ''
     ? pattern
     : `${pattern}:${nextRow.afterColon ?? ' '}${tokens}`;
-  if (after === row.item.value) return { ok: false, reason: 'không có gì thay đổi' };
+  if (after === row.item.value) return { ok: false, reason: msg('common.no_change') };
   return textPatch(model.segments, row.item.valueSpan.start, row.item.value, after, what);
 }
 
@@ -1428,7 +1430,7 @@ function clusterDropAnchor(dstRow, widths, members, src, preferredCol) {
   }
   return {
     ok: false,
-    reason: `cụm [${src.token?.field}] không đặt vừa hàng đích khi thả ở cột ${preferredCol + 1}`
+    reason: msg('edit.cluster_no_fit', { p0: src.token?.field, p1: preferredCol + 1 })
       + (blockers.length ? ` — ${blockers.join(', ')} đang bị chiếm hoặc vượt hàng` : '')
       + '; kéo tới dải trống đủ rộng cho cả nhãn và ô nhập',
   };
@@ -1539,7 +1541,7 @@ function reconcileRegions(model, tokensByRow) {
     if (!fixed) {
       return {
         ok: false,
-        reason: `phép này sẽ hất hàng ${index + 1} từ vùng ${before.get(index)} sang vùng ${got},`
+        reason: msg('edit.region_kick', { p0: index + 1, p1: before.get(index), got })
           + ' và không field nào trong hàng ghim lại được —'
           + ' sửa categoryIndex bằng tay trước, hoặc chọn chỗ thả khác',
       };
@@ -1547,7 +1549,7 @@ function reconcileRegions(model, tokensByRow) {
   }
 
   if (bad.length > 0) {
-    return { ok: false, reason: `phép này làm ${bad.length} hàng đổi vùng ngoài ý muốn — từ chối để không hỏng im lặng` };
+    return { ok: false, reason: msg('edit.region_side_effects', { length: bad.length }) };
   }
   return { ok: true, overrides, pinned };
 }
@@ -1559,9 +1561,9 @@ function reconcileRegions(model, tokensByRow) {
  */
 function categoryPatch(model, name, value) {
   const field = model.fieldByName.get(name);
-  if (!field) return { ok: false, reason: `không có khai báo <field name="${name}"> để ghi categoryIndex` };
+  if (!field) return { ok: false, reason: msg('edit.no_field_for_category', { name }) };
   const n = Math.trunc(Number(value));
-  if (!Number.isFinite(n)) return { ok: false, reason: `categoryIndex ${value} không hợp lệ` };
+  if (!Number.isFinite(n)) return { ok: false, reason: msg('edit.category_invalid', { value }) };
 
   if (field.categoryRange) {
     return {
@@ -1573,7 +1575,7 @@ function categoryPatch(model, name, value) {
     };
   }
   // Chưa khai → chèn ngay sau tên thẻ, chỗ chắc chắn nằm trong thẻ mở.
-  if (!field.tagStart) return { ok: false, reason: `không tìm thấy thẻ <field name="${name}"> trong file nguồn` };
+  if (!field.tagStart) return { ok: false, reason: msg('edit.field_tag_not_found', { name }) };
   const at = field.tagStart.start + '<field'.length;
   return {
     ok: true,
@@ -1631,17 +1633,17 @@ function buildMovePatches(model, op) {
  */
 function buildMoveManyPatches(model, targets, toItem, baseCol) {
   const to = model.rows.find((r) => r.index === toItem);
-  if (!to) return { ok: false, reason: `không tìm thấy hàng đích ${toItem}` };
+  if (!to) return { ok: false, reason: msg('edit.row_item_not_found', { item: toItem }) };
 
   const base = Math.trunc(Number(baseCol));
-  if (!Number.isFinite(base) || base < 0) return { ok: false, reason: `cột đích ${baseCol} không hợp lệ` };
+  if (!Number.isFinite(base) || base < 0) return { ok: false, reason: msg('common.target_col_invalid', { col: baseCol }) };
 
   const picks = [];
   for (const t of targets) {
     const row = model.rows.find((r) => r.index === t.item);
-    if (!row) return { ok: false, reason: `không tìm thấy hàng ${t.item}` };
+    if (!row) return { ok: false, reason: msg('edit.row_item_not_found', { item: t.item }) };
     const src = row.cells?.[t.cell];
-    if (!src || src.empty || !src.token) return { ok: false, reason: 'ô trống, không có gì để dời' };
+    if (!src || src.empty || !src.token) return { ok: false, reason: msg('common.empty_move') };
     picks.push({ row, src, token: src.token });
   }
 
@@ -1661,7 +1663,7 @@ function buildMoveManyPatches(model, targets, toItem, baseCol) {
     for (const p of group) {
       const { cells } = buildCells(cur, widths);
       const idx = cells.findIndex((x) => x.col === p.src.col && !x.empty);
-      if (idx === -1) return { ok: false, reason: `không tìm lại được ô ở cột ${p.src.col + 1}` };
+      if (idx === -1) return { ok: false, reason: msg('edit.cell_not_relocated', { p0: p.src.col + 1 }) };
       const done = removeCell(cur, widths, idx, { allowEntity: true });
       if (!done.ok) return done;
       cur = done.row;
@@ -1676,7 +1678,7 @@ function buildMoveManyPatches(model, targets, toItem, baseCol) {
     if (at >= to.widths.length) {
       return {
         ok: false,
-        reason: `đặt tại cột ${at + 1} thì control trải 1 cột vượt khỏi hàng (${to.widths.length} cột)`,
+        reason: msg('item.place_overflow', { p0: at + 1, n: 1, columnCount: to.widths.length }),
       };
     }
     const avail = emptyRunFrom(dst, to.widths, at);
@@ -1685,7 +1687,7 @@ function buildMoveManyPatches(model, targets, toItem, baseCol) {
       // Probe span 1 để lấy lý do chi tiết của placeCell (ô đang có người / vượt hàng…).
       const probe = placeCell(dst, to.widths, at, 1, p.token, { allowEntity: true });
       return probe.ok
-        ? { ok: false, reason: `cột ${at + 1} không còn slot trống để đặt [${p.token?.field ?? '?'}]` }
+        ? { ok: false, reason: msg('edit.no_empty_slot', { p0: at + 1, p1: p.token?.field ?? '?' }) }
         : probe;
     }
     const done = placeCell(dst, to.widths, at, keep, p.token, { allowEntity: true });
@@ -1709,7 +1711,7 @@ function buildMoveManyPatches(model, targets, toItem, baseCol) {
       ? valuePatch(model, row, parsed, `hàng ${ri + 1}`)
       : rowWritePatch(model, row, parsed, `hàng ${ri + 1}`);
     if (!patch.ok) {
-      if (patch.reason === 'không có gì thay đổi') continue;
+      if (patch.reason === msg('common.no_change')) continue;
       return patch;
     }
     if (!patches.some((x) => x.file === patch.file && x.splice?.start === patch.splice?.start)) {
@@ -1723,7 +1725,7 @@ function buildMoveManyPatches(model, targets, toItem, baseCol) {
     patches.push(cp);
   }
 
-  if (patches.length === 0) return { ok: false, reason: 'không có gì thay đổi' };
+  if (patches.length === 0) return { ok: false, reason: msg('common.no_change') };
 
   const touched = [...rowState.keys()].map((i) => model.rows.find((r) => r.index === i)).filter(Boolean);
   return {
@@ -1744,15 +1746,15 @@ function buildMoveManyPatches(model, targets, toItem, baseCol) {
  */
 function buildSwapPatches(model, { item, cell, toItem, other }) {
   const ra = model.rows.find((r) => r.index === item);
-  if (!ra) return { ok: false, reason: `không tìm thấy hàng ${item}` };
+  if (!ra) return { ok: false, reason: msg('edit.row_item_not_found', { item }) };
   const rb = model.rows.find((r) => r.index === (toItem ?? item));
-  if (!rb) return { ok: false, reason: `không tìm thấy hàng ${toItem}` };
+  if (!rb) return { ok: false, reason: msg('edit.row_item_not_found', { item: toItem }) };
 
   const a = ra.cells?.[cell];
   const b = rb.cells?.[other];
-  if (!a || a.empty || !a.token) return { ok: false, reason: 'ô trống, không có control để đổi chỗ' };
-  if (!b || b.empty || !b.token) return { ok: false, reason: 'ô trống, không có control để đổi chỗ' };
-  if (ra.index === rb.index && cell === other) return { ok: false, reason: 'không có gì thay đổi' };
+  if (!a || a.empty || !a.token) return { ok: false, reason: msg('common.empty_swap') };
+  if (!b || b.empty || !b.token) return { ok: false, reason: msg('common.empty_swap') };
+  if (ra.index === rb.index && cell === other) return { ok: false, reason: msg('common.no_change') };
 
   // CÙNG HÀNG → `swapCells` lo trọn (hoán token + thu span về min khi khác bề rộng).
   if (ra.index === rb.index) {
@@ -1776,7 +1778,7 @@ function buildSwapPatches(model, { item, cell, toItem, other }) {
   };
   let nextA = swapIn(ra.row, ra.cells, a, b.token);
   let nextB = swapIn(rb.row, rb.cells, b, a.token);
-  if (!nextA || !nextB) return { ok: false, reason: 'không map được token của một trong hai ô' };
+  if (!nextA || !nextB) return { ok: false, reason: msg('edit.token_unmap') };
 
   const keep = Math.min(a.span, b.span);
   if (keep < a.span) {
@@ -1802,7 +1804,7 @@ function buildSwapPatches(model, { item, cell, toItem, other }) {
         if (companionCells(r, tok.field).length === 0) continue;
         return {
           ok: false,
-          reason: `[${tok.field}] có ô .Label/.Footer/.Description ở hàng ${r.index + 1} —`
+          reason: msg('edit.has_companion_cells', { field: tok.field, p1: r.index + 1 })
             + ' đổi chỗ qua vùng khác không chở cụm đi cùng được (chỗ bên kia đã có người);'
             + ' dùng phép DỜI cho từng ô, hoặc đổi chỗ trong cùng một vùng',
         };
@@ -1846,7 +1848,7 @@ function verifyPatches(built, getText) {
   for (const p of built.patches) {
     const text = getText(p.file);
     if (typeof text !== 'string') {
-      return { ok: false, reason: `không đọc được ${p.file} để đối chiếu trước khi ghi` };
+      return { ok: false, reason: msg('edit.file_unread', { file: p.file }) };
     }
     const actual = text.slice(p.splice.start, p.splice.end);
 
@@ -1855,7 +1857,7 @@ function verifyPatches(built, getText) {
       if (!/^<item\b[^>]*>$/i.test(actual.trim())) {
         return {
           ok: false,
-          reason: `dải sắp bỏ mang "${actual.slice(0, 40)}", không phải một thẻ <item> — file nguồn đã đổi?`,
+          reason: msg('edit.drop_expect_mismatch', { p0: actual.slice(0, 40) }),
         };
       }
       const line = lineSpanAround(text, p.splice.start, p.splice.end);
@@ -1866,13 +1868,13 @@ function verifyPatches(built, getText) {
     if (actual !== p.expect) {
       return {
         ok: false,
-        reason: `dải sắp ghi đè mang "${actual}", không phải "${p.expect}" — file nguồn đã đổi?`,
+        reason: msg('edit.patch_expect_mismatch', { actual, expect: p.expect }),
       };
     }
     edits.push({ file: p.file, ...p.splice });
   }
 
-  if (edits.length === 0) return { ok: false, reason: 'không có gì thay đổi' };
+  if (edits.length === 0) return { ok: false, reason: msg('common.no_change') };
   return {
     ok: true,
     edits,
@@ -1907,29 +1909,29 @@ export function planMoveRowBlock(model, { items, toItem, side = 'before' }, getT
   const uniq = [...new Set((items ?? []).map(Number))]
     .filter((n) => Number.isFinite(n))
     .sort((a, b) => a - b);
-  if (uniq.length < 2) return { ok: false, reason: 'block cần ít nhất 2 hàng' };
+  if (uniq.length < 2) return { ok: false, reason: msg('edit.block_min_rows') };
 
   const blockRows = uniq.map((i) => model.rows.find((r) => r.index === i));
-  if (blockRows.some((r) => !r)) return { ok: false, reason: 'không tìm thấy hàng trong block' };
+  if (blockRows.some((r) => !r)) return { ok: false, reason: msg('edit.block_row_missing') };
   if (blockRows.some((r) => !r.itemRange)) {
-    return { ok: false, reason: 'không xác định được thẻ <item> của một hàng trong block' };
+    return { ok: false, reason: msg('edit.block_item_unknown') };
   }
 
   const file = blockRows[0].itemRange.file;
   if (blockRows.some((r) => r.itemRange.file !== file)) {
-    return { ok: false, reason: 'các hàng block nằm ở nhiều file — không dời chung được' };
+    return { ok: false, reason: msg('edit.block_multi_file') };
   }
 
   const dest = model.rows.find((r) => r.index === toItem);
-  if (!dest?.itemRange) return { ok: false, reason: `không tìm thấy hàng đích ${toItem}` };
+  if (!dest?.itemRange) return { ok: false, reason: msg('edit.row_item_not_found', { item: toItem }) };
   if (dest.itemRange.file !== file) {
-    return { ok: false, reason: 'hàng đích khác file với block' };
+    return { ok: false, reason: msg('edit.block_target_file') };
   }
-  if (uniq.includes(toItem)) return { ok: false, reason: 'không có gì thay đổi' };
+  if (uniq.includes(toItem)) return { ok: false, reason: msg('common.no_change') };
 
   const text = typeof getText === 'function' ? getText(file) : null;
   if (typeof text !== 'string') {
-    return { ok: false, reason: 'chưa đọc được văn bản nguồn để đối chiếu trước khi ghi' };
+    return { ok: false, reason: msg('edit.source_unread') };
   }
 
   const spans = blockRows
@@ -1938,19 +1940,19 @@ export function planMoveRowBlock(model, { items, toItem, side = 'before' }, getT
   for (let i = 1; i < spans.length; i++) {
     const gap = text.slice(spans[i - 1].end, spans[i].start);
     if (!/^[\r\n \t]*$/.test(gap)) {
-      return { ok: false, reason: 'các hàng không liền kề trong file nguồn — chỉ dời được vùng liền kề' };
+      return { ok: false, reason: msg('edit.block_not_contiguous') };
     }
   }
 
   const blockStart = spans[0].start;
   const blockEnd = spans[spans.length - 1].end;
   const blockText = text.slice(blockStart, blockEnd);
-  if (blockText.trim() === '') return { ok: false, reason: 'block rỗng' };
+  if (blockText.trim() === '') return { ok: false, reason: msg('edit.block_empty') };
 
   const destSpan = lineSpanOfItem(text, dest.itemRange);
   const insertAt = side === 'after' ? destSpan.end : destSpan.start;
   if (insertAt > blockStart && insertAt < blockEnd) {
-    return { ok: false, reason: 'vị trí thả nằm trong chính block đang kéo' };
+    return { ok: false, reason: msg('edit.drop_inside_block') };
   }
 
   let splice;
@@ -1969,7 +1971,7 @@ export function planMoveRowBlock(model, { items, toItem, side = 'before' }, getT
   }
 
   if (splice.text === text.slice(splice.start, splice.end)) {
-    return { ok: false, reason: 'không có gì thay đổi' };
+    return { ok: false, reason: msg('common.no_change') };
   }
 
   return {
@@ -2035,9 +2037,9 @@ export function moveControlFiles(model, op) {
  */
 export function planRemoveControl(model, { item, cell, companions = false }, getText) {
   const row = model.rows.find((r) => r.index === item);
-  if (!row) return { ok: false, reason: 'không tìm thấy hàng' };
+  if (!row) return { ok: false, reason: msg('edit.row_not_found') };
   const target = row.cells?.[cell];
-  if (!target || target.empty || !target.token) return { ok: false, reason: 'ô trống, không có gì để xoá' };
+  if (!target || target.empty || !target.token) return { ok: false, reason: msg('common.empty_delete') };
 
   const name = target.token.field;
   const takeAll = companions === true && target.token.kind === 'input' && !!name;
@@ -2064,13 +2066,13 @@ export function planRemoveControl(model, { item, cell, companions = false }, get
   const edits = [];
   let warning = null;
   for (const { row: r, cols } of byRow.values()) {
-    if (!r.range) return { ok: false, reason: `hàng ${r.index}: không xác định được vị trí trong file nguồn` };
+    if (!r.range) return { ok: false, reason: msg('edit.row_pos_unknown', { index: r.index }) };
     const text = getText(r.range.file);
     if (typeof text !== 'string') {
-      return { ok: false, reason: `không đọc được ${r.range.file} để đối chiếu trước khi ghi` };
+      return { ok: false, reason: msg('edit.file_unread', { file: r.range.file }) };
     }
     const src = sourceRow(r, text, model);
-    if (!src.ok) return { ok: false, reason: `hàng ${r.index}: ${src.reason}` };
+    if (!src.ok) return { ok: false, reason: msg('edit.row_reason', { index: r.index, reason: src.reason }) };
 
     let current = src.parsed;
     // Giảm dần theo cột: hai ô cùng hàng thì bỏ ô phải trước, ô trái sau — cột của ô trái không
@@ -2080,7 +2082,7 @@ export function planRemoveControl(model, { item, cell, companions = false }, get
       const idx = cells.findIndex((c) => c.col === col && !c.empty);
       if (idx === -1) continue; // đã đi cùng một ô trải nhiều cột ở vòng trước
       const done = removeCell(current, r.widths, idx, { allowEntity: true });
-      if (!done.ok) return { ok: false, reason: `hàng ${r.index}: ${done.reason}` };
+      if (!done.ok) return { ok: false, reason: msg('edit.row_reason', { index: r.index, reason: done.reason }) };
       current = done.row;
     }
 
@@ -2092,7 +2094,7 @@ export function planRemoveControl(model, { item, cell, companions = false }, get
     if (src.warning) warning = warning ?? src.warning;
   }
 
-  if (edits.length === 0) return { ok: false, reason: 'không có gì thay đổi' };
+  if (edits.length === 0) return { ok: false, reason: msg('common.no_change') };
   return { ok: true, edits, warning, fieldName: name ?? null };
 }
 
@@ -2120,11 +2122,11 @@ export function planRemoveControl(model, { item, cell, companions = false }, get
  */
 export function planInlineEntity(hostText, ref, resolved) {
   if (!ref || !(ref.end > ref.start) || ref.end > hostText.length) {
-    return { ok: false, reason: 'không xác định được chỗ khai &Name; trong file đang mở' };
+    return { ok: false, reason: msg('edit.entity_ref_unknown') };
   }
   const refText = hostText.slice(ref.start, ref.end);
   if (!/^&[A-Za-z_][\w.:-]*;$/.test(refText)) {
-    return { ok: false, reason: `dải sắp thay mang "${refText}", không phải một tham chiếu entity — file đã đổi?` };
+    return { ok: false, reason: msg('edit.entity_ref_mismatch', { refText }) };
   }
 
   const lineStart = hostText.lastIndexOf('\n', ref.start - 1) + 1;
@@ -2136,13 +2138,13 @@ export function planInlineEntity(hostText, ref, resolved) {
   if (line.trim() !== refText) {
     return {
       ok: false,
-      reason: `dòng khai &…; còn nội dung khác (${line.trim()}) — phân giải tại chỗ sẽ comment mất nó.`
+      reason: msg('edit.entity_line_has_extra', { p0: line.trim() })
         + ' Tách nó ra dòng riêng rồi thử lại.',
     };
   }
 
   const body = String(resolved ?? '').replace(/^(?:[ \t]*\r?\n)+/, '').replace(/\s+$/, '');
-  if (body === '') return { ok: false, reason: `${refText} bung ra rỗng — không có gì để chèn` };
+  if (body === '') return { ok: false, reason: msg('edit.entity_empty_resolve', { refText }) };
 
   const indent = /^[ \t]*/.exec(line)[0];
   const eol = hostText.includes('\r\n') ? '\r\n' : '\n';

@@ -20,7 +20,7 @@
     "customEditors": [
       {
         "viewType": "fboDesigner.form",
-        "displayName": "FBO Designer",
+        "displayName": "%fboDesigner.form.displayName%",
         "selector": [
           {
             "filenamePattern": "**/Dir/*.xml"
@@ -48,27 +48,27 @@
       {
         "command": "fboDesigner.open",
         "category": "FBO Designer",
-        "title": "Mở giao diện giả lập FBO"
+        "title": "%fboDesigner.open.title%"
       },
       {
         "command": "fboDesigner.declareFilter",
         "category": "FBO Designer",
-        "title": "Khai báo lọc nhanh cho lưới này"
+        "title": "%fboDesigner.declareFilter.title%"
       },
       {
         "command": "fboDesigner.addColumns",
         "category": "FBO Designer",
-        "title": "Sinh script thêm cột cho field mới"
+        "title": "%fboDesigner.addColumns.title%"
       },
       {
         "command": "fboDesigner.showDialogDemo",
         "category": "FBO Designer",
-        "title": "Show Dialog Demo"
+        "title": "%fboDesigner.showDialogDemo.title%"
       },
       {
         "command": "fboDesigner.deleteSelection",
         "category": "FBO Designer",
-        "title": "Xoá ô / cột đang chọn"
+        "title": "%fboDesigner.deleteSelection.title%"
       }
     ],
     "keybindings": [
@@ -140,45 +140,12 @@
     "submenus": [
       {
         "id": "fboDesigner.mainMenu",
-        "label": "FBO Designer"
+        "label": "%fboDesigner.mainMenu.title%"
       }
     ],
     "configuration": {
-      "title": "FBO Designer",
+      "title": "%fboDesigner.config.title%",
       "properties": {
-        "fboDesigner.autoProgramAssets": {
-          "type": "boolean",
-          "default": true,
-          "category": "FBO Designer",
-          "description": "Suy thư mục program từ chính file đang mở (<program>\\App_Data\\Controllers\\...) rồi lấy Css, Images, ClientScript từ đó. Tắt thì phải tự khai fboDesigner.stylesheets."
-        },
-        "fboDesigner.stylesheets": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [],
-          "category": "FBO Designer",
-          "description": "Ghi đè danh sách CSS: đường dẫn tuyệt đối, nạp đúng thứ tự khai. Bỏ trống thì lấy hết *.css ở tầng đầu của <program>\\Css."
-        },
-        "fboDesigner.addColumnPartitionTemplate": {
-          "type": "string",
-          "default": "",
-          "category": "FBO Designer",
-          "description": "Đường dẫn file .sql TỰ SỬA cho script 'thêm cột' của bảng chia kỳ thật, thay cho DEFAULT_PARTITION_TEMPLATE trong core. Placeholder: {{primeMaster}} {{primePattern}} {{partitionField}} {{column}} {{sqlType}} {{backfill}}. Bỏ trống thì dùng mẫu mặc định."
-        },
-        "fboDesigner.sqlcmdPath": {
-          "type": "string",
-          "default": "",
-          "category": "FBO Designer",
-          "description": "Đường dẫn tới SQLCMD.EXE, dùng để dò sys.columns khi sinh script 'thêm cột'. Bỏ trống thì thử hai đường cài ODBC Client SDK mặc định, cuối cùng rơi về 'sqlcmd' trên PATH."
-        },
-        "fboDesigner.vietnamese": {
-          "type": "boolean",
-          "default": true,
-          "category": "FBO Designer",
-          "description": "Lấy nhãn từ <header v> (tiếng Việt). Tắt thì lấy <header e>."
-        },
         "fboDesigner.panelPosition": {
           "type": "string",
           "enum": [
@@ -187,25 +154,25 @@
             "active"
           ],
           "enumDescriptions": [
-            "Luôn mở thành một nhóm editor BÊN PHẢI file đang sửa.",
-            "Theo workbench.editor.openSideBySideDirection của VS Code — phải hay dưới là do cấu hình đó quyết.",
-            "Mở ngay trong nhóm editor đang active (chiếm cùng chỗ với file)."
+            "%fboDesigner.panelPosition.right%",
+            "%fboDesigner.panelPosition.beside%",
+            "%fboDesigner.panelPosition.active%"
           ],
           "default": "right",
           "category": "FBO Designer",
-          "description": "Panel designer mở ở đâu. Mặc định 'right': form nằm cạnh XML, đọc được cả hai cùng lúc."
+          "description": "%fboDesigner.panelPosition.desc%"
         },
         "fboDesigner.confirmForeignEdit": {
           "type": "boolean",
           "default": true,
           "category": "FBO Designer",
-          "description": "Hỏi trước khi ghi vào file KHÁC file đang mở (Include dùng chung, hoặc khai báo &ENTITY;). Sửa ở đó là đổi cho MỌI controller dùng file ấy. Tắt thì ghi thẳng, không hỏi."
+          "description": "%fboDesigner.confirmForeignEdit.desc%"
         },
         "fboDesigner.confirmDelete": {
           "type": "boolean",
           "default": true,
           "category": "FBO Designer",
-          "description": "Hỏi trước khi xoá một control khỏi form hoặc một cột khỏi lưới. Tắt thì xoá ngay (vẫn hoàn tác được bằng Ctrl+Z)."
+          "description": "%fboDesigner.confirmDelete.desc%"
         },
         "fboDesigner.revealRelatedFiles": {
           "type": "string",
@@ -214,12 +181,12 @@
             "all"
           ],
           "enumDescriptions": [
-            "Chỉ mở file khai ra ô đang bấm.",
-            "Mở kèm mọi file cùng góp phần khai ra nó: file chủ tại dòng &Name;, Grid/Config/Fields/<Tên>.xml, và Grid/Config/Initialize.xml."
+            "%fboDesigner.revealRelatedFiles.one%",
+            "%fboDesigner.revealRelatedFiles.all%"
           ],
           "default": "one",
           "category": "FBO Designer",
-          "description": "Ctrl+bấm (hoặc bấm đúp) vào một ô thì mở bao nhiêu file. Một cột lưới có thể được khai ở tới bốn chỗ khác nhau."
+          "description": "%fboDesigner.revealRelatedFiles.desc%"
         },
         "fboDesigner.entityEditTarget": {
           "type": "string",
@@ -229,13 +196,13 @@
             "inline"
           ],
           "enumDescriptions": [
-            "Hỏi mỗi lần: ghi vào file gốc hay phân giải vào file thiết kế.",
-            "Luôn ghi thẳng vào file khai ra hàng đó (Include) — mọi controller dùng chung cùng đổi theo.",
-            "Luôn phân giải vào file thiết kế: comment dòng &Name; rồi chèn bản đã bung ngay dưới, và chỉ controller này đổi."
+            "%fboDesigner.entityEditTarget.ask%",
+            "%fboDesigner.entityEditTarget.source%",
+            "%fboDesigner.entityEditTarget.inline%"
           ],
           "default": "ask",
           "category": "FBO Designer",
-          "description": "Thao tác lên một control đến từ &ENTITY; thì ghi vào đâu."
+          "description": "%fboDesigner.entityEditTarget.desc%"
         }
       }
     }

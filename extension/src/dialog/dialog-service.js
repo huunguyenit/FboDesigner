@@ -2,6 +2,7 @@ const { AsyncLocalStorage } = require('node:async_hooks');
 
 const { DialogPanel } = require('./dialog-panel');
 const { DIALOG_TYPES, normalizeDialogOptions, buttonIdOf } = require('./dialog-types');
+const { t } = require('../locale');
 
 class DialogService {
   constructor(context) {
@@ -35,8 +36,8 @@ class DialogService {
       ...options,
       type: options.type || 'warning',
       buttons: options.buttons || [
-        { id: 'cancel', label: 'Hủy', variant: 'secondary', action: 'cancel' },
-        { id: 'confirm', label: 'Xác nhận', variant: 'primary', action: 'confirm' },
+        { id: 'cancel', label: t('dialog.btn.cancel'), variant: 'secondary', action: 'cancel' },
+        { id: 'confirm', label: t('dialog.btn.confirm'), variant: 'primary', action: 'confirm' },
       ],
     });
   }
@@ -60,8 +61,8 @@ class DialogService {
   demo() {
     return this.show({
       type: 'warning',
-      title: 'Cảnh báo thao tác',
-      subtitle: 'Thao tác này có thể ảnh hưởng đến dữ liệu hiện tại',
+      title: t('dialog.confirm.title'),
+      subtitle: t('dialog.confirm.subtitle'),
       size: 'small',
       body: [
         { type: 'text', content: 'Bạn sắp thực hiện một thao tác nguy hiểm. Kiểm tra kỹ trước khi tiếp tục.' },
@@ -71,8 +72,8 @@ class DialogService {
         ] },
       ],
       buttons: [
-        { id: 'cancel', label: 'Hủy bỏ', variant: 'secondary', action: 'cancel' },
-        { id: 'confirm', label: 'Tiếp tục', variant: 'primary', action: 'confirm' },
+        { id: 'cancel', label: t('dialog.btn.dismiss'), variant: 'secondary', action: 'cancel' },
+        { id: 'confirm', label: t('dialog.btn.continue'), variant: 'primary', action: 'confirm' },
       ],
     });
   }

@@ -12,6 +12,16 @@
 
 const vscode = acquireVsCodeApi();
 
+/** Catalog nhúng từ host (`window.__FBO_MSG__`). */
+function t(key, params = {}) {
+  const catalog = window.__FBO_MSG__ || {};
+  let out = catalog[key] !== undefined ? catalog[key] : key;
+  for (const [k, v] of Object.entries(params)) {
+    out = String(out).split(`{${k}}`).join(String(v ?? ''));
+  }
+  return out;
+}
+
 const stage = document.getElementById('fbo-stage');
 const zoomLayer = document.getElementById('fbo-zoom');
 const formLayer = document.getElementById('fbo-form');
@@ -21,6 +31,7 @@ const modeLabel = document.getElementById('fbo-mode');
 const metaLabel = document.getElementById('fbo-meta');
 const blueprintToggle = document.getElementById('fbo-blueprint-toggle');
 const zoomSelect = document.getElementById('fbo-zoom-select');
+const langSelect = document.getElementById('fbo-lang-select');
 const debugToggle = document.getElementById('fbo-debug-toggle');
 const debugPanel = document.getElementById('fbo-debug');
 const debugBody = document.getElementById('fbo-debug-body');
@@ -72,6 +83,22 @@ zoomSelect.addEventListener('change', () => {
 
 function applyZoom() {
   zoomLayer.style.zoom = zoom === 1 ? '' : String(zoom);
+}
+
+/**
+ * Ngôn ngữ NHÃN trên form (`<header v>` / `<header e>`), không phải chrome của designer.
+ * Host nhận `setLang` rồi dựng lại HTML với `vi: true|false`.
+ */
+let lang = saved.lang === 'en' ? 'en' : 'vi';
+if (langSelect) {
+  langSelect.value = lang;
+  document.documentElement.lang = lang;
+  langSelect.addEventListener('change', () => {
+    lang = langSelect.value === 'en' ? 'en' : 'vi';
+    document.documentElement.lang = lang;
+    vscode.setState({ ...vscode.getState(), lang });
+    vscode.postMessage({ type: 'setLang', vi: lang === 'vi' });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -420,7 +447,7 @@ function showError(msg) {
   formLayer.innerHTML = '';
   const pre = document.createElement('pre');
   pre.className = 'fbo-error';
-  pre.textContent = `Lỗi render: ${msg.message}\n\n${msg.stack}`;
+  pre.textContent = `${t('webview.render_error', { message: msg.message })}\n\n${msg.stack}`;
   formLayer.appendChild(pre);
 }
 
@@ -808,7 +835,7 @@ function drawTabHeightHandles(frag, stageBox) {
     appendHeightBar(frag, {
       left, top: panelBottom - 3, width,
       kind: 'view',
-      title: `Kéo đổi view@height = ${viewH} — dùng chung vùng main`,
+      title: t('webview.view_height', { n: viewH }),
       onDown: (e) => startHeightDrag(panel, e.clientY, 'view'),
     });
 
@@ -827,7 +854,7 @@ function drawTabHeightHandles(frag, stageBox) {
       appendHeightBar(frag, {
         left, top, width: gbox && gbox.width > 0 ? gbox.width : width,
         kind: 'grid',
-        title: `Kéo đổi rows của [${field}] = ${rowsVal} — riêng tab này`,
+        title: t('webview.field_rows', { field, n: rowsVal }),
         onDown: (e) => startHeightDrag(panel, e.clientY, 'rows'),
       });
     }
@@ -1737,7 +1764,7 @@ function probeAssets() {
 }
 
 window.addEventListener('load', probeAssets);
-vscode.postMessage({ type: 'ready' });
+vscode.postMessage({ type: 'ready', vi: lang === 'vi' });
 
 // ---------------------------------------------------------------------------
 // P3 — chỗ nối cho kéo thả.

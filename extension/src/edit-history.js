@@ -17,6 +17,7 @@
 // chụp cả file rẻ hơn nhiều so với một phép hoàn tác ghi trượt.
 
 const vscode = require('vscode');
+const { t, toast } = require('./locale');
 
 /** Bao nhiêu bước lùi được. Đủ cho một phiên kéo thả, và không giữ mãi vài chục MB văn bản. */
 const LIMIT = 50;

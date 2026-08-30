@@ -11,6 +11,8 @@
 //
 // Mọi hàm ở đây THUẦN: nhận chuỗi, trả chuỗi. Không đọc file, không chạm DOM, không biết
 // segments là gì — phần quy về toạ độ file nguồn là việc của `edit.mjs`.
+import { msg } from './msg.mjs';
+
 
 /**
  * Cột `col` có đang bị một ô CHIẾM không.
@@ -81,7 +83,7 @@ export function mergePatternAt(pattern, colIndex) {
   if (b === '1' && aOpen) {
     return {
       ok: false,
-      reason: `cột ${colIndex + 1} và ${colIndex + 2} đang giữ hai control khác nhau`
+      reason: msg('columns.merge_two_controls', { p0: colIndex + 1, p1: colIndex + 2 })
         + ' — bỏ một cái trước rồi mới gộp được',
     };
   }
@@ -118,11 +120,11 @@ function tail(piece) { return /\s*$/.exec(piece)[0]; }
 export function splitWidthsAt(value, colIndex, leftPx, rightPx) {
   const { raw, cols } = rawPieces(value);
   if (colIndex < 0 || colIndex >= cols.length) {
-    return { ok: false, reason: `không có cột ${colIndex + 1} trong list px (${cols.length} cột)` };
+    return { ok: false, reason: msg('columns.col_missing', { p0: colIndex + 1, length: cols.length }) };
   }
   for (const [name, n] of [['nửa trái', leftPx], ['nửa phải', rightPx]]) {
     if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
-      return { ok: false, reason: `${name}: "${n}" không phải số px nguyên ≥ 0` };
+      return { ok: false, reason: msg('columns.px_invalid', { name, n }) };
     }
   }
 
@@ -149,14 +151,14 @@ export function splitWidthsAt(value, colIndex, leftPx, rightPx) {
 export function mergeWidthsAt(value, colIndex) {
   const { raw, cols } = rawPieces(value);
   if (colIndex < 0 || colIndex + 1 >= cols.length) {
-    return { ok: false, reason: `không có cột ${colIndex + 2} để gộp vào (list px có ${cols.length} cột)` };
+    return { ok: false, reason: msg('columns.merge_no_next', { p0: colIndex + 2, length: cols.length }) };
   }
 
   const i = cols[colIndex];
   const j = cols[colIndex + 1];
   const sum = Number(raw[i].trim()) + Number(raw[j].trim());
   if (!Number.isFinite(sum)) {
-    return { ok: false, reason: `cột ${colIndex + 1} hoặc ${colIndex + 2} không phải số px — sửa list px trước` };
+    return { ok: false, reason: msg('columns.px_not_number', { p0: colIndex + 1, p1: colIndex + 2 }) };
   }
   raw.splice(i, j - i + 1, `${lead(raw[i])}${sum}${tail(raw[j])}`);
   return { ok: true, value: raw.join(',') };

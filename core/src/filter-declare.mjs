@@ -45,6 +45,8 @@
 // kèo với `edit.mjs`.
 
 import { findInternalSubset } from './entities.mjs';
+import { msg, SQL_CONFIG } from './msg.mjs';
+
 
 const RE_ATTR = /([\w:%.-]+)\s*=\s*(["'])([\s\S]*?)\2/g;
 
@@ -103,13 +105,13 @@ export function scanPartition(text) {
  */
 export function scanFindingJoin(text) {
   const q = /<query\s+event="Finding"\s*>([\s\S]*?)<\/query>/i.exec(text);
-  if (!q) return { ok: false, base: 'a', joins: [], reason: 'controller không có <query event="Finding">' };
+  if (!q) return { ok: false, base: 'a', joins: [], reason: msg('filter.no_finding_query') };
   if (/<Encrypted>/i.test(q[1])) {
     return {
       ok: false,
       base: 'a',
       joins: [],
-      reason: 'câu <query event="Finding"> bị mã hoá — không đọc được mệnh đề join',
+      reason: msg('filter.finding_encrypted'),
     };
   }
 
@@ -134,7 +136,7 @@ export function scanFindingJoin(text) {
   const literals = [...q[1].matchAll(/'((?:[^']|'')*)'/g)].map((m) => m[1]);
   const clauses = literals.filter((s) => /\bjoin\b/i.test(s));
   if (clauses.length === 0) {
-    return { ok: false, base: 'a', joins: [], reason: 'câu Finding không có mệnh đề join nào' };
+    return { ok: false, base: 'a', joins: [], reason: msg('filter.no_joins') };
   }
 
   // Alias gốc chỉ được khai ở mệnh đề CHÍNH (`a left join …`). Mệnh đề EI mở đầu thẳng bằng
@@ -169,7 +171,7 @@ export function scanFindingJoin(text) {
 
   const clause = clauses.join(' ');
   if (joins.length === 0) {
-    return { ok: false, base: base ?? 'a', joins: [], reason: `không tách được join nào từ "${clause}"` };
+    return { ok: false, base: base ?? 'a', joins: [], reason: msg('filter.parse_join_fail', { clause }) };
   }
   return { ok: true, base: base ?? 'a', joins, clause, reason: null };
 }
@@ -692,10 +694,7 @@ export function buildFilterDeclarations(text, {
   return { controller: name, rows, notes, finding, partition };
 }
 
-const SQL_COLUMNS = [
-  'controller', 'id', 'name', 'exname', 'xtable',
-  'fieldkey', 'exfieldkey', 'reftable', 'reffieldkey', 'joinclause', 'conditionalreplace',
-];
+const SQL_COLUMNS = SQL_CONFIG.filterDeclareColumns;
 
 /**
  * `'` → `''`; `null` → `null` (không phải chuỗi rỗng — hai thứ khác nhau với `isnull()`).
@@ -877,7 +876,7 @@ export function planEnableFilter(sourceText, columns, { fields = [] } = {}) {
 
   const byName = new Map(fields.map((f) => [f.name, f]));
   for (const col of columns) {
-    if (!byName.has(col)) return { ok: false, reason: `không có <field name="${col}"> trong file` };
+    if (!byName.has(col)) return { ok: false, reason: msg('filter.field_missing', { col }) };
   }
 
   /*
@@ -919,7 +918,7 @@ export function planEnableFilter(sourceText, columns, { fields = [] } = {}) {
   if (!/%Control\.Filter;/.test(sourceText)) {
     const subset = findInternalSubset(sourceText);
     if (!subset || subset.subsetStart === -1) {
-      return { ok: false, reason: 'file không có DOCTYPE nội bộ — không biết chèn %Control.Filter; vào đâu' };
+      return { ok: false, reason: msg('filter.no_doctype') };
     }
     // Chèn ngay trước dấu `]` đóng subset: entity khai sau cùng vẫn nằm trong subset, và mọi
     // khai báo có sẵn giữ nguyên từng byte.
@@ -962,7 +961,7 @@ export function planEnableFilter(sourceText, columns, { fields = [] } = {}) {
     if (needAttr) splices.push({ start: tagEnd - 1, end: tagEnd - 1, text: ATTR });
     if (needQuery) {
       const close = sourceText.toLowerCase().indexOf('</field>', tagEnd);
-      if (close === -1) return { ok: false, reason: `<field name="${col}"> không có thẻ đóng` };
+      if (close === -1) return { ok: false, reason: msg('filter.field_unclosed', { col }) };
       splices.push({
         start: close,
         end: close,
@@ -983,7 +982,7 @@ export function planEnableFilter(sourceText, columns, { fields = [] } = {}) {
       // schema của `<grid>` không ràng buộc thứ tự các khối con.
       const rootClose = sourceText.lastIndexOf('</grid>');
       if (rootClose === -1) {
-        return { ok: false, reason: 'file không có </grid> — không biết đặt <queries> vào đâu' };
+        return { ok: false, reason: msg('filter.no_grid_close') };
       }
       splices.push({
         start: rootClose,

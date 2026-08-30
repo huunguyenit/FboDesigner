@@ -29,6 +29,8 @@ import {
 } from './control.mjs';
 import { sourceRange, hostRefAt } from './entities.mjs';
 import { renderGrid } from './grid.mjs';
+import { msg, VIEWS_CONFIG } from './msg.mjs';
+
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 
@@ -123,7 +125,7 @@ export function sanitizeLabelHtml(raw) {
  *
  * Đổi bất kỳ viền/padding nào ở `fbo-form.css` thì con số này phải tính lại.
  */
-export const DIALOG_CHROME_PX = 23;
+export const DIALOG_CHROME_PX = VIEWS_CONFIG.dialogChromePx;
 
 /** Style inline runtime gắn lên mọi `<td class="FormCell">`. Nguyên văn, kể cả `!important`. */
 const CELL_STYLE = `overflow:hidden;width:100%;padding:${CELL_PADDING_PX}px!important;`;
@@ -396,14 +398,14 @@ export function buildViewModel(view, fields, {
   let inferredWidths = false;
   if (widths.length === 0) {
     const maxLen = rows.reduce((n, r) => Math.max(n, Array.from(r.row.pattern).length), 0);
-    widths = new Array(maxLen).fill(100);
+    widths = new Array(maxLen).fill(VIEWS_CONFIG.defaultColumnWidth);
     inferredWidths = maxLen > 0;
   }
 
   const categoryByField = fieldCategories(fields);
   const categories = (view.categories ?? []).map((c) => {
     const w = parseWidths(c.columns);
-    warnings.push(...w.warnings.map((m) => ({ item: null, message: `category ${c.index}: ${m}` })));
+    warnings.push(...w.warnings.map((m) => ({ item: null, message: msg('render.category_warn', { index: c.index, m }) })));
     return { ...c, widths: w.widths };
   });
   const categoryByIndex = new Map(categories.map((c) => [c.index, c]));
@@ -444,7 +446,7 @@ export function buildViewModel(view, fields, {
     warnings.push(...w.map((m) => ({ item: r.index, message: m })));
     for (const c of cells) {
       if (c.token?.field && !fieldByName.has(c.token.field)) {
-        warnings.push({ item: r.index, message: `token "${c.token.raw}": không có <field name="${c.token.field}">` });
+        warnings.push({ item: r.index, message: msg('render.token_no_field', { raw: c.token.raw, field: c.token.field }) });
       }
     }
     // Hàng có textarea thì runtime canh CẢ HÀNG lên đỉnh — nhãn phải đi theo, không thì nhãn
@@ -473,7 +475,7 @@ export function buildViewModel(view, fields, {
   for (const index of duplicateCategories) {
     warnings.push({
       item: -1,
-      message: `<category index="${index}"> được khai nhiều lần — chỉ lần đầu được dùng`,
+      message: msg('render.category_dup', { index }),
     });
   }
 

@@ -1,0 +1,67 @@
+{
+  "namePattern": "^[A-Za-z_][\\w$]*(%l)?$",
+  "kinds": [
+    {
+      "id": "textbox",
+      "label": "Textbox",
+      "detail": "Ô nhập chữ — nhãn + ô nhập",
+      "attrs": {},
+      "items": null
+    },
+    {
+      "id": "datetime",
+      "label": "Datetime",
+      "detail": "type=\"DateTime\" + dataFormatString",
+      "attrs": {
+        "type": "DateTime",
+        "dataFormatString": "@datetimeFormat",
+        "align": "left"
+      },
+      "items": null
+    },
+    {
+      "id": "numeric",
+      "label": "Numeric",
+      "detail": "type=\"Decimal\" + dataFormatString + items@style=\"Numeric\"",
+      "attrs": {
+        "type": "Decimal",
+        "dataFormatString": "@baseCurrencyAmountInputFormat",
+        "clientDefault": "0"
+      },
+      "items": "Numeric"
+    },
+    {
+      "id": "checkbox",
+      "label": "Checkbox",
+      "detail": "type=\"Boolean\"",
+      "attrs": {
+        "type": "Boolean",
+        "clientDefault": "Default",
+        "defaultValue": "false"
+      },
+      "items": null,
+      "labelAfter": true
+    },
+    {
+      "id": "dropdownlist",
+      "label": "Dropdownlist",
+      "detail": "items@style=\"Dropdownlist\"",
+      "attrs": {},
+      "items": "Dropdownlist"
+    },
+    {
+      "id": "autocomplete",
+      "label": "AutoComplete",
+      "detail": "items@style=\"AutoComplete\"",
+      "attrs": {},
+      "items": "AutoComplete"
+    },
+    {
+      "id": "lookup",
+      "label": "Lookup",
+      "detail": "items@style=\"Lookup\"",
+      "attrs": {},
+      "items": "Lookup"
+    }
+  ]
+}

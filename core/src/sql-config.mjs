@@ -14,8 +14,12 @@
 // DevWorkFlow (`DevWorkFlow.Infrastructure/Services/EntityRepository.cs` — câu SQL y hệt
 // `ENTITY_APP_DATABASE_SQL` dưới đây; `DevWorkFlow.Application/Shell/AppConnectionResolver.cs`
 // — DWF cũng mặc định lấy DÒNG ĐẦU khi tự chọn, giống chỉ dẫn của người dùng).
+//
+// Catalog tuỳ biến: `core/config/sql.json` (ENTITY_APP_DATABASE_SQL, kiểu dò độ dài…).
 
-const IDENT = /^[A-Za-z_][\w$]*$/;
+import { SQL_CONFIG } from './msg.mjs';
+
+const IDENT = new RegExp(SQL_CONFIG.identPattern);
 
 function assertIdent(name, what) {
   const s = String(name ?? '');
@@ -28,13 +32,7 @@ function assertIdent(name, what) {
  * khớp đúng thứ tự DWF dùng khi tự chọn database ĐẦU TIÊN (1 sys — nhiều app); tầng vỏ lấy dòng
  * đầu của kết quả làm mặc định, giống `AppConnectionResolver.ApplyAppDatabase`.
  */
-export const ENTITY_APP_DATABASE_SQL = [
-  'SET NOCOUNT ON;',
-  'SELECT RTRIM(code) AS code, RTRIM(cname) AS cname, RTRIM(cdata) AS cdata',
-  'FROM entity',
-  "WHERE NULLIF(RTRIM(cdata), '') IS NOT NULL",
-  'ORDER BY code;',
-].join('\n');
+export const ENTITY_APP_DATABASE_SQL = (SQL_CONFIG.entityAppDatabaseSql || []).join('\n');
 
 /**
  * Chuỗi kết nối ADO.NET (`Data Source=…;Initial Catalog=…;Uid=…;Pwd=…`) → từng phần. Cùng thuật
@@ -92,11 +90,14 @@ export function existingColumnsSql(table) {
  */
 export function stringColumnLengthSql(fieldName) {
   const f = assertIdent(fieldName, 'tên field');
+  const types = (SQL_CONFIG.stringLengthTypes || ['varchar', 'char'])
+    .map((t) => `'${t}'`)
+    .join(', ');
   return [
     'SET NOCOUNT ON;',
     'SELECT DISTINCT c.max_length',
     'FROM sys.columns c JOIN sys.types t ON c.user_type_id = t.user_type_id',
-    `WHERE c.name = '${f}' AND t.name IN ('varchar', 'char') AND c.max_length > 0`,
+    `WHERE c.name = '${f}' AND t.name IN (${types}) AND c.max_length > 0`,
     'ORDER BY c.max_length;',
   ].join('\n');
 }

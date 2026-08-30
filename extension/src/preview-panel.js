@@ -9,6 +9,7 @@
 // Cùng lối với Markdown Preview của VS Code, và cũng cùng lý do.
 
 const vscode = require('vscode');
+const { t, toast } = require('./locale');
 const path = require('node:path');
 
 const {
@@ -48,6 +49,7 @@ class PreviewPanel {
     this.pending = null;
     this.sourceFiles = null;   // file đã góp nội dung vào bản vẽ hiện tại (controller + Include)
     this.bust = 0;             // tăng khi người dùng đòi nạp lại tài nguyên (debug mode)
+    this.vi = true;            // nhãn form: true = tiếng Việt (<header v>), false = English
     this.localEdit = null;     // { item, cell } khi lần render tới chỉ cần vá MỘT hàng
     this.renderTimer = null;   // gộp các nhịp đổi văn bản dồn dập — xem `renderSoon`
     this.editing = false;      // đang chạy một phép sửa: hoãn mọi lượt vẽ tới khi nó ngã ngũ
@@ -135,13 +137,13 @@ class PreviewPanel {
       return this.post({
         type: 'idle',
         file: path.basename(document.uri.fsPath),
-        message: `${path.basename(document.uri.fsPath)} không nằm trong App_Data\\Controllers\\{Dir,Filter,Grid} — không có view nào để vẽ.`,
+        message: t('extension.not_controller', { file: path.basename(document.uri.fsPath) }),
       });
     }
     if (!document) {
       this.document = null;
       this.panel.title = 'FBO Designer';
-      return this.post({ type: 'idle', file: '', message: 'Mở một file trong App_Data\\Controllers để xem.' });
+      return this.post({ type: 'idle', file: '', message: t('extension.idle_hint') });
     }
     if (this.document && samePath(this.document.uri.fsPath, document.uri.fsPath)) return;
 
@@ -190,7 +192,7 @@ class PreviewPanel {
   buildNow() {
     try {
       return buildPayload(this.core, this.document, {
-        cfg: config(), paths: this.paths, output: this.output, skipHtml: true,
+        cfg: config(), paths: this.paths, output: this.output, skipHtml: true, vi: this.vi,
       });
     } catch (err) {
       this.output.appendLine(`dựng model để sửa lỗi: ${err.message}`);
@@ -261,6 +263,7 @@ class PreviewPanel {
         // Cần webview để quy `url(../Images/…)` trong CSS của controller về URI hợp lệ.
         webview: this.panel.webview,
         bust: this.bust,
+        vi: this.vi,
       });
     } catch (err) {
       payload = { type: 'error', message: err.message, stack: String(err.stack || '') };
@@ -323,9 +326,14 @@ class PreviewPanel {
     if (this.dialogs.handleMessage(msg)) return;
     if (msg.type === 'ready') {
       this.ready = true;
+      if (typeof msg.vi === 'boolean') this.vi = msg.vi;
       if (this.pending) { this.panel.webview.postMessage(this.pending); this.pending = null; }
       else this.render();
       return;
+    }
+    if (msg.type === 'setLang') {
+      this.vi = msg.vi !== false;
+      return this.render();
     }
     if (msg.type === 'select') return revealSource(msg, this.document, this.output);
 

@@ -1,0 +1,161 @@
+#!/usr/bin/env node
+/**
+ * merge-ui-messages.mjs — bổ sung keys dialog/extension/webview/package vào messages.json
+ * (không đụng keys core.* đã có).
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const file = path.join(ROOT, 'core/config/messages.json');
+const messages = JSON.parse(fs.readFileSync(file, 'utf8'));
+
+const extra = {
+  // dialog
+  'dialog.info.title': 'Thông tin',
+  'dialog.success.title': 'Thành công',
+  'dialog.warning.title': 'Cảnh báo',
+  'dialog.error.title': 'Lỗi',
+  'dialog.btn.cancel': 'Hủy',
+  'dialog.btn.ok': 'OK',
+  'dialog.btn.close': 'Đóng',
+  'dialog.btn.details': 'Xem chi tiết',
+  'dialog.btn.dismiss': 'Hủy bỏ',
+  'dialog.btn.continue': 'Tiếp tục',
+  'dialog.btn.retry': 'Thử lại',
+  'dialog.btn.confirm': 'Xác nhận',
+  'dialog.btn.huỷ': 'Huỷ',
+  'dialog.btn.edit': 'Sửa',
+  'dialog.btn.edit_anyway': 'Vẫn sửa',
+  'dialog.btn.delete': 'Xoá',
+  'dialog.confirm.title': 'Cảnh báo thao tác',
+  'dialog.confirm.subtitle': 'Thao tác này có thể ảnh hưởng đến dữ liệu hiện tại',
+  'dialog.copy': 'Copy',
+  'dialog.copy_failed': 'Copy failed',
+  'dialog.copy_code': 'Copy code',
+  'dialog.copied': 'Đã chép',
+  'dialog.copy_fail_short': 'Chép hỏng',
+
+  // extension hosts — toast / pickers (prefix FBO Designer: thêm ở chỗ gọi nếu cần)
+  'extension.prefix': 'FBO Designer: ',
+  'extension.no_file': 'chưa mở file nào.',
+  'extension.only_controllers': 'chỉ file trong App_Data\\Controllers\\{Dir,Filter,Grid} mới vẽ ra màn hình. Panel vẫn mở và sẽ vẽ khi bạn chuyển sang một file như vậy.',
+  'extension.core_load_fail': 'không nạp được fbo-core — {message}',
+  'extension.no_fields': 'file không khai <field> nào.',
+  'extension.patch_fail': 'không vá được XML — {reason}',
+  'extension.vscode_reject': 'VS Code từ chối áp thay đổi.',
+  'extension.form_only': 'chỉ sửa được trên form.',
+  'extension.row_unknown': 'không xác định được hàng trong file nguồn.',
+  'extension.item_unknown': 'không xác định được vị trí thẻ <item>.',
+  'extension.empty_cell': 'ô trống, không có gì để xoá.',
+  'extension.grid_unread': 'không đọc được lưới Detail {grid}.',
+  'extension.no_anchor_col': 'thiếu cột neo để dời.',
+  'extension.col_ops_form_only': 'tách/gộp biên cột chỉ có trên form.',
+  'extension.no_region': 'không có vùng "{region}".',
+  'extension.col_width_unread': 'không đọc được bề rộng cột {col}.',
+  'extension.expanded_unread': 'không đọc được bản đã bung để phân giải entity.',
+  'extension.no_undo': 'không còn gì để {verb}.',
+  'extension.reopen_fail': 'không mở lại được {path} — {message}',
+  'extension.reject_verb': 'VS Code từ chối {verb}.',
+  'extension.no_table': 'không đọc được tên bảng (root@table trống).',
+  'extension.all_cols_exist': 'mọi field bảng chính đã có cột trên bảng "{table}" — không cần sinh script.',
+  'extension.add_field_kind_title': 'Thêm {kind} — chọn kiểu',
+  'extension.add_field_name_title': 'Thêm {kind} — tên field',
+  'extension.add_field_label_title': 'Thêm {kind} — nhãn tiếng Việt',
+  'extension.add_field_width_title': 'Thêm {kind} — bề rộng cột (px)',
+  'extension.add_field_width_prompt': 'Enter để lấy 100px, đúng runtime tự dùng khi cột không khai width',
+  'extension.new_field_pick': '$(add) Tạo field mới…',
+  'extension.insert_col_title': 'Chèn cột {side} "{column}"',
+  'extension.split_widths_title': 'Tách cột {col} ({width}px) — bề rộng hai nửa',
+  'extension.split_widths_prompt': 'Một số = nửa trái, phần còn lại cho nửa phải (tổng giữ nguyên). Hai số = lấy đúng hai số đó.',
+  'extension.foreign_edit_title': 'Sửa file dùng chung?',
+  'extension.entity_target_title': 'Ghi thay đổi vào đâu?',
+  'extension.entity_target_subtitle': 'Hàng kéo vào từ {source} qua &ENTITY;',
+  'extension.delete_title': 'Xoá {label} khỏi form?',
+  'extension.delete_control_only': 'Chỉ xoá control',
+  'extension.delete_with_field': 'Xoá cả khai báo <field>',
+  'extension.split_confirm_title': 'Tách cột {col} thành hai?',
+  'extension.merge_confirm_title': 'Gộp cột {col} với cột {col2}?',
+  'extension.split_btn': 'Tách cột',
+  'extension.merge_btn': 'Gộp cột',
+  'extension.filter_qp_title': 'Lọc nhanh — {controller}',
+  'extension.filter_patch_title': 'Sửa {file}?',
+  'extension.filter_patch_subtitle': 'Lọc nhanh — vá XML',
+  'extension.add_col_qp_title': 'Thêm cột — bảng "{table}"',
+  'extension.varchar_title': 'Độ dài cột "{name}" (varchar)',
+  'extension.varchar_prompt': '{header} — field kiểu chữ{hint}. Nhập số ký tự cho varchar(N).',
+  'extension.idle_hint': 'Mở một file trong App_Data\\Controllers để xem.',
+  'extension.not_controller': '{file} không nằm trong App_Data\\Controllers\\{Dir,Filter,Grid} — không có view nào để vẽ.',
+  'extension.undo': 'Hoàn tác',
+  'extension.redo': 'Làm lại',
+  'extension.inline_update': 'Cập nhật vào {name}',
+  'extension.entity_update': 'Cập nhật vào Entity',
+  'extension.delete_col_field': 'Xoá cột + field',
+  'extension.drop_col': 'Bỏ cột',
+  'extension.side_left': 'bên trái',
+  'extension.side_right': 'bên phải',
+
+  // webview
+  'webview.blueprint': 'Blueprint',
+  'webview.blueprint_title': 'Vẽ đè thước, vạch cột theo list px ở item dòng 1, và khung slot của từng ô',
+  'webview.zoom': 'Tỉ lệ',
+  'webview.zoom_title': 'Chỉ phóng to để nhìn. Không đổi một px nào của form — thước blueprint vẫn ghi px khai trong XML.',
+  'webview.debug': 'Debug',
+  'webview.debug_title': 'Liệt kê từng stylesheet và từng ảnh thật sự đang được dùng, kèm URL, kích thước thật và trạng thái nạp',
+  'webview.building': 'Đang dựng…',
+  'webview.reload_assets': 'Nạp lại tài nguyên',
+  'webview.render_error': 'Lỗi render: {message}',
+  'webview.split': 'Tách',
+  'webview.merge_left': 'Gộp◄',
+  'webview.merge_right': 'Gộp►',
+  'webview.add_field': 'Thêm field…',
+  'webview.add_row_left': 'Thêm hàng trống (nửa trái)…',
+  'webview.add_row_right': 'Thêm hàng trống (nửa phải)…',
+  'webview.add_row': 'Thêm hàng trống…',
+  'webview.insert_col_left': 'Chèn cột bên trái…',
+  'webview.insert_col_right': 'Chèn cột bên phải…',
+  'webview.view_height': 'Kéo đổi view@height = {n} — dùng chung vùng main',
+  'webview.field_rows': 'Kéo đổi rows của [{field}] = {n} — riêng tab này',
+  'webview.split_title': 'split = {n} — bảng chia làm hai sau cột {n}',
+  'webview.anchor_title': 'anchor = {n} — cột {n} là cột được neo',
+  'webview.move_hint': 'Kéo sang slot trống để dời; kéo lên control khác cùng hàng để đổi chỗ',
+
+  // package.nls (keys without package. prefix match %key% in package.json)
+  'fboDesigner.open.title': 'Mở giao diện giả lập FBO',
+  'fboDesigner.declareFilter.title': 'Khai báo lọc nhanh cho lưới này',
+  'fboDesigner.addColumns.title': 'Sinh script thêm cột cho field mới',
+  'fboDesigner.showDialogDemo.title': 'Show Dialog Demo',
+  'fboDesigner.deleteSelection.title': 'Xoá ô / cột đang chọn',
+  'fboDesigner.mainMenu.title': 'FBO Designer',
+  'fboDesigner.form.displayName': 'FBO Designer',
+  'fboDesigner.config.title': 'FBO Designer',
+  'fboDesigner.autoProgramAssets.desc': 'Suy thư mục program từ chính file đang mở (<program>\\App_Data\\Controllers\\...) rồi lấy Css, Images, ClientScript từ đó. Tắt thì phải tự khai fboDesigner.stylesheets.',
+  'fboDesigner.stylesheets.desc': 'Ghi đè danh sách CSS: đường dẫn tuyệt đối, nạp đúng thứ tự khai. Bỏ trống thì lấy hết *.css ở tầng đầu của <program>\\Css.',
+  'fboDesigner.addColumnPartitionTemplate.desc': 'Đường dẫn file .sql TỰ SỬA cho script \'thêm cột\' của bảng chia kỳ thật, thay cho DEFAULT_PARTITION_TEMPLATE trong core. Placeholder: {{primeMaster}} {{primePattern}} {{partitionField}} {{column}} {{sqlType}} {{backfill}}. Bỏ trống thì dùng mẫu mặc định.',
+  'fboDesigner.sqlcmdPath.desc': 'Đường dẫn tới SQLCMD.EXE, dùng để dò sys.columns khi sinh script \'thêm cột\'. Bỏ trống thì thử hai đường cài ODBC Client SDK mặc định, cuối cùng rơi về \'sqlcmd\' trên PATH.',
+  'fboDesigner.vietnamese.desc': 'Lấy nhãn từ <header v> (tiếng Việt). Tắt thì lấy <header e>.',
+  'fboDesigner.panelPosition.desc': 'Panel designer mở ở đâu. Mặc định \'right\': form nằm cạnh XML, đọc được cả hai cùng lúc.',
+  'fboDesigner.panelPosition.right': 'Luôn mở thành một nhóm editor BÊN PHẢI file đang sửa.',
+  'fboDesigner.panelPosition.beside': 'Theo workbench.editor.openSideBySideDirection của VS Code — phải hay dưới là do cấu hình đó quyết.',
+  'fboDesigner.panelPosition.active': 'Mở ngay trong nhóm editor đang active (chiếm cùng chỗ với file).',
+  'fboDesigner.confirmForeignEdit.desc': 'Hỏi trước khi ghi vào file KHÁC file đang mở (Include dùng chung, hoặc khai báo &ENTITY;). Sửa ở đó là đổi cho MỌI controller dùng file ấy. Tắt thì ghi thẳng, không hỏi.',
+  'fboDesigner.confirmDelete.desc': 'Hỏi trước khi xoá một control khỏi form hoặc một cột khỏi lưới. Tắt thì xoá ngay (vẫn hoàn tác được bằng Ctrl+Z).',
+  'fboDesigner.revealRelatedFiles.desc': 'Ctrl+bấm (hoặc bấm đúp) vào một ô thì mở bao nhiêu file. Một cột lưới có thể được khai ở tới bốn chỗ khác nhau.',
+  'fboDesigner.revealRelatedFiles.one': 'Chỉ mở file khai ra ô đang bấm.',
+  'fboDesigner.revealRelatedFiles.all': 'Mở kèm mọi file cùng góp phần khai ra nó: file chủ tại dòng &Name;, Grid/Config/Fields/<Tên>.xml, và Grid/Config/Initialize.xml.',
+  'fboDesigner.entityEditTarget.desc': 'Thao tác lên một control đến từ &ENTITY; thì ghi vào đâu.',
+  'fboDesigner.entityEditTarget.ask': 'Hỏi mỗi lần: ghi vào file gốc hay phân giải vào file thiết kế.',
+  'fboDesigner.entityEditTarget.source': 'Luôn ghi thẳng vào file khai ra hàng đó (Include) — mọi controller dùng chung cùng đổi theo.',
+  'fboDesigner.entityEditTarget.inline': 'Luôn phân giải vào file thiết kế: comment dòng &Name; rồi chèn bản đã bung ngay dưới, và chỉ controller này đổi.',
+};
+
+let added = 0;
+for (const [k, v] of Object.entries(extra)) {
+  if (messages[k] === undefined) {
+    messages[k] = v;
+    added++;
+  }
+}
+fs.writeFileSync(file, JSON.stringify(messages, null, 2) + '\n', 'utf8');
+process.stdout.write(`merged ${added} UI keys → messages.json (total ${Object.keys(messages).length})\n`);

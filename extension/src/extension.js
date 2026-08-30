@@ -16,6 +16,7 @@ const { declareFilter } = require('./filter-host');
 const { addColumns } = require('./add-column-host');
 const { initDialogs } = require('./dialog/dialog-service');
 const { postToActiveDesigner } = require('./designer-webview');
+const { toast } = require('./locale');
 
 /**
  * Core nằm ở hai chỗ khác nhau tuỳ cách chạy, và đó là chuyện cố ý:
@@ -38,7 +39,7 @@ async function activate(context) {
   try {
     core = await loadCore();
   } catch (err) {
-    vscode.window.showErrorMessage(`FBO Designer: không nạp được fbo-core — ${err.message}`);
+    vscode.window.showErrorMessage(toast('extension.core_load_fail', { message: err.message }));
     throw err;
   }
 
@@ -57,9 +58,7 @@ async function activate(context) {
     vscode.commands.registerCommand('fboDesigner.open', () => {
       const doc = vscode.window.activeTextEditor?.document;
       if (doc && !isControllerDocument(doc)) {
-        vscode.window.showWarningMessage(
-          'FBO Designer: chỉ file trong App_Data\\Controllers\\{Dir,Filter,Grid} mới vẽ ra màn hình. Panel vẫn mở và sẽ vẽ khi bạn chuyển sang một file như vậy.',
-        );
+        vscode.window.showWarningMessage(toast('extension.only_controllers'));
       }
       PreviewPanel.reveal(context, core, output);
     }),

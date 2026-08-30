@@ -12,6 +12,10 @@
 //   t_tien_cn  type="Decimal"  dataFormatString="@baseCurrencyAmountInputFormat" clientDefault="0"
 //              + <items style="Numeric"/>
 //   kh_yn      type="Boolean"  clientDefault="Default" defaultValue="true"
+//
+// Catalog: `core/config/fields.json` — sửa JSON để thêm/đổi kiểu, không cần đụng code sinh XML.
+
+import { msg, FIELDS_CONFIG } from './msg.mjs';
 
 /**
  * Bảy kiểu control tạo được.
@@ -20,65 +24,23 @@
  * rồi mới tới nhãn (`[kh_yn], [kh_yn].Label` trong file thật), vì nhãn của checkbox nằm bên
  * phải hộp tick chứ không phải bên trái như mọi control khác.
  */
-export const FIELD_KINDS = [
-  {
-    id: 'textbox',
-    label: 'Textbox',
-    detail: 'Ô nhập chữ — nhãn + ô nhập',
-    attrs: {},
-    items: null,
-  },
-  {
-    id: 'datetime',
-    label: 'Datetime',
-    detail: 'type="DateTime" + dataFormatString',
-    attrs: { type: 'DateTime', dataFormatString: '@datetimeFormat', align: 'left' },
-    items: null,
-  },
-  {
-    id: 'numeric',
-    label: 'Numeric',
-    detail: 'type="Decimal" + dataFormatString + items@style="Numeric"',
-    attrs: { type: 'Decimal', dataFormatString: '@baseCurrencyAmountInputFormat', clientDefault: '0' },
-    items: 'Numeric',
-  },
-  {
-    id: 'checkbox',
-    label: 'Checkbox',
-    detail: 'type="Boolean"',
-    attrs: { type: 'Boolean', clientDefault: 'Default', defaultValue: 'false' },
-    items: null,
-    labelAfter: true,
-  },
-  {
-    id: 'dropdownlist',
-    label: 'Dropdownlist',
-    detail: 'items@style="Dropdownlist"',
-    attrs: {},
-    items: 'Dropdownlist',
-  },
-  {
-    id: 'autocomplete',
-    label: 'AutoComplete',
-    detail: 'items@style="AutoComplete"',
-    attrs: {},
-    items: 'AutoComplete',
-  },
-  {
-    id: 'lookup',
-    label: 'Lookup',
-    detail: 'items@style="Lookup"',
-    attrs: {},
-    items: 'Lookup',
-  },
-];
+export const FIELD_KINDS = FIELDS_CONFIG.kinds.map((k) => ({
+  id: k.id,
+  label: k.label,
+  detail: k.detail,
+  attrs: { ...(k.attrs || {}) },
+  items: k.items ?? null,
+  ...(k.labelAfter ? { labelAfter: true } : {}),
+}));
+
+const NAME_RE = new RegExp(FIELDS_CONFIG.namePattern);
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ESC[c]);
 
 /** Tên field FBO: chữ thường không dấu, số, `_`. `%l` cuối là field ngoại — vẫn cho qua. */
 export function isValidFieldName(name) {
-  return /^[A-Za-z_][\w$]*(%l)?$/.test(String(name ?? '').trim());
+  return NAME_RE.test(String(name ?? '').trim());
 }
 
 /**
@@ -92,11 +54,11 @@ export function isValidFieldName(name) {
  */
 export function buildField(kindId, name, label, labelEn, opts = {}) {
   const kind = FIELD_KINDS.find((k) => k.id === kindId);
-  if (!kind) return { ok: false, reason: `kiểu control không biết: ${kindId}` };
+  if (!kind) return { ok: false, reason: msg('field.unknown_kind', { kindId }) };
 
   const trimmed = String(name ?? '').trim();
   if (!isValidFieldName(trimmed)) {
-    return { ok: false, reason: `tên field "${name}" không hợp lệ (chữ, số, gạch dưới; có thể kết thúc bằng %l)` };
+    return { ok: false, reason: msg('field.invalid_name', { name }) };
   }
 
   const v = String(label ?? '').trim() || trimmed;

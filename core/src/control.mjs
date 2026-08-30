@@ -20,15 +20,17 @@
 // Render TĨNH: không handler, không `$df`, không `.axd`. Đây là ảnh chụp cấu trúc, không phải
 // chương trình chạy được.
 
+import { VIEWS_CONFIG } from './msg.mjs';
+
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ESCAPES[c]);
 
 /** Chỗ đeo icon Lookup/Calendar. Đo ở HAI màn hình runtime — `Dir/Site` và `Dir/Customer`
- *  đều cho ô 100px → `style="width: 77px"`. */
-export const ADORNMENT_PX = 23;
+ *  đều cho ô 100px → `style="width: 77px"`. Số lấy từ `core/config/views.json`. */
+export const ADORNMENT_PX = VIEWS_CONFIG.adornmentPx;
 
 /** Padding ngang của `<td class="FormCell">` ở runtime: `padding:4px!important` hai bên. */
-export const CELL_PADDING_PX = 4;
+export const CELL_PADDING_PX = VIEWS_CONFIG.cellPaddingPx;
 
 const isTrue = (v) => String(v ?? '').toLowerCase() === 'true';
 

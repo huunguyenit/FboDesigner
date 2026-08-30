@@ -21,6 +21,7 @@
 //      trắng — tệ hơn hẳn file chưa sửa gì.
 
 const vscode = require('vscode');
+const { t, toast } = require('./locale');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -79,7 +80,7 @@ const CONF_LABEL = {
 async function declareFilter(core, output) {
   const document = vscode.window.activeTextEditor?.document;
   if (!document) {
-    vscode.window.showWarningMessage('FBO Designer: chưa mở file nào.');
+    vscode.window.showWarningMessage(toast('extension.no_file'));
     return;
   }
   if (!isControllerDocument(document)) {
@@ -108,7 +109,7 @@ async function declareFilter(core, output) {
   // trên VĂN BẢN GỐC. Trộn hai hệ toạ độ là ghi vào sai chỗ — luật chung của cả tầng ghi ngược.
   const fields = core.scanFields(expanded.clearText);
   if (fields.length === 0) {
-    vscode.window.showWarningMessage('FBO Designer: file không khai <field> nào.');
+    vscode.window.showWarningMessage(toast('extension.no_fields'));
     return;
   }
 
@@ -154,7 +155,7 @@ async function declareFilter(core, output) {
   // ── Bước 1: vá XML ───────────────────────────────────────────────────────
   const plan = core.planEnableFilter(source, columns, { fields });
   if (!plan.ok) {
-    vscode.window.showWarningMessage(`FBO Designer: không vá được XML — ${plan.reason}`);
+    vscode.window.showWarningMessage(toast('extension.patch_fail', { reason: plan.reason }));
     return;
   }
   if (plan.splices.length > 0 && !(await patchXml(document, plan, output))) return;
@@ -193,12 +194,12 @@ async function declareFilter(core, output) {
 async function patchXml(document, plan, output) {
   const product = productFileBlocks(document.uri.fsPath);
   if (product) {
-    vscode.window.showWarningMessage(`FBO Designer: ${product}`);
+    vscode.window.showWarningMessage(t('extension.prefix') + product);
     return false;
   }
   const blocked = encodingBlocks(document);
   if (blocked) {
-    vscode.window.showWarningMessage(`FBO Designer: ${blocked}`);
+    vscode.window.showWarningMessage(t('extension.prefix') + blocked);
     return false;
   }
 
@@ -214,8 +215,8 @@ async function patchXml(document, plan, output) {
       ] },
     ],
     buttons: [
-      { id: 'cancel', label: 'Huỷ', variant: 'secondary', action: 'cancel' },
-      { id: 'go', label: 'Sửa', variant: 'primary', action: 'confirm' },
+      { id: 'cancel', label: t('dialog.btn.cancel'), variant: 'secondary', action: 'cancel' },
+      { id: 'go', label: t('dialog.btn.edit'), variant: 'primary', action: 'confirm' },
     ],
   });
   if (go !== 'go') return false;
@@ -225,7 +226,7 @@ async function patchXml(document, plan, output) {
     edit.replace(document.uri, rangeOf(document, s.start, s.end), s.text);
   }
   if (!(await vscode.workspace.applyEdit(edit))) {
-    vscode.window.showWarningMessage('FBO Designer: VS Code từ chối áp thay đổi.');
+    vscode.window.showWarningMessage(toast('extension.vscode_reject'));
     return false;
   }
   for (const s of plan.splices) {

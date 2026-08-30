@@ -17,6 +17,8 @@
 // Thuần: không import fs. Người gọi truyền `readFile(absPath) -> string|null`.
 
 import { commentSkipper } from './xml-comment.mjs';
+import { msg } from './msg.mjs';
+
 
 const TOKEN_SOURCE = [
   // 1: marked section  <![ INCLUDE | IGNORE | %Name; [
@@ -158,7 +160,7 @@ function markedStatus(ctx, raw, declaringFile) {
  * entity khai ở internal subset trỏ lệch đúng bằng vị trí của `<!DOCTYPE`.
  */
 function collect(ctx, text, file, depth, base = 0) {
-  if (depth > 32) { ctx.warn(`lồng entity quá sâu tại ${file}`); return; }
+  if (depth > 32) { ctx.warn(msg('entity.nest_too_deep', { file })); return; }
 
   /*
    * Khai báo nằm trong `<!-- … -->` KHÔNG tồn tại.
@@ -180,7 +182,7 @@ function collect(ctx, text, file, depth, base = 0) {
     if (marked !== undefined) {
       const contentStart = m.index + m[0].length;
       const end = findMarkedEnd(text, contentStart);
-      if (end === -1) { ctx.warn(`marked section không đóng trong ${file}`); return; }
+      if (end === -1) { ctx.warn(msg('entity.marked_unclosed', { file })); return; }
       if (markedStatus(ctx, marked, file) === 'IGNORE') re.lastIndex = end + 3;
       else re.lastIndex = contentStart; // INCLUDE hoặc không rõ: đi vào trong
       continue;
@@ -218,15 +220,15 @@ function collect(ctx, text, file, depth, base = 0) {
     if (ref === undefined) continue;
 
     const decl = ctx.params.get(ref);
-    if (!decl) { ctx.warn(`%${ref}; chưa khai báo (tại ${file})`); continue; }
+    if (!decl) { ctx.warn(msg('entity.param_undeclared', { ref, file })); continue; }
 
     // Giá trị inline của một parameter entity nằm ngay tại `decl.valueStart` trong file khai nó.
     if (decl.system === null) { collect(ctx, decl.value ?? '', decl.file ?? file, depth + 1, decl.valueStart); continue; }
 
     const abs = resolveSystemPath(decl.file ?? file, decl.system);
-    if (ctx.fileStack.has(abs)) { ctx.warn(`vòng lặp include: ${abs}`); continue; }
+    if (ctx.fileStack.has(abs)) { ctx.warn(msg('entity.include_cycle', { abs })); continue; }
     const body = ctx.read(abs);
-    if (body === null) { ctx.warn(`không đọc được ${abs} (khai ở ${file})`); continue; }
+    if (body === null) { ctx.warn(msg('entity.include_unread', { abs, file })); continue; }
 
     ctx.fileStack.add(abs);
     collect(ctx, body, abs, depth + 1);
@@ -236,7 +238,7 @@ function collect(ctx, text, file, depth, base = 0) {
 
 /** Bung `&Name;` trong một đoạn văn bản, vừa nối chuỗi vừa ghi lại provenance từng đoạn. */
 function expand(ctx, text, file, baseOffset, out, segments, stack, depth) {
-  if (depth > 32) { ctx.warn(`bung entity quá sâu tại ${file}`); out.push(text); return; }
+  if (depth > 32) { ctx.warn(msg('entity.expand_too_deep', { file })); out.push(text); return; }
 
   /*
    * `&Name;` nằm trong `<!-- … -->` thì KHÔNG bung.
@@ -265,11 +267,11 @@ function expand(ctx, text, file, baseOffset, out, segments, stack, depth) {
     const decl = ctx.general.get(name);
     if (!decl) {
       // Không biết thì để nguyên. Bịa một giá trị rỗng là làm biến mất một hàng mà không ai hay.
-      ctx.diagnostics.push({ severity: 'error', message: `&${name}; không có khai báo — giữ nguyên` });
+      ctx.diagnostics.push({ severity: 'error', message: msg('entity.undeclared', { name }) });
       continue;
     }
     if (stack.has(name)) {
-      ctx.warn(`entity đệ quy: &${name};`);
+      ctx.warn(msg('entity.recursive', { name }));
       continue;
     }
 
@@ -289,7 +291,7 @@ function expand(ctx, text, file, baseOffset, out, segments, stack, depth) {
       bodyFile = abs;
       bodyOffset = 0;
       if (body === null) {
-        ctx.diagnostics.push({ severity: 'error', message: `&${name}; trỏ tới ${abs} nhưng không đọc được` });
+        ctx.diagnostics.push({ severity: 'error', message: msg('entity.unread_system', { name, abs }) });
         emit(out, segments, m[0], file, baseOffset + m.index);
         continue;
       }

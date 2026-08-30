@@ -34,8 +34,10 @@
 
 import { scanFields, scanRoot } from './spans.mjs';
 import { scanPartition } from './filter-declare.mjs';
+import { msg, SQL_CONFIG } from './msg.mjs';
 
-const IDENT = /^[A-Za-z_][\w$]*$/;
+
+const IDENT = new RegExp(SQL_CONFIG.identPattern);
 
 function assertIdent(name, what) {
   const s = String(name ?? '');
@@ -43,11 +45,8 @@ function assertIdent(name, what) {
   return s;
 }
 
-const SQL_TYPE_BY_FBO_TYPE = {
-  datetime: 'smalldatetime',
-  decimal: 'numeric(19,4)',
-  boolean: 'bit',
-};
+const SQL_TYPE_BY_FBO_TYPE = SQL_CONFIG.typeByFbo;
+const STRING_FBO = new Set((SQL_CONFIG.stringFboTypes ?? []).map((t) => String(t).toLowerCase()));
 
 function fboTypeOf(field) {
   return String(field?.attrs?.type ?? '').trim();
@@ -55,8 +54,7 @@ function fboTypeOf(field) {
 
 /** Field textbox (không khai `type`, hoặc `type="String"`) — kiểu SQL của nó là `varchar(N)`. */
 function isStringField(field) {
-  const t = fboTypeOf(field).toLowerCase();
-  return t === '' || t === 'string';
+  return STRING_FBO.has(fboTypeOf(field).toLowerCase());
 }
 
 /**
@@ -84,11 +82,11 @@ export function sqlTypeOf(field, { stringLength = null } = {}) {
   if (isStringField(field)) {
     const n = Number(stringLength);
     if (!Number.isFinite(n) || n <= 0) {
-      return { ok: false, reason: 'field kiểu chữ — cần độ dài cột (varchar(N)), N chưa xác định' };
+      return { ok: false, reason: msg('addColumn.need_varchar_len') };
     }
-    return { ok: true, sql: `varchar(${Math.round(n)})` };
+    return { ok: true, sql: String(SQL_CONFIG.stringSql).replace('{n}', String(Math.round(n))) };
   }
-  return { ok: false, reason: `chưa biết ánh xạ SQL cho type="${raw}"` };
+  return { ok: false, reason: msg('addColumn.unknown_sql_type', { raw }) };
 }
 
 /** Bảng có THẬT SỰ chia kỳ hay không — xem "bảng chia kỳ THẬT" ở đầu file. */
@@ -161,9 +159,10 @@ export function buildColumnDefs(fields, { stringLengths = {} } = {}) {
  * NULL, cùng lý do `filter-declare.mjs` không bọc cột ngày qua `isnull()`.
  */
 function backfillLiteral(sqlType) {
-  if (/^varchar/i.test(sqlType)) return "''";
-  if (/^bit$/i.test(sqlType)) return '0';
-  if (/^numeric/i.test(sqlType)) return '0';
+  const map = SQL_CONFIG.backfill || {};
+  if (/^varchar/i.test(sqlType) && map.varchar != null) return map.varchar;
+  if (/^bit$/i.test(sqlType) && map.bit != null) return map.bit;
+  if (/^numeric/i.test(sqlType) && map.numeric != null) return map.numeric;
   return null;
 }
 
@@ -181,20 +180,7 @@ function backfillLiteral(sqlType) {
  *   {{sqlType}}         kiểu SQL của cột mới
  *   {{backfill}}        biểu thức backfill dòng cũ; "NULL" nếu không backfill (cột ngày)
  */
-export const DEFAULT_PARTITION_TEMPLATE = [
-  'DECLARE @ngay_ct1 smalldatetime, @ngay_ct2 smalldatetime',
-  'SELECT @ngay_ct1 = ngay_gh1, @ngay_ct2 = ngay_gh2 from dmstt',
-  '',
-  "IF NOT EXISTS(SELECT 1 FROM syscolumns WHERE id IN (SELECT id FROM sysobjects WHERE name = '{{primeMaster}}') AND name = '{{column}}')",
-  'BEGIN',
-  '\tALTER TABLE {{primeMaster}} ADD {{column}} {{sqlType}}',
-  '\tDECLARE @strsql NVARCHAR(4000)',
-  "\tSET @strsql = 'alter table {{primePattern}} add {{column}} {{sqlType}}'",
-  "\tEXEC FastBusiness$Partition$Execute @strsql, '', '{{partitionField}}', @ngay_ct1, @ngay_ct2, 1, 1",
-  "\tSET @strsql = 'update {{primePattern}} set {{column}} = {{backfill}} where %[{{column}} is null]%'",
-  "\tEXEC FastBusiness$Partition$Execute @strsql, '', '{{partitionField}}', @ngay_ct1, @ngay_ct2, 1, 1",
-  'END',
-].join('\n');
+export const DEFAULT_PARTITION_TEMPLATE = (SQL_CONFIG.partitionTemplate || []).join('\n');
 
 function applyTemplate(template, vars) {
   return String(template).replace(/\{\{(\w+)\}\}/g, (m, key) => {
@@ -207,7 +193,7 @@ function renderRotatingAlter(defs, { partition, template, sourceFile }) {
   const prime = assertIdent(partition.prime, 'partition@prime');
   const primeMaster = `${prime}000000`;
   const primePattern = partition.primeTable ?? `${prime}%Partition`;
-  const partitionField = partition.field || 'ngay_ct';
+  const partitionField = partition.field || SQL_CONFIG.defaultPartitionField || 'ngay_ct';
 
   const head = [
     `-- add column — bảng chia kỳ "${prime}" (field kỳ: ${partitionField})`,

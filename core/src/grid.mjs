@@ -16,12 +16,14 @@
 
 import { renderGridControl, isDisabled, resolveLocaleName, alignOf } from './control.mjs';
 import { sourceRange, hostRefAt } from './entities.mjs';
+import { msg, VIEWS_CONFIG } from './msg.mjs';
+
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ESCAPES[c]);
 
 /** Cột số thứ tự bên trái, do runtime tự chèn — `fbo-grid.css` khai 24px. */
-const INDEX_COL_PX = 24;
+const INDEX_COL_PX = VIEWS_CONFIG.indexColPx;
 
 /**
  * Chiều cao hàng tiêu đề KHI CÓ dải lọc nhanh — runtime đặt inline `height:60px`.
@@ -30,7 +32,7 @@ const INDEX_COL_PX = 24;
  *    + 1 (`border-top` của `.FilterPanel`) + 30 (`.FilterPanel`). Không có dải lọc thì hàng
  * không mang `height` inline nào và rơi về 30px của `.HeaderCellDefault`.
  */
-const HEADER_ROW_FILTER_PX = 60;
+const HEADER_ROW_FILTER_PX = VIEWS_CONFIG.headerRowFilterPx;
 
 /**
  * Chiều cao hàng tiêu đề khi KHÔNG có dải lọc — mức nền của `.HeaderCellDefault`.
@@ -38,7 +40,7 @@ const HEADER_ROW_FILTER_PX = 60;
  * `<field rows="N">` chia đôi thành `divHeader` + `divGrid`, nên con số này là thứ trừ ra để
  * biết phần cuộn còn cao bao nhiêu. Xem phép cộng đầy đủ ở `renderGridHtml`.
  */
-const HEADER_ROW_PX = 30;
+const HEADER_ROW_PX = VIEWS_CONFIG.headerRowPx;
 
 /**
  * `<grid type="…">` nào là MÀN HÌNH DANH SÁCH đứng riêng, rộng bằng khung nhìn.
@@ -86,37 +88,9 @@ function isViewportGrid(type) {
  * Khoá lạ thì giữ NGUYÊN VĂN khoá — thà hiện `Toolbar.Xyz` để người đọc biết là chưa dịch,
  * còn hơn hiện một cái tên bịa.
  */
-const TOOLBAR_RESOURCES = new Map(Object.entries({
-  Insert: ['Thêm dòng (Ctrl + Insert)$Thêm', 'Insert row (Ctrl + Insert)$Insert'],
-  New: ['Mới (Ctrl + Insert)$Mới', 'New (Ctrl + Insert)$New'],
-  Edit: ['Sửa (Ctrl + E)$Sửa', 'Edit (Ctrl + E)$Edit'],
-  Delete: ['Xóa (Ctrl + Delete)$Xóa', 'Delete (Ctrl + Delete)$Delete'],
-  Remove: ['Xóa dòng (Ctrl + Delete)$Xóa', 'Delete row (Ctrl + Delete)$Delete'],
-  View: ['Xem$Xem', 'View$View'],
-  Search: ['Tìm$Tìm', 'Search$Search'],
-  Grow: ['Chuyển lên$$100', 'Move up$$100'],
-  Down: ['Chuyển xuống$$100', 'Move down$$100'],
-  Clone: ['Nhân dòng$$90', 'Clone$$90'],
-  /*
-   * `Toolbar.Copy` — cùng LỆNH `Clone` nhưng KHÁC KHOÁ, và đó không phải lỗi chính tả của ai:
-   * lưới Detail trong tab dùng `Toolbar.Clone` («Nhân dòng»), còn màn hình danh sách dùng
-   * `Toolbar.Copy` («Chép dữ liệu»). 109 file trong FBISP24 dùng khoá này.
-   *
-   * Thiếu nó thì chuỗi rơi về nguyên văn `Toolbar.Copy`, mà chuỗi ấy không có dấu `$` nào → nút
-   * thành CHỈ ICON, class `Copy`, và `.Copy` không có ô sprite nào nên nó rơi về ô số 0: icon
-   * lệnh «Mới», không chữ. Số liệu lấy từ HTML runtime của màn hình danh sách.
-   */
-  Copy: ['Chép dữ liệu (Ctrl + Q)$$90', 'Copy (Ctrl + Q)$$90'],
-  Print: ['In$In', 'Print$Print'],
-  Retrieve: ['Lấy dữ liệu$$120', 'Retrieve$$120'],
-  GroupRetrieve: ['Lấy theo nhóm$$120', 'Group retrieve$$120'],
-  // Không có `$` = chỉ icon. Đúng như runtime: `title="Khóa cột"` trên một div 22×22 rỗng ruột.
-  Freeze: ['Khóa cột', 'Freeze columns'],
-  Export: ['Kết xuất', 'Export'],
-  ImportData: ['Lấy dữ liệu từ tệp...', 'Import data from file...'],
-  Download: ['Tải tệp mẫu...', 'Download template...'],
-  Extra: ['Khác...', 'More...'],
-}));
+const TOOLBAR_RESOURCES = new Map(
+  Object.entries(VIEWS_CONFIG.toolbar || {}).map(([id, row]) => [id, [row.v, row.e]]),
+);
 
 /**
  * Một nút toolbar đã phân giải: tooltip · nhãn · bề rộng · có phải group.
@@ -271,7 +245,7 @@ function renderToolbar(buttons, vi, css = '') {
     // Nút không chữ: bề rộng cứng nằm trên CẢ `<td>` lẫn `<div>`, y như runtime. Group rộng
     // 30px chứ không 22 — chỗ thừa ra là để mũi tên xổ xuống.
     if (!label) {
-      const w = group ? 30 : 22;
+      const w = group ? VIEWS_CONFIG.toolbarGroupIconPx : VIEWS_CONFIG.toolbarIconOnlyPx;
       /*
        * Nút CHỈ ICON cũng phải qua đúng phép hỏi ấy, và trước đây nó không qua gì cả.
        *
@@ -360,7 +334,7 @@ function renderToolbar(buttons, vi, css = '') {
  * chiếm mất chiều cao của phần cuộn, đẩy footer khuất xuống dưới trong tab đã bị ghim chiều
  * cao, và làm lưới nhìn như đang có ba dòng dữ liệu thật.
  */
-const SAMPLE_ROWS = 1;
+const SAMPLE_ROWS = VIEWS_CONFIG.sampleRows;
 
 function pick(node, vi) {
   if (!node) return null;
@@ -432,7 +406,7 @@ export function buildGridModel(view, fields, {
   (view.columns ?? []).forEach((col, i) => {
     const field = fieldByName.get(col.name);
     if (!field) {
-      warnings.push({ item: i, message: `cột "${col.name}": không có <field name="${col.name}"> trong <fields>` });
+      warnings.push({ item: i, message: msg('grid.col_field_missing', { name: col.name, name2: col.name }) });
       return;
     }
     /*
@@ -723,9 +697,9 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null } = 
    * `blockPx` là chiều cao CẢ KHỐI — thứ phải so với `view@height` để biết một `rows` có khai
    * vượt vùng main hay không.
    */
-  const TOOLBAR_PX = 30;
-  const SPLIT_PX = 8;
-  const FOOTER_PX = 22;
+  const TOOLBAR_PX = VIEWS_CONFIG.gridToolbarPx;
+  const SPLIT_PX = VIEWS_CONFIG.gridSplitPx;
+  const FOOTER_PX = VIEWS_CONFIG.gridFooterPx;
   const headerPx = showFilter ? HEADER_ROW_FILTER_PX : HEADER_ROW_PX;
   const scrollPx = bodyHeight !== null && bodyHeight > headerPx
     ? bodyHeight - headerPx
@@ -919,14 +893,14 @@ export function applyArrangement(columns, arrangement, warnings = []) {
 
     const from = out.findIndex((c) => c.name === name);
     if (from === -1) {
-      warnings.push({ item: null, message: `arrangement: không có cột "${name}"` });
+      warnings.push({ item: null, message: msg('grid.arr_col_missing', { name }) });
       continue;
     }
 
     const m = /^%([ab])\((.+)\)$/.exec(spec);
     if (!m) {
       if (!/^%l/i.test(spec)) {
-        warnings.push({ item: null, message: `arrangement: không đọc được "${rule.trim()}"` });
+        warnings.push({ item: null, message: msg('grid.arr_unread', { p0: rule.trim() }) });
         continue;
       }
       // `%l0`: sau cột cuối của file Grid, và mốc tiến dần theo từng luật để hai cột cùng `%l0`
@@ -942,7 +916,7 @@ export function applyArrangement(columns, arrangement, warnings = []) {
     const anchorName = m[2].trim();
     const anchor = out.findIndex((c) => c.name === anchorName);
     if (anchor === -1) {
-      warnings.push({ item: null, message: `arrangement: cột "${name}" neo vào "${anchorName}" nhưng không có cột đó` });
+      warnings.push({ item: null, message: msg('grid.arr_anchor_missing', { name, anchorName }) });
       continue;
     }
     if (anchor === from) continue;
@@ -1094,7 +1068,7 @@ export function renderGrid(views, fields, opts = {}) {
   if (model.toolbar.length > 0 && model.baseCss === '') {
     model.warnings.push({
       item: -1,
-      message: 'không nhận được CSS nền (baseCss) — mọi nút toolbar vẽ dạng chỉ chữ,'
+      message: msg('grid.no_base_css')
         + ' vì icon quyết định theo CSS quy tắc chung',
     });
   }

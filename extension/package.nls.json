@@ -1,0 +1,23 @@
+{
+  "fboDesigner.open.title": "Mở giao diện giả lập FBO",
+  "fboDesigner.declareFilter.title": "Khai báo lọc nhanh cho lưới này",
+  "fboDesigner.addColumns.title": "Sinh script thêm cột cho field mới",
+  "fboDesigner.showDialogDemo.title": "Show Dialog Demo",
+  "fboDesigner.deleteSelection.title": "Xoá ô / cột đang chọn",
+  "fboDesigner.mainMenu.title": "FBO Designer",
+  "fboDesigner.form.displayName": "FBO Designer",
+  "fboDesigner.config.title": "FBO Designer",
+  "fboDesigner.panelPosition.desc": "Panel designer mở ở đâu. Mặc định 'right': form nằm cạnh XML, đọc được cả hai cùng lúc.",
+  "fboDesigner.panelPosition.right": "Luôn mở thành một nhóm editor BÊN PHẢI file đang sửa.",
+  "fboDesigner.panelPosition.beside": "Theo workbench.editor.openSideBySideDirection của VS Code — phải hay dưới là do cấu hình đó quyết.",
+  "fboDesigner.panelPosition.active": "Mở ngay trong nhóm editor đang active (chiếm cùng chỗ với file).",
+  "fboDesigner.confirmForeignEdit.desc": "Hỏi trước khi ghi vào file KHÁC file đang mở (Include dùng chung, hoặc khai báo &ENTITY;). Sửa ở đó là đổi cho MỌI controller dùng file ấy. Tắt thì ghi thẳng, không hỏi.",
+  "fboDesigner.confirmDelete.desc": "Hỏi trước khi xoá một control khỏi form hoặc một cột khỏi lưới. Tắt thì xoá ngay (vẫn hoàn tác được bằng Ctrl+Z).",
+  "fboDesigner.revealRelatedFiles.desc": "Ctrl+bấm (hoặc bấm đúp) vào một ô thì mở bao nhiêu file. Một cột lưới có thể được khai ở tới bốn chỗ khác nhau.",
+  "fboDesigner.revealRelatedFiles.one": "Chỉ mở file khai ra ô đang bấm.",
+  "fboDesigner.revealRelatedFiles.all": "Mở kèm mọi file cùng góp phần khai ra nó: file chủ tại dòng &Name;, Grid/Config/Fields/<Tên>.xml, và Grid/Config/Initialize.xml.",
+  "fboDesigner.entityEditTarget.desc": "Thao tác lên một control đến từ &ENTITY; thì ghi vào đâu.",
+  "fboDesigner.entityEditTarget.ask": "Hỏi mỗi lần: ghi vào file gốc hay phân giải vào file thiết kế.",
+  "fboDesigner.entityEditTarget.source": "Luôn ghi thẳng vào file khai ra hàng đó (Include) — mọi controller dùng chung cùng đổi theo.",
+  "fboDesigner.entityEditTarget.inline": "Luôn phân giải vào file thiết kế: comment dòng &Name; rồi chèn bản đã bung ngay dưới, và chỉ controller này đổi."
+}

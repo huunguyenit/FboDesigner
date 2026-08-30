@@ -58,6 +58,8 @@ class FboDesignerProvider {
     trackDesignerWebview(panel.webview, panel);
 
     let bust = 0;
+    /** Nhãn form: true = tiếng Việt (`<header v>`), false = English (`<header e>`). */
+    let vi = true;
     const buildShell = () => {
       panel.webview.options = { enableScripts: true, localResourceRoots: roots };
       panel.webview.html = shellHtml(this.context, this.core, panel.webview, stylesheets, this.output, bust);
@@ -70,7 +72,7 @@ class FboDesignerProvider {
       let payload;
       try {
         payload = buildPayload(this.core, document, {
-          cfg, paths, output: this.output, webview: panel.webview,
+          cfg, paths, output: this.output, webview: panel.webview, vi,
         });
       } catch (err) {
         payload = { type: 'error', message: err.message, stack: String(err.stack || '') };
@@ -148,7 +150,14 @@ class FboDesignerProvider {
     panel.webview.onDidReceiveMessage(async (msg) => {
       // Trả lời hộp thoại đi trước mọi thứ: nó là cái đang có một `await` chờ ở đầu kia.
       if (overlay.handleMessage(msg)) return;
-      if (msg.type === 'ready') return render();
+      if (msg.type === 'ready') {
+        if (typeof msg.vi === 'boolean') vi = msg.vi;
+        return render();
+      }
+      if (msg.type === 'setLang') {
+        vi = msg.vi !== false;
+        return render();
+      }
       if (msg.type === 'select') return revealSource(msg, document, this.output);
 
       // Ctrl+Z / Ctrl+Y bấm trong webview — undo của VS Code không với tới đây. Xem
@@ -185,7 +194,7 @@ class FboDesignerProvider {
       if (msg.type === 'edit') {
         // rebuild cho plan chỉ cần model — không dựng HTML (~renderHtmlMs trong log perf).
         const rebuild = () => buildPayload(this.core, document, {
-          cfg, paths, output: this.output, webview: panel.webview, skipHtml: true,
+          cfg, paths, output: this.output, webview: panel.webview, skipHtml: true, vi,
         });
         /*
          * Vá cục bộ giống PreviewPanel: resize/move/swap/insert/remove cùng hàng không cần

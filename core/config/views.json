@@ -1,0 +1,105 @@
+{
+  "dialogChromePx": 23,
+  "adornmentPx": 23,
+  "cellPaddingPx": 4,
+  "defaultColumnWidth": 100,
+  "indexColPx": 24,
+  "headerRowPx": 30,
+  "headerRowFilterPx": 60,
+  "gridToolbarPx": 30,
+  "gridSplitPx": 8,
+  "gridFooterPx": 22,
+  "toolbarIconOnlyPx": 22,
+  "toolbarGroupIconPx": 30,
+  "toolbarDefaultTextWidthPx": 60,
+  "sampleRows": 1,
+  "regions": {
+    "header": "header",
+    "main": "main",
+    "footer": "footer"
+  },
+  "attrs": {
+    "anchor": "anchor",
+    "split": "split",
+    "height": "height",
+    "rows": "rows"
+  },
+  "toolbar": {
+    "Insert": {
+      "v": "Thêm dòng (Ctrl + Insert)$Thêm",
+      "e": "Insert row (Ctrl + Insert)$Insert"
+    },
+    "New": {
+      "v": "Mới (Ctrl + Insert)$Mới",
+      "e": "New (Ctrl + Insert)$New"
+    },
+    "Edit": {
+      "v": "Sửa (Ctrl + E)$Sửa",
+      "e": "Edit (Ctrl + E)$Edit"
+    },
+    "Delete": {
+      "v": "Xóa (Ctrl + Delete)$Xóa",
+      "e": "Delete (Ctrl + Delete)$Delete"
+    },
+    "Remove": {
+      "v": "Xóa dòng (Ctrl + Delete)$Xóa",
+      "e": "Delete row (Ctrl + Delete)$Delete"
+    },
+    "View": {
+      "v": "Xem$Xem",
+      "e": "View$View"
+    },
+    "Search": {
+      "v": "Tìm$Tìm",
+      "e": "Search$Search"
+    },
+    "Grow": {
+      "v": "Chuyển lên$$100",
+      "e": "Move up$$100"
+    },
+    "Down": {
+      "v": "Chuyển xuống$$100",
+      "e": "Move down$$100"
+    },
+    "Clone": {
+      "v": "Nhân dòng$$90",
+      "e": "Clone$$90"
+    },
+    "Copy": {
+      "v": "Chép dữ liệu (Ctrl + Q)$$90",
+      "e": "Copy (Ctrl + Q)$$90"
+    },
+    "Print": {
+      "v": "In$In",
+      "e": "Print$Print"
+    },
+    "Retrieve": {
+      "v": "Lấy dữ liệu$$120",
+      "e": "Retrieve$$120"
+    },
+    "GroupRetrieve": {
+      "v": "Lấy theo nhóm$$120",
+      "e": "Group retrieve$$120"
+    },
+    "Freeze": {
+      "v": "Khóa cột",
+      "e": "Freeze columns"
+    },
+    "Export": {
+      "v": "Kết xuất",
+      "e": "Export"
+    },
+    "ImportData": {
+      "v": "Lấy dữ liệu từ tệp...",
+      "e": "Import data from file..."
+    },
+    "Download": {
+      "v": "Tải tệp mẫu...",
+      "e": "Download template..."
+    },
+    "Extra": {
+      "v": "Khác...",
+      "e": "More..."
+    }
+  }
+}

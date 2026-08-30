@@ -34,8 +34,10 @@ const engine = manifest.engines.vscode;
 const CONTENT = [
   ['extension/package.json', 'extension/package.json'],
   ['README.md', 'extension/README.md'],
+  ['extension/package.nls.json', 'extension/package.nls.json'],
   ['extension/src/extension.js', 'extension/src/extension.js'],
   ['extension/src/designer-editor.js', 'extension/src/designer-editor.js'],
+  ['extension/src/designer-webview.js', 'extension/src/designer-webview.js'],
   ['extension/src/preview-panel.js', 'extension/src/preview-panel.js'],
   ['extension/src/render-host.js', 'extension/src/render-host.js'],
   ['extension/src/edit-host.js', 'extension/src/edit-host.js'],
@@ -50,6 +52,7 @@ const CONTENT = [
   ['extension/src/filter-host.js', 'extension/src/filter-host.js'],
   ['extension/src/add-column-host.js', 'extension/src/add-column-host.js'],
   ['extension/src/sql-host.js', 'extension/src/sql-host.js'],
+  ['extension/src/locale.js', 'extension/src/locale.js'],
   // core chép VÀO gói: khi cài từ .vsix thì không có package anh em bên cạnh nữa.
   ['core/src/index.mjs', 'extension/core/index.mjs'],
   ['core/src/encoding.mjs', 'extension/core/encoding.mjs'],
@@ -58,7 +61,12 @@ const CONTENT = [
   ['core/src/columns.mjs', 'extension/core/columns.mjs'],
   ['core/src/edit.mjs', 'extension/core/edit.mjs'],
   ['core/src/field-template.mjs', 'extension/core/field-template.mjs'],
+  ['core/src/msg.mjs', 'extension/core/msg.mjs'],
   ['core/src/control.mjs', 'extension/core/control.mjs'],
+  ['core/config/fields.json', 'extension/core/config/fields.json'],
+  ['core/config/views.json', 'extension/core/config/views.json'],
+  ['core/config/messages.json', 'extension/core/config/messages.json'],
+  ['core/config/sql.json', 'extension/core/config/sql.json'],
   ['core/src/entities.mjs', 'extension/core/entities.mjs'],
   ['core/src/program.mjs', 'extension/core/program.mjs'],
   ['core/src/render.mjs', 'extension/core/render.mjs'],
@@ -220,6 +228,16 @@ for (const sub of ['css', 'image']) {
   for (const f of fs.readdirSync(dir).sort()) {
     if (f === 'README.md') continue;
     CONTENT.push([`extension/media/base/${sub}/${f}`, `extension/media/base/${sub}/${f}`]);
+  }
+}
+
+// Ảnh README: README nằm ở extension/README.md trong gói, đường dẫn tương đối docs/images/…
+// phải khớp — chép nguyên cây docs/images vào extension/docs/images/.
+const README_IMAGES = path.join(ROOT, 'docs', 'images');
+if (fs.existsSync(README_IMAGES)) {
+  for (const f of fs.readdirSync(README_IMAGES).sort()) {
+    if (!/\.(png|gif|jpe?g|webp)$/i.test(f)) continue;
+    CONTENT.push([`docs/images/${f}`, `extension/docs/images/${f}`]);
   }
 }
 

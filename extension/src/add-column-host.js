@@ -18,6 +18,7 @@
 // `entity` trên `sys`, cột `cdata`, dòng đầu theo `code` — xem `sql-config.mjs`/`sql-host.js`.
 
 const vscode = require('vscode');
+const { t, toast } = require('./locale');
 const fs = require('node:fs');
 
 const { isControllerDocument } = require('./render-host');
@@ -28,27 +29,6 @@ const readInclude = (core) => (abs) => {
 };
 
 const FILTER_PATH = /[\\/]App_Data[\\/]Controllers[\\/]Filter[\\/]/i;
-
-function sqlcmdPathSetting() {
-  return vscode.workspace.getConfiguration('fboDesigner').get('sqlcmdPath');
-}
-
-/**
- * Template CHIA KỲ tự sửa được, đúng yêu cầu "script này phải tuỳ chỉnh được" — người dùng khai
- * `fboDesigner.addColumnPartitionTemplate` trỏ tới một file `.sql` của riêng họ; bỏ trống thì
- * dùng `DEFAULT_PARTITION_TEMPLATE` của core. Đọc lỗi (không thấy file, quyền truy cập…) thì rơi
- * về mặc định kèm cảnh báo — không chặn cả lệnh vì một đường dẫn khai sai.
- */
-function readPartitionTemplate(core, output) {
-  const custom = vscode.workspace.getConfiguration('fboDesigner').get('addColumnPartitionTemplate');
-  if (!custom || typeof custom !== 'string' || custom.trim() === '') return core.DEFAULT_PARTITION_TEMPLATE;
-  try {
-    return fs.readFileSync(custom, 'utf8');
-  } catch (err) {
-    output.appendLine(`thêm cột: không đọc được template "${custom}" — ${err.message}. Dùng mẫu mặc định.`);
-    return core.DEFAULT_PARTITION_TEMPLATE;
-  }
-}
 
 function fboTypeLabel(field) {
   const t = String(field.attrs?.type ?? '').trim().toLowerCase();
@@ -83,7 +63,7 @@ async function resolveTargetConnection(core, programRoot, database, output) {
   if (!sysConn) {
     return { ok: false, reason: 'appConnectionString còn %Database nhưng không đọc được sysConnectionString để giải' };
   }
-  const resolved = await sqlHost.resolveAppDatabase(core, sysConn, { sqlcmdPath: sqlcmdPathSetting() });
+  const resolved = await sqlHost.resolveAppDatabase(core, sysConn);
   if (!resolved.ok) return resolved;
   output.appendLine(
     `thêm cột: %Database → "${resolved.database}" (bảng entity trên sys, dòng đầu theo code`
@@ -99,7 +79,7 @@ async function resolveTargetConnection(core, programRoot, database, output) {
 async function addColumns(core, output) {
   const document = vscode.window.activeTextEditor?.document;
   if (!document) {
-    vscode.window.showWarningMessage('FBO Designer: chưa mở file nào.');
+    vscode.window.showWarningMessage(toast('extension.no_file'));
     return;
   }
   if (!isControllerDocument(document) || FILTER_PATH.test(document.uri.fsPath)) {
@@ -138,7 +118,7 @@ async function addColumns(core, output) {
   let candidateFields = plan.mainTableFields;
   let autoDetected = false;
   if (target.ok) {
-    const dbCols = await sqlHost.existingColumns(core, target.conn, plan.table, { sqlcmdPath: sqlcmdPathSetting() });
+    const dbCols = await sqlHost.existingColumns(core, target.conn, plan.table);
     if (dbCols.ok) {
       const existing = new Set(dbCols.columns.map((c) => c.toLowerCase()));
       candidateFields = plan.mainTableFields.filter((f) => !existing.has(f.name.toLowerCase()));
@@ -182,7 +162,7 @@ async function addColumns(core, output) {
     let resolvedLength = null;
     let hint = '';
     if (target.ok) {
-      const found = await sqlHost.stringColumnLength(core, target.conn, field.name, { sqlcmdPath: sqlcmdPathSetting() });
+      const found = await sqlHost.stringColumnLength(core, target.conn, field.name);
       if (found.ok && found.length) {
         resolvedLength = found.length;
         output.appendLine(`thêm cột: "${field.name}" dò được varchar(${resolvedLength}) từ cột cùng tên ở bảng khác.`);
@@ -221,7 +201,7 @@ async function addColumns(core, output) {
       table: plan.table,
       partition: plan.partition,
       sourceFile: document.uri.fsPath,
-      template: plan.rotating ? readPartitionTemplate(core, output) : undefined,
+      template: plan.rotating ? core.DEFAULT_PARTITION_TEMPLATE : undefined,
     });
   } catch (err) {
     vscode.window.showErrorMessage(`FBO Designer: ${err.message}`);

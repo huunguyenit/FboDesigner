@@ -8,6 +8,7 @@
 const vscode = require('vscode');
 const fs = require('node:fs');
 const path = require('node:path');
+const { t, webviewMessages } = require('./locale');
 
 /**
  * Chỉ ba thư mục này vẽ ra được màn hình: `Dir` và `Filter` ra Form, `Grid` ra lưới.
@@ -28,9 +29,6 @@ const RENDERABLE_FOLDERS = ['Dir', 'Filter', 'Grid'];
 function config() {
   const c = vscode.workspace.getConfiguration('fboDesigner');
   return {
-    autoProgramAssets: c.get('autoProgramAssets') !== false,
-    stylesheets: c.get('stylesheets') || [],
-    vietnamese: c.get('vietnamese') !== false,
     panelPosition: c.get('panelPosition') || 'right',
     confirmForeignEdit: c.get('confirmForeignEdit') !== false,
     confirmDelete: c.get('confirmDelete') !== false,
@@ -153,22 +151,21 @@ function isControllerDocument(document) {
 }
 
 /**
- * Tài nguyên của program suy từ CHÍNH FILE ĐANG MỞ, không từ cấu hình.
+ * Tài nguyên của program suy từ CHÍNH FILE ĐANG MỞ.
  * `<program>\App_Data\Controllers\Dir\Site.xml` → `<program>\{Css,Images,ClientScript}`.
- * Không có gì để khai nghĩa là không có gì để khai nhầm sang program của khách khác.
+ * Lấy hết `.css` ở tầng đầu của `<program>\Css`.
  */
 function programAssets(core, fsPath, cfg, output) {
   const paths = core.resolveProgramPaths(fsPath);
-  if (!paths || !cfg.autoProgramAssets) return { paths: null, stylesheets: cfg.stylesheets };
+  if (!paths) return { paths: null, stylesheets: [] };
 
   if (!fs.existsSync(paths.programRoot)) {
     output.appendLine(`suy ra program root nhưng không truy cập được: ${paths.programRoot}`);
-    return { paths: null, stylesheets: cfg.stylesheets };
+    return { paths: null, stylesheets: [] };
   }
 
-  // Khai tay thì tôn trọng khai tay; không khai thì lấy hết .css ở tầng đầu của <program>\Css.
-  let stylesheets = cfg.stylesheets;
-  if (stylesheets.length === 0 && fs.existsSync(paths.cssDir)) {
+  let stylesheets = [];
+  if (fs.existsSync(paths.cssDir)) {
     stylesheets = fs.readdirSync(paths.cssDir, { withFileTypes: true })
       .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.css'))
       .map((e) => path.join(paths.cssDir, e.name))
@@ -346,7 +343,7 @@ function rewriteControllerCssUrls(css, webview, paths, bust, output) {
 }
 
 /** Bung entity rồi gọi core. Ném ra ngoài để người gọi quyết hiện lỗi thế nào. */
-function buildPayload(core, document, { cfg, paths, output, webview = null, bust = 0, skipHtml = false }) {
+function buildPayload(core, document, { cfg, paths, output, webview = null, bust = 0, skipHtml = false, vi = true }) {
   const readFile = cachedReadFile(core);
 
   // Bung entity TRƯỚC khi render: hàng từ Include (vd BI mode) không tồn tại trong file gốc,
@@ -358,7 +355,7 @@ function buildPayload(core, document, { cfg, paths, output, webview = null, bust
   const detailCache = new Map();
   const configCache = new Map();
   const result = core.renderControllerHtml(expanded.clearText, {
-    vi: cfg.vietnamese,
+    vi: vi !== false,
     // Icon nút toolbar quyết định theo CSS QUY TẮC CHUNG, không theo một danh sách lệnh chép
     // tay — nên core phải cầm được văn bản CSS nền. Xem `readBaseCss`.
     baseCss: readBaseCss(output),
@@ -593,7 +590,13 @@ function shellHtml(context, core, webview, stylesheets, output, bust = 0) {
 
   // Thân shell nằm ở file riêng, dùng chung với `tools/probe-layout.mjs`. Giữ hai bản là bàn
   // đo đo một cái shell khác cái đang chạy.
-  const body = fs.readFileSync(path.join(context.extensionUri.fsPath, 'media', 'shell.html'), 'utf8');
+  let body = fs.readFileSync(path.join(context.extensionUri.fsPath, 'media', 'shell.html'), 'utf8');
+  body = body.replace(/\{\{(webview\.[a-z0-9_.]+)\}\}/gi, (_, key) => {
+    const text = t(key);
+    return text === key ? '' : text;
+  });
+
+  const localeJson = JSON.stringify(webviewMessages()).replace(/</g, '\\u003c');
 
   return `<!doctype html>
 <html lang="vi">
@@ -606,6 +609,7 @@ ${links}
 </head>
 <body>
 ${body}
+<script nonce="${n}">window.__FBO_MSG__=${localeJson};</script>
 <script nonce="${n}" src="${shellJs}"></script>
 </body>
 </html>`;

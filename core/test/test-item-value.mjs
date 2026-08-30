@@ -156,7 +156,7 @@ eq('ghép lại', serializeRow(joinRowHalves(leftH, rightH, W8, 4, splitRef)), '
 section('cascade + trái — nửa phải hàng dưới dồn lên (SVTran-like)');
 const empty = parseRow('--------');
 const r0 = parseRow('-----------101-: [so_seri].Label, [so_seri]');
-const r1 = parseRow('1101000000-101-: [ma_gd].Label, [ma_gd], [ten_gd%l], [ngay_lct].Label, [ngay_lct]');
+const rCascade = parseRow('1101000000-101-: [ma_gd].Label, [ma_gd], [ten_gd%l], [ngay_lct].Label, [ngay_lct]');
 const W15 = parseWidths('100, 30, 70, 35, 65, 0, 0, 37, 100, 100, 8, 58, 50, 100, 0').widths;
 const SPL = 10;
 const inserted = joinRowHalves(
@@ -166,7 +166,7 @@ const inserted = joinRowHalves(
 );
 const next0 = joinRowHalves(
   takeRowHalf(r0, W15, SPL, 'left'),
-  takeRowHalf(r1, W15, SPL, 'right'),
+  takeRowHalf(rCascade, W15, SPL, 'right'),
   W15, SPL, r0,
 );
 eq('hàng mới lấy so_seri bên phải', serializeRow(inserted), '-----------101-: [so_seri].Label, [so_seri]');

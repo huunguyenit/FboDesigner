@@ -14,6 +14,12 @@ const fs = require('node:fs');
 const { samePath, loadDetail, config } = require('./render-host');
 const { history } = require('./edit-history');
 const { dialogs } = require('./dialog/dialog-service');
+const { t, toast } = require('./locale');
+
+/** Toast lý do từ core (đã format sẵn). */
+function warnReason(reason) {
+  return vscode.window.showWarningMessage(t('extension.prefix') + reason);
+}
 
 /**
  * Mã hoá nào thì GHI ĐƯỢC an toàn.
@@ -80,8 +86,8 @@ async function confirmForeign(file, hostPath) {
       { type: 'text', content: `Chỗ này khai trong ${owner} — sửa là đổi cho MỌI controller dùng file đó.` },
     ],
     buttons: [
-      { id: 'cancel', label: 'Huỷ', variant: 'secondary', action: 'cancel' },
-      { id: 'go', label: 'Vẫn sửa', variant: 'danger', action: 'confirm' },
+      { id: 'cancel', label: t('dialog.btn.cancel'), variant: 'secondary', action: 'cancel' },
+      { id: 'go', label: t('dialog.btn.edit_anyway'), variant: 'danger', action: 'confirm' },
     ],
   });
   return answer === 'go';
@@ -113,7 +119,7 @@ async function planInOwner(owner, hostDocument, output, plan) {
   const target = await openTarget(file, hostDocument);
   const result = plan(target.getText());
   if (!result.ok) {
-    vscode.window.showWarningMessage(`FBO Designer: ${result.reason}`);
+    warnReason(result.reason);
     return false;
   }
   return applySplice({
@@ -185,7 +191,7 @@ async function applySplice(plan, hostDocument, output, label = 'sửa form') {
     if (!targets.has(id)) {
       const blocked = productFileBlocks(doc.uri.fsPath) || encodingBlocks(doc);
       if (blocked) {
-        vscode.window.showWarningMessage(`FBO Designer: ${blocked}`);
+        warnReason(blocked);
         return false;
       }
       targets.set(id, doc);
@@ -202,7 +208,7 @@ async function applySplice(plan, hostDocument, output, label = 'sửa form') {
   for (const e of resolved) edit.replace(e.doc.uri, rangeOf(e.doc, e.start, e.end), e.text);
   const applied = await vscode.workspace.applyEdit(edit);
   if (!applied) {
-    vscode.window.showWarningMessage('FBO Designer: VS Code từ chối áp thay đổi.');
+    vscode.window.showWarningMessage(toast('extension.vscode_reject'));
     return false;
   }
   for (const e of edits) {
@@ -286,7 +292,7 @@ async function askNewControl(core, { width = false } = {}) {
 
   const built = core.buildField(kind.id, name, label, null, width ? { width: px } : {});
   if (!built.ok) {
-    vscode.window.showWarningMessage(`FBO Designer: ${built.reason}`);
+    warnReason(built.reason);
     return null;
   }
   return { ...built, name: name.trim(), width: px };
@@ -339,7 +345,7 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
 
   const built = rebuild();
   if (!built || !built.model || built.mode !== 'form') {
-    vscode.window.showWarningMessage('FBO Designer: chỉ sửa được trên form.');
+    vscode.window.showWarningMessage(toast('extension.form_only'));
     return false;
   }
   const model = built.model;
@@ -355,7 +361,7 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
     : msg.item;
   const row = model.rows.find((r) => r.index === rowKey);
   if (!row || !row.range) {
-    vscode.window.showWarningMessage('FBO Designer: không xác định được hàng trong file nguồn.');
+    vscode.window.showWarningMessage(toast('extension.row_unknown'));
     return false;
   }
 
@@ -441,7 +447,7 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
        */
       if (msg.op === 'addRow' && msg.blank) {
         if (!row.itemRange) {
-          vscode.window.showWarningMessage('FBO Designer: không xác định được vị trí thẻ <item>.');
+          vscode.window.showWarningMessage(toast('extension.item_unknown'));
           return false;
         }
         const region = model.regions.find((r) => r.rows.some((x) => x.index === msg.item));
@@ -461,7 +467,7 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
         if (!made) return false;
 
         if (msg.op === 'addRow' && !row.itemRange) {
-          vscode.window.showWarningMessage('FBO Designer: không xác định được vị trí thẻ <item>.');
+          vscode.window.showWarningMessage(toast('extension.item_unknown'));
           return false;
         }
         const side = msg.side === 'left' || msg.side === 'right' || msg.side === 'in'
@@ -486,7 +492,7 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
           const declHost = fieldsHost(core, hostDocument, sourceText, targetFile);
           const decl = core.planAddField(declHost.text, made.xml, made.name);
           if (!decl.ok) {
-            vscode.window.showWarningMessage(`FBO Designer: ${decl.reason}`);
+            warnReason(decl.reason);
             return false;
           }
           plan = { ...plan, extra: { ...decl.splice, file: declHost.file } };
@@ -498,7 +504,7 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
   }
 
   if (!plan.ok) {
-    vscode.window.showWarningMessage(`FBO Designer: ${plan.reason}`);
+    warnReason(plan.reason);
     return false;
   }
   return applySplice(plan, hostDocument, output, `${msg.op} control`);
@@ -597,7 +603,7 @@ async function routeEntityEdit(msg, core, built, hostDocument, output, depth) {
        * lựa chọn chỉ đụng một màn hình; Entity mang variant `danger` để đọc ra ngay là nó nặng.
        */
       buttons: [
-        { id: 'cancel', label: 'Huỷ', variant: 'secondary', action: 'cancel' },
+        { id: 'cancel', label: t('dialog.btn.cancel'), variant: 'secondary', action: 'cancel' },
         { id: 'inline', label: `Cập nhật vào ${designName}`, variant: 'primary', action: 'confirm' },
         { id: 'source', label: 'Cập nhật vào Entity', variant: 'danger', action: 'confirm' },
       ],
@@ -622,7 +628,7 @@ async function routeEntityEdit(msg, core, built, hostDocument, output, depth) {
 async function inlineEntityRow(row, core, built, hostDocument, output) {
   const ex = built.expanded;
   if (!ex || !row.item?.valueSpan) {
-    vscode.window.showWarningMessage('FBO Designer: không đọc được bản đã bung để phân giải entity.');
+    vscode.window.showWarningMessage(toast('extension.expanded_unread'));
     return false;
   }
 
@@ -639,7 +645,7 @@ async function inlineEntityRow(row, core, built, hostDocument, output) {
 
   const plan = core.planInlineEntity(hostDocument.getText(), span.ref, ex.clearText.slice(span.start, span.end));
   if (!plan.ok) {
-    vscode.window.showWarningMessage(`FBO Designer: ${plan.reason}`);
+    warnReason(plan.reason);
     return false;
   }
   const name = hostDocument.getText().slice(span.ref.start, span.ref.end);
@@ -668,7 +674,7 @@ async function removeControl(msg, core, model, hostDocument, output) {
   const row = model.rows.find((r) => r.index === msg.item);
   const cell = row?.cells?.[msg.cell];
   if (!cell || cell.empty || !cell.token) {
-    vscode.window.showWarningMessage('FBO Designer: ô trống, không có gì để xoá.');
+    vscode.window.showWarningMessage(toast('common.empty_delete'));
     return false;
   }
 
@@ -698,7 +704,7 @@ async function removeControl(msg, core, model, hostDocument, output) {
     (f) => texts.get(String(f).toLowerCase()) ?? null,
   );
   if (!plan.ok) {
-    vscode.window.showWarningMessage(`FBO Designer: ${plan.reason}`);
+    warnReason(plan.reason);
     return false;
   }
 
@@ -727,16 +733,16 @@ async function removeControl(msg, core, model, hostDocument, output) {
   if (config().confirmDelete) {
     // Hai nút đồng ý mang hai nghĩa khác nhau, nên mỗi nút một id riêng — `ask()` trả về id đó,
     // không phải nhãn. So theo nhãn là thứ vỡ ngay lần đầu ai đó sửa chữ trên nút.
-    const buttons = [{ id: 'cancel', label: 'Huỷ', variant: 'secondary', action: 'cancel' }];
+    const buttons = [{ id: 'cancel', label: t('dialog.btn.cancel'), variant: 'secondary', action: 'cancel' }];
     if (decl) {
-      buttons.push({ id: 'controlOnly', label: 'Chỉ xoá control', variant: 'secondary', action: 'confirm' });
-      buttons.push({ id: 'withDecl', label: 'Xoá cả khai báo <field>', variant: 'danger', action: 'confirm' });
+      buttons.push({ id: 'controlOnly', label: t('extension.delete_control_only'), variant: 'secondary', action: 'confirm' });
+      buttons.push({ id: 'withDecl', label: t('extension.delete_with_field'), variant: 'danger', action: 'confirm' });
     } else {
-      buttons.push({ id: 'controlOnly', label: 'Xoá', variant: 'danger', action: 'confirm' });
+      buttons.push({ id: 'controlOnly', label: t('dialog.btn.delete'), variant: 'danger', action: 'confirm' });
     }
     const answer = await dialogs().ask({
       type: 'warning',
-      title: `Xoá ${label} khỏi form?`,
+      title: t('extension.delete_title', { label }),
       size: 'small',
       body: notes.length ? [{ type: 'list', items: notes }] : [],
       buttons,
@@ -845,7 +851,7 @@ function gridModelFor(msg, core, hostDocument, rebuild) {
 async function handleColumnEdit(msg, core, hostDocument, output, rebuild) {
   const grid = gridModelFor(msg, core, hostDocument, rebuild);
   if (!grid) {
-    vscode.window.showWarningMessage(`FBO Designer: không đọc được lưới Detail ${msg.grid}.`);
+    vscode.window.showWarningMessage(toast('extension.grid_unread', { grid: msg.grid }));
     return false;
   }
 
@@ -881,7 +887,7 @@ async function handleColumnEdit(msg, core, hostDocument, output, rebuild) {
             : 'Khai báo <field> vẫn giữ nguyên.',
         }],
         buttons: [
-          { id: 'cancel', label: 'Huỷ', variant: 'secondary', action: 'cancel' },
+          { id: 'cancel', label: t('dialog.btn.cancel'), variant: 'secondary', action: 'cancel' },
           {
             id: 'go',
             label: withField ? 'Xoá cột + field' : 'Bỏ cột',
@@ -910,7 +916,7 @@ async function handleColumnEdit(msg, core, hostDocument, output, rebuild) {
     const side = msg.side === 'before' ? 'before' : 'after';
     const anchor = msg.anchor || msg.before || msg.after;
     if (!anchor) {
-      vscode.window.showWarningMessage('FBO Designer: thiếu cột neo để dời.');
+      vscode.window.showWarningMessage(toast('extension.no_anchor_col'));
       return false;
     }
     plan = core.planMoveColumn(grid.model, msg.column, anchor, side, sourceText);
@@ -955,7 +961,7 @@ async function handleColumnEdit(msg, core, hostDocument, output, rebuild) {
       }
       declare = core.planAddField(sourceText, made.xml, made.name);
       if (!declare.ok) {
-        vscode.window.showWarningMessage(`FBO Designer: ${declare.reason}`);
+        warnReason(declare.reason);
         return false;
       }
       declare = { ...declare, splice: { ...declare.splice, file: grid.file } };
@@ -965,7 +971,7 @@ async function handleColumnEdit(msg, core, hostDocument, output, rebuild) {
   }
 
   if (!plan.ok) {
-    vscode.window.showWarningMessage(`FBO Designer: ${plan.reason}`);
+    warnReason(plan.reason);
     return false;
   }
   return applySplice(plan, hostDocument, output, `${msg.op} cột "${msg.column}"`);
@@ -1025,13 +1031,13 @@ async function askSplitWidths(width, col) {
 async function handleRegionColumns(msg, core, hostDocument, output, rebuild) {
   const built = rebuild();
   if (!built || !built.model || built.mode !== 'form') {
-    vscode.window.showWarningMessage('FBO Designer: tách/gộp biên cột chỉ có trên form.');
+    vscode.window.showWarningMessage(toast('extension.col_ops_form_only'));
     return false;
   }
   const model = built.model;
   const region = (model.regions ?? []).find((r) => r.id === msg.region);
   if (!region) {
-    vscode.window.showWarningMessage(`FBO Designer: không có vùng "${msg.region}".`);
+    vscode.window.showWarningMessage(toast('edit.region_missing', { region: msg.region }));
     return false;
   }
 
@@ -1042,7 +1048,7 @@ async function handleRegionColumns(msg, core, hostDocument, output, rebuild) {
   if (split) {
     const width = region.widths[col];
     if (!Number.isFinite(width)) {
-      vscode.window.showWarningMessage(`FBO Designer: không đọc được bề rộng cột ${col + 1}.`);
+      vscode.window.showWarningMessage(toast('extension.col_width_unread', { col: col + 1 }));
       return false;
     }
     const halves = await askSplitWidths(width, col);
@@ -1068,7 +1074,7 @@ async function handleRegionColumns(msg, core, hostDocument, output, rebuild) {
 
   const plan = core.planRegionColumns(model, op, readSource);
   if (!plan.ok) {
-    vscode.window.showWarningMessage(`FBO Designer: ${plan.reason}`);
+    warnReason(plan.reason);
     return false;
   }
 
@@ -1098,7 +1104,7 @@ async function handleRegionColumns(msg, core, hostDocument, output, rebuild) {
       { type: 'details', rows },
     ],
     buttons: [
-      { id: 'cancel', label: 'Huỷ', variant: 'secondary', action: 'cancel' },
+      { id: 'cancel', label: t('dialog.btn.cancel'), variant: 'secondary', action: 'cancel' },
       { id: 'go', label: split ? 'Tách cột' : 'Gộp cột', variant: foreign.length > 0 ? 'danger' : 'primary' },
     ],
   });

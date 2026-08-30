@@ -1,3 +1,5 @@
+const { t } = require('../locale');
+
 /*
  * `escapeHtml` / `sanitizeHtml` nằm ở đây chứ không ở `dialog-panel.js` vì cả HAI lối hiển thị
  * đều cần chúng: panel webview riêng dựng HTML phía host, còn overlay trong designer gửi nội
@@ -68,28 +70,28 @@ function buttonIdOf(result) {
 const DIALOG_TYPES = {
   info: {
     icon: 'info',
-    title: 'Thông tin',
+    title: t('dialog.info.title'),
     accent: 'var(--vscode-textLink-foreground)',
     accentSoft: 'var(--vscode-textLink-foreground)',
     className: 'info',
   },
   success: {
     icon: 'check',
-    title: 'Thành công',
+    title: t('dialog.success.title'),
     accent: 'var(--vscode-testing-iconPassed)',
     accentSoft: 'var(--vscode-testing-iconPassed)',
     className: 'success',
   },
   warning: {
     icon: 'warning',
-    title: 'Cảnh báo',
+    title: t('dialog.warning.title'),
     accent: 'var(--vscode-editorWarning-foreground)',
     accentSoft: 'var(--vscode-editorWarning-foreground)',
     className: 'warning',
   },
   error: {
     icon: 'error',
-    title: 'Lỗi',
+    title: t('dialog.error.title'),
     accent: 'var(--vscode-editorError-foreground)',
     accentSoft: 'var(--vscode-editorError-foreground)',
     className: 'error',
@@ -98,20 +100,20 @@ const DIALOG_TYPES = {
 
 const DEFAULT_BUTTONS = {
   info: [
-    { id: 'cancel', label: 'Hủy', variant: 'secondary', action: 'cancel' },
-    { id: 'confirm', label: 'OK', variant: 'primary', action: 'confirm' },
+    { id: 'cancel', label: t('dialog.btn.cancel'), variant: 'secondary', action: 'cancel' },
+    { id: 'confirm', label: t('dialog.btn.ok'), variant: 'primary', action: 'confirm' },
   ],
   success: [
-    { id: 'close', label: 'Đóng', variant: 'secondary', action: 'close' },
-    { id: 'confirm', label: 'Xem chi tiết', variant: 'primary', action: 'confirm' },
+    { id: 'close', label: t('dialog.btn.close'), variant: 'secondary', action: 'close' },
+    { id: 'confirm', label: t('dialog.btn.details'), variant: 'primary', action: 'confirm' },
   ],
   warning: [
-    { id: 'cancel', label: 'Hủy bỏ', variant: 'secondary', action: 'cancel' },
-    { id: 'confirm', label: 'Tiếp tục', variant: 'primary', action: 'confirm' },
+    { id: 'cancel', label: t('dialog.btn.dismiss'), variant: 'secondary', action: 'cancel' },
+    { id: 'confirm', label: t('dialog.btn.continue'), variant: 'primary', action: 'confirm' },
   ],
   error: [
-    { id: 'close', label: 'Đóng', variant: 'secondary', action: 'close' },
-    { id: 'retry', label: 'Thử lại', variant: 'primary', action: 'retry' },
+    { id: 'close', label: t('dialog.btn.close'), variant: 'secondary', action: 'close' },
+    { id: 'retry', label: t('dialog.btn.retry'), variant: 'primary', action: 'retry' },
   ],
 };
 
@@ -119,7 +121,7 @@ function normalizeButtons(type, buttons) {
   if (Array.isArray(buttons) && buttons.length > 0) {
     return buttons.map((button, index) => ({
       id: button.id || `button-${index}`,
-      label: button.label || 'OK',
+      label: button.label || t('dialog.btn.ok'),
       variant: button.variant || 'secondary',
       action: button.action || 'confirm',
       disabled: Boolean(button.disabled),
