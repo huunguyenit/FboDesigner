@@ -5,5 +5,9 @@ out/
 dist/
 .build/
 
+# License signing private key (public.pem có thể commit / nhúng extension)
+license/keys/private.pem
+license/keys/*.key
+
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 graft/

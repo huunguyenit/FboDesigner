@@ -542,10 +542,14 @@ function selectCell(cell, { additive = false } = {}) {
   if (additive) {
     const anchor = selectAnchor || selected || cell;
     const range = contiguousCellRange(anchor, cell);
-    if (!range) return;
-    for (const c of multiSelected) c.classList.remove('fbo-selected');
-    multiSelected.clear();
-    for (const c of range) {
+    /*
+     * Union với selection cũ — không REPLACE bằng hình chữ nhật mới.
+     * Excel-style replace: click Label → Shift+zzz → Shift+ngay_hl.Label (cùng cột hàng dưới)
+     * chỉ còn hai Label (cột hẹp lại, mất zzz). Designer cần giữ zzz đã chọn.
+     * Khác bảng/split (range null): vẫn thêm đúng ô đang bấm.
+     */
+    const add = range && range.length > 0 ? range : [cell];
+    for (const c of add) {
       multiSelected.add(c);
       c.classList.add('fbo-selected');
     }
@@ -1456,7 +1460,8 @@ function drawSlots(frag, stageBox) {
     const lay = (v) => v / k;
 
     const foreign = cell.dataset.fboForeign === '1' || cell.closest('[data-fbo-foreign="1"]') !== null;
-    const slot = el('div', `bp-slot bp-empty${foreign ? ' bp-foreign' : ''}`, {
+    const orphan = cell.classList.contains('DwfOrphanZero') || cell.dataset.fboOrphanZero === '1';
+    const slot = el('div', `bp-slot bp-empty${foreign ? ' bp-foreign' : ''}${orphan ? ' bp-orphan-zero' : ''}`, {
       left: px(lay(box.left - stageBox.left)),
       top: px(lay(box.top - stageBox.top)),
       width: px(lay(box.width)),
@@ -1465,7 +1470,9 @@ function drawSlots(frag, stageBox) {
 
     const span = Number(cell.dataset.fboSpan) || 1;
     const width = cell.dataset.fboWidth;
-    slot.title = `slot trống · cột ${cell.dataset.fboCol} · trải ${span} · ${width}px`;
+    slot.title = orphan
+      ? `0 mồ côi · cột ${cell.dataset.fboCol} · trải ${span} · ${width}px — nên đổi thành -`
+      : `slot trống · cột ${cell.dataset.fboCol} · trải ${span} · ${width}px`;
     frag.appendChild(slot);
   }
 }
@@ -3024,6 +3031,66 @@ function dialogBlock(item) {
     return box;
   }
 
+  /*
+   * Ô nhập liệu trong hộp thoại — dùng cho «thêm control» và các form hỏi ngắn khác.
+   *
+   * Host chỉ gửi dữ liệu thuần (`name`, `label`, `options`); client tự dựng `<input>` /
+   * `<select>`. Không nhận HTML thô qua cầu — cùng ranh giới với các khối còn lại.
+   */
+  if (item.type === 'field') return dialogField(item);
+
+  // Hai (hoặc nhiều) ô cạnh nhau — dùng cho `header v | e`, `type | style`.
+  if (item.type === 'field-row') {
+    const row = dialogEl('div', 'fbo-dlg-block fbo-dlg-field-row');
+    for (const child of item.fields || []) {
+      const field = dialogField(child, { bare: true });
+      if (field) row.appendChild(field);
+    }
+    return row.childNodes.length ? row : null;
+  }
+
+  if (item.type === 'mode-toggle') {
+    const box = dialogEl('div', 'fbo-dlg-block fbo-dlg-mode-toggle');
+    box.dataset.fieldName = item.name || '_mode';
+    const current = String(item.value || (item.modes && item.modes[0] && item.modes[0].id) || 'basic');
+    box.dataset.modeValue = current;
+    const track = dialogEl('div', 'fbo-dlg-mode-track');
+    track.setAttribute('role', 'tablist');
+    for (const m of item.modes || []) {
+      const id = String(m.id || '');
+      const btn = dialogEl('button', `fbo-dlg-mode-btn${id === current ? ' is-active' : ''}`, m.label || id);
+      btn.type = 'button';
+      btn.dataset.dlgMode = id;
+      track.appendChild(btn);
+    }
+    box.appendChild(track);
+    return box;
+  }
+
+  if (item.type === 'group') {
+    const box = dialogEl('div', 'fbo-dlg-block fbo-dlg-group');
+    box.dataset.dlgModes = Array.isArray(item.modes) ? item.modes.join(',') : 'advanced';
+    box.appendChild(dialogEl('div', 'fbo-dlg-group-title', item.label || item.id || ''));
+    const body = dialogEl('div', 'fbo-dlg-group-body');
+    for (const child of item.fields || []) {
+      if (!child || typeof child !== 'object') continue;
+      if (child.type === 'field-row') {
+        const row = dialogEl('div', 'fbo-dlg-field-row');
+        for (const f of child.fields || []) {
+          const node = dialogField(f, { bare: true });
+          if (node) row.appendChild(node);
+        }
+        if (row.childNodes.length) body.appendChild(row);
+      } else {
+        const node = dialogField(child, { bare: true });
+        if (node) body.appendChild(node);
+      }
+    }
+    if (!body.childNodes.length) return null;
+    box.appendChild(body);
+    return box;
+  }
+
   if (item.type === 'html' || item.type === 'custom') {
     const box = dialogEl('div', 'fbo-dlg-block fbo-dlg-rich');
     box.innerHTML = String(item.content ?? ''); // đã sanitize ở host
@@ -3033,7 +3100,116 @@ function dialogBlock(item) {
   return null;
 }
 
-function closeDialog(action, buttonId) {
+/** Dựng một ô `field`. `bare` = không bọc `.fbo-dlg-block` (nằm trong field-row). */
+function dialogField(item, { bare = false } = {}) {
+  if (!item || typeof item !== 'object') return null;
+  const name = String(item.name || '').trim();
+  if (!name) return null;
+  const box = dialogEl('div', bare ? 'fbo-dlg-field' : 'fbo-dlg-block fbo-dlg-field');
+  const label = dialogEl('label', 'fbo-dlg-field-label', item.label || name);
+  const id = `fbo-dlg-f-${name}`;
+  label.htmlFor = id;
+
+  let control;
+  if (item.control === 'select') {
+    control = document.createElement('select');
+    control.className = 'fbo-dlg-input';
+    for (const opt of item.options || []) {
+      const o = document.createElement('option');
+      o.value = String(opt.value ?? '');
+      o.textContent = opt.detail
+        ? `${opt.label ?? opt.value} — ${opt.detail}`
+        : String(opt.label ?? opt.value ?? '');
+      control.appendChild(o);
+    }
+  } else if (item.control === 'combobox') {
+    control = document.createElement('input');
+    control.type = 'text';
+    control.className = 'fbo-dlg-input';
+    control.autocomplete = 'off';
+    const listId = `${id}-list`;
+    control.setAttribute('list', listId);
+    if (item.placeholder) control.placeholder = String(item.placeholder);
+    const list = document.createElement('datalist');
+    list.id = listId;
+    for (const opt of item.options || []) {
+      const v = String(opt.value ?? opt ?? '');
+      if (!v) continue;
+      const o = document.createElement('option');
+      o.value = v;
+      list.appendChild(o);
+    }
+    box.appendChild(label);
+    box.appendChild(control);
+    box.appendChild(list);
+    if (item.hint) box.appendChild(dialogEl('div', 'fbo-dlg-field-hint', item.hint));
+    control.id = id;
+    control.dataset.fieldName = name;
+    if (item.required) control.required = true;
+    if (item.value !== undefined && item.value !== null) control.value = String(item.value);
+    return box;
+  } else {
+    control = document.createElement('input');
+    control.type = 'text';
+    control.className = 'fbo-dlg-input';
+    if (item.placeholder) control.placeholder = String(item.placeholder);
+  }
+  control.id = id;
+  control.dataset.fieldName = name;
+  if (item.required) control.required = true;
+  if (item.value !== undefined && item.value !== null) control.value = String(item.value);
+
+  box.appendChild(label);
+  box.appendChild(control);
+  if (item.hint) box.appendChild(dialogEl('div', 'fbo-dlg-field-hint', item.hint));
+  return box;
+}
+
+/** Gom giá trị mọi ô `[data-field-name]` trong hộp thoại đang mở. */
+function readDialogValues(root) {
+  const values = {};
+  for (const el of root.querySelectorAll('[data-field-name]')) {
+    const key = el.dataset.fieldName;
+    if (!key) continue;
+    if (el.classList.contains('fbo-dlg-mode-toggle')) {
+      values[key] = el.dataset.modeValue || '';
+      continue;
+    }
+    values[key] = el.value;
+  }
+  return values;
+}
+
+/**
+ * Nút confirm: thiếu ô bắt buộc thì focus vào đó, không đóng.
+ * Huỷ / đóng thì không kiểm — người dùng đang bỏ cuộc.
+ * Ô nằm trong nhóm đang ẩn (basic/advanced) không tính.
+ */
+function dialogCanConfirm(root) {
+  const missing = [...root.querySelectorAll('[data-field-name][required]')]
+    .find((el) => {
+      if (el.closest('[hidden]')) return false;
+      return !String(el.value || '').trim();
+    });
+  if (!missing) return true;
+  try { missing.focus(); } catch (e) { /* */ }
+  return false;
+}
+
+function applyDialogMode(root, mode) {
+  const toggle = root.querySelector('.fbo-dlg-mode-toggle');
+  if (toggle) toggle.dataset.modeValue = mode;
+  for (const btn of root.querySelectorAll('.fbo-dlg-mode-btn')) {
+    btn.classList.toggle('is-active', btn.dataset.dlgMode === mode);
+  }
+  for (const el of root.querySelectorAll('[data-dlg-modes]')) {
+    const modes = String(el.dataset.dlgModes || '')
+      .split(',').map((s) => s.trim()).filter(Boolean);
+    el.hidden = modes.length > 0 && !modes.includes(mode);
+  }
+}
+
+function closeDialog(action, buttonId, values) {
   if (!dialogOpen) return;
   const { id, root, lastFocus } = dialogOpen;
   dialogOpen = null;
@@ -3043,7 +3219,13 @@ function closeDialog(action, buttonId) {
   if (lastFocus && document.contains(lastFocus)) {
     try { lastFocus.focus(); } catch (e) { /* ô đã biến mất cùng control vừa xoá */ }
   }
-  vscode.postMessage({ type: 'dialog-result', id, action, buttonId });
+  vscode.postMessage({
+    type: 'dialog-result',
+    id,
+    action,
+    buttonId,
+    values: values && typeof values === 'object' ? values : null,
+  });
 }
 
 function showDialog(id, options) {
@@ -3087,7 +3269,12 @@ function showDialog(id, options) {
     const el = dialogEl('button', `fbo-dlg-btn ${button.variant || 'secondary'}`, button.label || 'OK');
     el.type = 'button';
     el.disabled = Boolean(button.disabled);
-    el.addEventListener('click', () => closeDialog(button.action || 'confirm', button.id));
+    el.addEventListener('click', () => {
+      const action = button.action || 'confirm';
+      const confirming = action !== 'cancel' && action !== 'close';
+      if (confirming && !dialogCanConfirm(root)) return;
+      closeDialog(action, button.id, confirming ? readDialogValues(root) : null);
+    });
     if (!primary && (button.variant === 'primary' || button.variant === 'danger')) primary = el;
     foot.appendChild(el);
   }
@@ -3095,7 +3282,14 @@ function showDialog(id, options) {
 
   root.appendChild(card);
   document.body.appendChild(root);
-  dialogOpen = { id, root, lastFocus: document.activeElement };
+  dialogOpen = { id, root, lastFocus: document.activeElement, primary };
+
+  for (const btn of root.querySelectorAll('.fbo-dlg-mode-btn')) {
+    btn.addEventListener('click', () => applyDialogMode(root, btn.dataset.dlgMode || 'basic'));
+  }
+  if (root.querySelector('.fbo-dlg-mode-toggle')) {
+    applyDialogMode(root, root.querySelector('.fbo-dlg-mode-toggle').dataset.modeValue || 'basic');
+  }
 
   // Bấm ra ngoài thẻ = đóng, nhưng CHỈ khi cú bấm bắt đầu trên nền: bôi đen chữ trong hộp rồi
   // nhả chuột ngoài nền cũng bắn `click` lên nền, mà lúc ấy người dùng đang đọc chứ không huỷ.
@@ -3105,7 +3299,9 @@ function showDialog(id, options) {
     delete root.dataset.armed;
   });
 
-  (primary || foot.querySelector('.fbo-dlg-btn') || card).focus();
+  // Form hỏi: focus ô nhập đầu tiên (nhóm đang hiện). Confirm-only: focus nút chính như trước.
+  const firstField = root.querySelector('.fbo-dlg-group:not([hidden]) .fbo-dlg-input, .fbo-dlg-body > .fbo-dlg-field .fbo-dlg-input, .fbo-dlg-input');
+  (firstField || primary || foot.querySelector('.fbo-dlg-btn') || card).focus();
 }
 
 /*
@@ -3123,10 +3319,23 @@ document.addEventListener('keydown', (event) => {
     return closeDialog('close', null);
   }
 
+  if (event.key === 'Enter' && event.target && event.target.classList
+    && event.target.classList.contains('fbo-dlg-input')
+    && event.target.tagName !== 'TEXTAREA'
+    && event.target.tagName !== 'SELECT') {
+    // Enter trong ô chữ = bấm nút chính — đỡ phải Tab xuống chân hộp thoại.
+    event.preventDefault();
+    event.stopPropagation();
+    if (dialogOpen.primary) dialogOpen.primary.click();
+    return;
+  }
+
   if (event.key === 'Tab') {
     // Giam tiêu điểm trong hộp: Tab ra ngoài là vào cái form đang bị hỏi về, và bấm được cả nút
     // của nó — tức trả lời một câu hỏi bằng cách gây thêm một thao tác nữa.
-    const focusable = [...dialogOpen.root.querySelectorAll('button:not([disabled])')];
+    const focusable = [...dialogOpen.root.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+    )];
     if (focusable.length === 0) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];

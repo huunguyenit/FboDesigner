@@ -1,0 +1,3 @@
+# Private signing key — chỉ giữ trên máy admin, không commit.
+license/keys/private.pem
+license/keys/*.key

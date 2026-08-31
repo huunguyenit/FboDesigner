@@ -17,6 +17,34 @@ const RE_ENTITY_REF = /&[A-Za-z_][\w.:-]*;/;
 /** Ba kind hợp lệ. Mọi thứ khác sau dấu chấm là TYPO, không phải biến thể. */
 const KINDS = new Map([['label', 'label'], ['description', 'description'], ['footer', 'footer']]);
 
+/**
+ * Cột trống trên pattern — cùng nghĩa với ô `empty` của `buildCells`.
+ *
+ * `-` luôn trống. `0` chỉ trống khi MỒ CÔI (không nối đuôi một `1`): trên form FBO dải
+ * `0000000000-1101--` (zzSQTran hàng tỷ giá) vẽ thành slot trống, nhưng bản trước chỉ chấp
+ * nhận `-` nên (+) báo «đang có control» dù UI không hiện control nào.
+ *
+ * `0` nối đuôi `1` (`10--`) vẫn là phần thân control — không trống.
+ */
+function isFreePatternCol(chars, col) {
+  const ch = chars[col];
+  if (ch === '-') return true;
+  if (ch !== '0') return false;
+  for (let c = col - 1; c >= 0; c--) {
+    if (chars[c] === '1') return false;
+    if (chars[c] !== '0') return true;
+  }
+  return true;
+}
+
+/**
+ * Sau khi viết `1` (+ thân `0`) vào pattern, dải `0` mồ côi ngay bên phải sẽ bị
+ * `buildCells` hút vào span của control vừa đặt. Đổi chúng thành `-` để giữ đúng span.
+ */
+function detachOrphanZeros(chars, afterEnd) {
+  for (let c = afterEnd; c < chars.length && chars[c] === '0'; c++) chars[c] = '-';
+}
+
 /** Item ĐẦU TIÊN của view và không có `:` thì mới là list px. Item đầu đã có `:` → view không có list cột. */
 export function classifyItem(value, indexInView) {
   if (value === null || value === undefined) return 'other';
@@ -160,8 +188,16 @@ export function buildCells({ pattern, tokens }, widths) {
       open.span += 1;
       open.width += widths[col] ?? 0;
     } else {
+      // `-` hoặc `0` mồ côi (không nối đuôi `1`) — cùng empty trên form; `orphanZero` để UI tô đỏ.
       open = null;
-      cells.push({ col, span: 1, width: widths[col] ?? 0, token: null, empty: true });
+      cells.push({
+        col,
+        span: 1,
+        width: widths[col] ?? 0,
+        token: null,
+        empty: true,
+        orphanZero: ch === '0',
+      });
     }
     col++;
   }
@@ -273,12 +309,15 @@ export function insertCell(row, widths, cellIndex, side, tokenRaw, { allowEntity
 
   const chars = Array.from(resolvePattern(row.pattern, columnCount).pattern);
   for (let c = from; c < from + n; c++) {
-    if (chars[c] !== '-') return { ok: false, reason: msg('item.col_occupied', { p0: c + 1, action: 'thêm' }) };
+    if (!isFreePatternCol(chars, c)) {
+      return { ok: false, reason: msg('item.col_occupied', { p0: c + 1, action: 'thêm' }) };
+    }
   }
 
   // Đặt cột trước, tính chỉ số token sau: `tokenIndexOf` đếm số `1` đứng trước, nên phải đếm
   // trên pattern ĐÃ đặt xong thì thứ tự token mới khớp thứ tự cột.
   for (let c = from; c < from + n; c++) chars[c] = '1';
+  detachOrphanZeros(chars, from + n);
   const ti = tokenIndexOf(chars.join(''), from);
   const tokens = [...row.tokens];
   tokens.splice(ti, 0, ...parsed);
@@ -329,10 +368,13 @@ export function moveCell(row, widths, cellIndex, toCol, { allowEntity = false } 
 
   for (let c = cell.col; c < cell.col + span; c++) chars[c] = '-';
   for (let c = to; c < to + span; c++) {
-    if (chars[c] !== '-') return { ok: false, reason: msg('item.col_occupied', { p0: c + 1, action: 'dời' }) };
+    if (!isFreePatternCol(chars, c)) {
+      return { ok: false, reason: msg('item.col_occupied', { p0: c + 1, action: 'dời' }) };
+    }
   }
   chars[to] = '1';
   for (let c = to + 1; c < to + span; c++) chars[c] = '0';
+  detachOrphanZeros(chars, to + span);
 
   const rest = row.tokens.filter((_, i) => i !== fromTi);
   const toTi = tokenIndexOf(chars.join(''), to);
@@ -432,13 +474,18 @@ export function placeCell(row, widths, col, span, token, { allowEntity = false }
 
   const chars = Array.from(resolvePattern(row.pattern, columnCount).pattern);
   for (let c = to; c < to + n; c++) {
-    if (chars[c] !== '-') return { ok: false, reason: msg('item.col_occupied', { p0: c + 1, action: 'đặt' }) };
+    if (!isFreePatternCol(chars, c)) {
+      return { ok: false, reason: msg('item.col_occupied', { p0: c + 1, action: 'đặt' }) };
+    }
   }
 
   // Đặt cột TRƯỚC, tính chỉ số token SAU — `tokenIndexOf` đếm số `1` đứng trước, nên phải đếm
   // trên pattern đã đặt xong thì thứ tự token mới khớp thứ tự cột. Cùng luật với `insertCell`.
   chars[to] = '1';
   for (let c = to + 1; c < to + n; c++) chars[c] = '0';
+  // Pattern kiểu `----000000-…` (zzSQTran): đặt `1` sát dải 0 mồ côi sẽ biến chúng thành thân
+  // span — multi-move Label+Input sang phải thành Input span 7. Tách ra thành `-`.
+  detachOrphanZeros(chars, to + n);
   const pattern = chars.join('');
   const tokens = [...row.tokens];
   tokens.splice(tokenIndexOf(pattern, to), 0, token);
@@ -677,7 +724,7 @@ export function setStart(row, widths, cellIndex, newCol, { allowEntity = false }
   const chars = Array.from(resolvePattern(row.pattern, widths.length).pattern);
   if (newCol < cell.col) {
     for (let c = newCol; c < cell.col; c++) {
-      if (chars[c] !== '-') {
+      if (!isFreePatternCol(chars, c)) {
         return { ok: false, reason: msg('item.col_occupied', { p0: c + 1, action: 'nở' }) };
       }
     }

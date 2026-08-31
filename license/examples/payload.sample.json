@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "id": "LIC-2026-00142",
+  "exp": "2027-12-31",
+  "max": 3,
+  "mid": [
+    "REPLACE_WITH_MACHINE_ID_1",
+    "REPLACE_WITH_MACHINE_ID_2"
+  ],
+  "co": "Cong ty ABC",
+  "note": "FBO Designer — team nội bộ",
+  "feat": ["designer"]
+}

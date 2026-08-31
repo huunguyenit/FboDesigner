@@ -257,7 +257,18 @@ tr.DwfColRow > th {
 .FormRequiredLabel { color: #b45309; }
 .FormCellInvalid { color: var(--vscode-errorForeground); }
 
-.FormRow:hover > td { background: rgba(56, 139, 253, 0.08); }
+/* Pattern `0` mồ côi: slot trống đặt được control nhưng khác `-` — gạch chéo đỏ ngay trên ô. */
+#fbo-form td.FormCell.DwfOrphanZero {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(200, 50, 50, 0.35) 0,
+    rgba(200, 50, 50, 0.35) 1px,
+    transparent 1px,
+    transparent 6px
+  );
+}
+
+.FormRow:hover > td { background-color: rgba(56, 139, 253, 0.08); }
 
 /* ---------------------------------------------------------------------------
    BLUEPRINT OVERLAY
@@ -416,12 +427,35 @@ body.bp-on .GridTabPanel td.HeaderCellDefault[data-fbo-width]::after {
   );
 }
 
+/* Pattern `0` mồ côi — cùng slot trống nhưng khác `-`: gạch chéo đỏ trên blueprint. */
+.bp-slot.bp-empty.bp-orphan-zero {
+  outline-color: rgba(200, 50, 50, 0.65);
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(200, 50, 50, 0.40) 0,
+    rgba(200, 50, 50, 0.40) 1px,
+    transparent 1px,
+    transparent 6px
+  );
+}
+
 /* Ô trống mà lại thuộc file Include: gạch chéo ngược chiều, để không lẫn với ô trống sửa được. */
 .bp-slot.bp-empty.bp-foreign {
   background-image: repeating-linear-gradient(
     -45deg,
     rgba(120, 120, 120, 0.28) 0,
     rgba(120, 120, 120, 0.28) 1px,
+    transparent 1px,
+    transparent 6px
+  );
+}
+
+/* 0 mồ côi + foreign: vẫn đỏ (ưu tiên nhận diện orphan), góc ngược như foreign. */
+.bp-slot.bp-empty.bp-orphan-zero.bp-foreign {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(200, 50, 50, 0.40) 0,
+    rgba(200, 50, 50, 0.40) 1px,
     transparent 1px,
     transparent 6px
   );
@@ -437,8 +471,8 @@ body.bp-on .GridTabPanel td.HeaderCellDefault[data-fbo-width]::after {
   -webkit-user-select: none;
 }
 
-/* `split` — ranh giới hai vùng của bảng. Đỏ đặc, và là thứ ĐỎ DUY NHẤT của lớp blueprint:
-   mọi vạch khác đều xanh, nên nhìn một cái là biết đâu là chỗ bảng bị chia. */
+/* `split` — ranh giới hai vùng của bảng. Đỏ đặc (cùng tông với slot `0` mồ côi).
+   Vạch cột / slot `-` trống vẫn xanh. */
 /* `anchor` — mỏ neo ĐỨNG SÁT vạch mở đầu cột được neo. Canh giữa cột thì ở cột hẹp nó trôi
    sang cột bên cạnh, và người đọc không biết nó đang neo cột nào. */
 /* ── Tay cầm sửa ────────────────────────────────────────────────────────────
@@ -965,9 +999,115 @@ td.FormCell[data-fbo-readonly="1"] input {
   overflow: auto;
   padding: 12px;
   line-height: 1.55;
+  max-height: min(60vh, 520px);
+}
+
+.fbo-dlg-large .fbo-dlg-body {
+  max-height: min(70vh, 640px);
 }
 
 .fbo-dlg-block + .fbo-dlg-block { margin-top: 10px; }
+
+.fbo-dlg-mode-toggle { margin-bottom: 4px; }
+.fbo-dlg-mode-track {
+  display: inline-flex;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--vscode-input-background, var(--vscode-editor-background));
+}
+.fbo-dlg-mode-btn {
+  border: none;
+  background: transparent;
+  color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.fbo-dlg-mode-btn.is-active {
+  background: color-mix(in srgb, var(--vscode-textLink-foreground) 18%, transparent);
+  color: var(--vscode-textLink-foreground);
+}
+.fbo-dlg-mode-btn:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.fbo-dlg-group {
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 8px;
+  padding: 10px;
+  min-width: 0;
+  overflow: hidden;
+}
+.fbo-dlg-group[hidden] { display: none !important; }
+.fbo-dlg-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+  margin-bottom: 8px;
+}
+.fbo-dlg-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.fbo-dlg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.fbo-dlg-field-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.fbo-dlg-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+}
+
+.fbo-dlg-input {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, var(--vscode-panel-border)));
+  border-radius: 3px;
+  background: var(--vscode-input-background, var(--vscode-editor-background));
+  color: var(--vscode-input-foreground, var(--vscode-foreground));
+  font-family: var(--vscode-font-family);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+select.fbo-dlg-input {
+  /* Native select hay lệch padding so với input — cùng chiều cao / cạnh phải. */
+  height: 30px;
+  padding-right: 6px;
+}
+
+.fbo-dlg-input:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.fbo-dlg-field-hint {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+}
 
 .fbo-dlg-list ul,
 .fbo-dlg-list ol { margin: 0; padding-left: 18px; }

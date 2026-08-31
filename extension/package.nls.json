@@ -19,5 +19,7 @@
   "fboDesigner.entityEditTarget.desc": "Thao tác lên một control đến từ &ENTITY; thì ghi vào đâu.",
   "fboDesigner.entityEditTarget.ask": "Hỏi mỗi lần: ghi vào file gốc hay phân giải vào file thiết kế.",
   "fboDesigner.entityEditTarget.source": "Luôn ghi thẳng vào file khai ra hàng đó (Include) — mọi controller dùng chung cùng đổi theo.",
-  "fboDesigner.entityEditTarget.inline": "Luôn phân giải vào file thiết kế: comment dòng &Name; rồi chèn bản đã bung ngay dưới, và chỉ controller này đổi."
+  "fboDesigner.entityEditTarget.inline": "Luôn phân giải vào file thiết kế: comment dòng &Name; rồi chèn bản đã bung ngay dưới, và chỉ controller này đổi.",
+  "fboDesigner.licenseKey.desc": "License Key (`FBO1....`). Dán key vào đây để kích hoạt; xoá hết để huỷ kích hoạt. Sau khi kích hoạt, key vẫn hiện để copy.",
+  "fboDesigner.machineId.desc": "Machine ID của máy này (tự điền, chỉ xem/copy gửi admin khi xin license). Sửa tay sẽ bị ghi đè lại khi mở extension."
 }

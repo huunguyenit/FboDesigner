@@ -616,9 +616,17 @@ function renderCell(cell, row, model, cellIndex) {
     // thấp hơn slot trống cạnh control (~24px). Chèn FormContainer + &nbsp; cùng cỡ ô nhập
     // (13px) để chiều cao khớp slot trống bình thường — không dùng FormContainerInput kẻo
     // hiện gạch chân giả trên ô trống.
-    return td('FormCell DwfEmptyCell',
+    //
+    // `0` mồ côi (pattern `0000…` không nối `1`): vẫn là slot trống đặt được control, nhưng
+    // khác `-` — tô gạch chéo đỏ để nhận ra và nên đổi thành `-` khi sửa layout.
+    const orphanCls = cell.orphanZero ? ' DwfOrphanZero' : '';
+    const orphanAttr = cell.orphanZero
+      ? ' data-fbo-orphan-zero="1" title="pattern 0 mồ côi — slot trống, nên đổi thành -"'
+      : '';
+    return td(`FormCell DwfEmptyCell${orphanCls}`,
       container('FormContainer', row.valign, false,
-        '<div style="height:13px;line-height:13px;font-size:11px;overflow:hidden;">&nbsp;</div>'));
+        '<div style="height:13px;line-height:13px;font-size:11px;overflow:hidden;">&nbsp;</div>'),
+      orphanAttr);
   }
 
   const tokenAttr = ` data-fbo-token="${esc(token?.raw ?? '')}"`;

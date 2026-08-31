@@ -25,6 +25,8 @@ const { history } = require('./edit-history');
 const { OverlayDialogs } = require('./dialog/dialog-overlay');
 const { runWithDialogs } = require('./dialog/dialog-service');
 const { trackDesignerWebview } = require('./designer-webview');
+const { ensureLicense, lockedWebviewHtml } = require('./license');
+const { t } = require('./locale');
 
 const VIEW_TYPE = 'fboDesigner.form';
 
@@ -46,7 +48,14 @@ class FboDesignerProvider {
     );
   }
 
-  resolveCustomTextEditor(document, panel) {
+  async resolveCustomTextEditor(document, panel) {
+    const status = await ensureLicense(this.context, { silent: true });
+    if (!status) {
+      panel.webview.options = { enableScripts: false };
+      panel.webview.html = lockedWebviewHtml(t('extension.license_locked_html'));
+      return;
+    }
+
     const cfg = config();
     const { paths, stylesheets } = programAssets(this.core, document.uri.fsPath, cfg, this.output);
 

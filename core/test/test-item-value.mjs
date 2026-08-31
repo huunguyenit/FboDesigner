@@ -4,7 +4,7 @@
 import { ok, eq, section } from './harness.mjs';
 import {
   classifyItem, parseWidths, parseToken, parseRow, resolvePattern, buildCells, serializeRow, setSpan,
-  removeCell, insertCell, newRow, takeRowHalf, joinRowHalves,
+  removeCell, insertCell, placeCell, newRow, takeRowHalf, joinRowHalves,
 } from '../src/item-value.mjs';
 
 section('classifyItem — chỉ item ĐẦU TIÊN và không có ":" mới là list px');
@@ -54,6 +54,8 @@ eq('tổng cột đúng 5', built.cells.reduce((n, c) => n + c.span, 0), 5);
 section('buildCells — "0" không có "1" trước thì không nối vào đâu');
 const orphan = buildCells(parseRow('-0: [a]'), parseWidths('50, 50').widths);
 eq('cả hai ô đều trống', orphan.cells.map((c) => c.empty), [true, true]);
+eq('ô "-" không phải orphanZero', orphan.cells[0].orphanZero, false);
+eq('ô "0" mồ côi đánh dấu orphanZero', orphan.cells[1].orphanZero, true);
 
 section('serializeRow — round-trip giữ nguyên chuỗi gốc');
 for (const raw of ['1100-: [ma_kh].Label, [ma_kh]', '111000000000: [status].Label, [status], [status].Description']) {
@@ -117,6 +119,43 @@ ok('từ chối khi ô kề đang có control', !insertCell(R('11--: [a], [b]'),
 ok('từ chối khi đã ở mép trái', !insertCell(R('1---: [a]'), W, 0, 'left', '[b]').ok);
 ok('từ chối token không đọc được', !insertCell(R('1---: [a]'), W, 0, 'right', 'xyz').ok);
 
+section('insertCell — `0` mồ côi là slot trống (zzSQTran hàng tỷ giá)');
+// Pattern `0000000000-1101--`: mười số 0 đầu KHÔNG nối đuôi `1` nào — UI vẽ ô trống, (+) phải
+// thêm được. Bản trước chỉ chấp nhận `-` nên báo «cột N đang có control» dù không có control.
+const W17 = [100, 30, 70, 121, 8, 58, 42, 8, 100, 0, 8, 58, 42, 8, 100, 0, 0];
+const orphanZeros = insertCell(
+  R('0000000000-1101--: [ty_gia].Label, [ma_nt], [ty_gia]'),
+  W17,
+  0,
+  'in',
+  ['[ma_vv].Label', '[ma_vv]'],
+);
+ok('thêm vào dải 0 mồ côi được', orphanZeros.ok, orphanZeros.reason);
+eq('hai cột đầu thành 1', orphanZeros.row.pattern.slice(0, 2), '11');
+eq('0 mồ côi còn lại tách thành "-" (không hút vào span)', orphanZeros.row.pattern.slice(2, 10), '--------');
+eq('phần control cũ giữ nguyên', orphanZeros.row.pattern.slice(10), '-1101--');
+eq('token mới đứng trước', orphanZeros.row.tokens.map((t) => t.raw).slice(0, 2), ['[ma_vv].Label', '[ma_vv]']);
+// `0` nối đuôi `1` vẫn là thân control — placeCell không được đè.
+ok(
+  'từ chối đè thân control (10--)',
+  !placeCell(R('10--: [a]'), W, 1, 1, parseToken('[b]')).ok,
+);
+
+section('placeCell — đặt sát 0 mồ côi không hút vào span (multi-move)');
+// Repro: sau remove còn `----000000-…`, đặt Label@2 + Input@3 → trước đây Input thành span 7.
+const W17b = [100, 30, 70, 121, 8, 58, 42, 8, 100, 0, 8, 58, 42, 8, 100, 0, 0];
+const multiPlace = (() => {
+  let row = R('----000000-11001-: [ty_gia].Label, [ma_nt], [ty_gia]');
+  const a = placeCell(row, W17b, 2, 1, parseToken('[zzz].Label'));
+  if (!a.ok) return a;
+  return placeCell(a.row, W17b, 3, 1, parseToken('[zzz]'));
+})();
+ok('đặt Label+Input sát dải 0 mồ côi', multiPlace.ok, multiPlace.reason);
+eq('pattern không hút 0 vào Input', multiPlace.row.pattern.slice(0, 10), '--11------');
+const multiCells = buildCells(multiPlace.row, W17b).cells.filter((c) => !c.empty);
+eq('Label span 1', multiCells[0].span, 1);
+eq('Input span 1 (không phải 7)', multiCells[1].span, 1);
+eq('Input bắt đầu cột 3', multiCells[1].col, 3);
 section('mọi phép sửa đều từ chối hàng có entity');
 // Ghi bản đã bung đè lên nguồn là xoá sạch `&Name;` và nhân bản nội dung dùng chung.
 const ent = R('1100: [&k;].Label, [&k;]');

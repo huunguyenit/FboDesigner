@@ -1,0 +1,20 @@
+{
+  "name": "fbo-license",
+  "version": "1.0.0",
+  "description": "Offline license key issue/verify cho FBO Designer (Ed25519).",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.mjs",
+    "./machine-id": "./src/machine-id.mjs"
+  },
+  "bin": {
+    "fbo-license": "./cli/fbo-license.mjs"
+  },
+  "scripts": {
+    "keypair": "node cli/fbo-license.mjs keypair",
+    "issue": "node cli/fbo-license.mjs issue",
+    "verify": "node cli/fbo-license.mjs verify",
+    "machine-id": "node cli/fbo-license.mjs machine-id"
+  }
+}

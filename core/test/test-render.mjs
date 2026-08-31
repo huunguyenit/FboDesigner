@@ -408,3 +408,17 @@ const foreignCell = renderControllerHtml(expanded.clearText, {
 });
 ok('ô [so_dd] mang data-fbo-foreign', foreignCell.html.includes('data-fbo-token="[so_dd]" data-field-name="so_dd" title="so_dd" data-fbo-foreign="1"'));
 ok('ô [so_hc] mang data-fbo-foreign', foreignCell.html.includes('data-fbo-token="[so_hc]" data-field-name="so_hc" title="so_hc" data-fbo-foreign="1"'));
+
+section('render — pattern 0 mồ côi tô DwfOrphanZero (gạch chéo đỏ)');
+const orphanHtml = renderControllerHtml([
+  '<dir table="t">',
+  '  <fields><field name="a"><header v="A" e="A"/></field></fields>',
+  '  <view id="Dir">',
+  '    <item value="50, 50, 50, 50, 50, 50"/>',
+  '    <item value="0000-1-: [a]"/>',
+  '  </view>',
+  '</dir>',
+].join('\n')).html;
+eq('bốn ô 0 mồ côi', (orphanHtml.match(/DwfOrphanZero/g) || []).length, 4);
+ok('ô "-" trống không mang orphan', /DwfEmptyCell(?! DwfOrphanZero)/.test(orphanHtml));
+ok('có data-fbo-orphan-zero', orphanHtml.includes('data-fbo-orphan-zero="1"'));

@@ -17,6 +17,7 @@ const { addColumns } = require('./add-column-host');
 const { initDialogs } = require('./dialog/dialog-service');
 const { postToActiveDesigner } = require('./designer-webview');
 const { toast } = require('./locale');
+const { initLicenseSettings, withLicense, ensureLicense } = require('./license');
 
 /**
  * Core nằm ở hai chỗ khác nhau tuỳ cách chạy, và đó là chuyện cố ý:
@@ -35,6 +36,9 @@ async function loadCore() {
 }
 
 async function activate(context) {
+  // License/Machine ID ghi Settings sớm — không phụ thuộc core/preview.
+  await initLicenseSettings(context);
+
   let core;
   try {
     core = await loadCore();
@@ -52,16 +56,15 @@ async function activate(context) {
 
   context.subscriptions.push(FboDesignerProvider.register(context, core, output));
 
-  // Lệnh mặc định mở PANEL bám theo file đang gõ, không mở custom editor. Đó là cái người ta
-  // muốn 9/10 lần: sửa XML bên trái, nhìn form bên phải, tab sang file khác thì form đi theo.
+  // Mọi lệnh nghiệp vụ đều qua withLicense — Settings (machineId / dán key) vẫn dùng được.
   context.subscriptions.push(
-    vscode.commands.registerCommand('fboDesigner.open', () => {
+    vscode.commands.registerCommand('fboDesigner.open', withLicense(context, () => {
       const doc = vscode.window.activeTextEditor?.document;
       if (doc && !isControllerDocument(doc)) {
         vscode.window.showWarningMessage(toast('extension.only_controllers'));
       }
-      PreviewPanel.reveal(context, core, output);
-    }),
+      return PreviewPanel.reveal(context, core, output);
+    })),
   );
 
   // Panel đã được VS Code khôi phục từ phiên trước vẫn cần nối lại event của extension,
@@ -69,36 +72,50 @@ async function activate(context) {
   context.subscriptions.push(
     vscode.window.registerWebviewPanelSerializer('fboDesigner.preview', {
       async deserializeWebviewPanel(webviewPanel) {
+        const status = await ensureLicense(context, { silent: true });
+        if (!status) {
+          const { lockedWebviewHtml } = require('./license');
+          const { t } = require('./locale');
+          webviewPanel.webview.html = lockedWebviewHtml(t('extension.license_locked_html'));
+          return;
+        }
         PreviewPanel.revive(context, core, output, webviewPanel);
       },
     }),
   );
 
-  // Lọc nhanh đứng RIÊNG một lệnh, không nằm trong menu chuột phải của designer: nó vừa sửa XML
-  // vừa sinh script chạy trên database của khách, tức nặng hơn hẳn mọi thao tác kéo thả khác.
   context.subscriptions.push(
-    vscode.commands.registerCommand('fboDesigner.declareFilter', () => declareFilter(core, output)),
-  );
-
-  // Thêm cột đứng RIÊNG một lệnh, cùng lý do với lọc nhanh: nó sinh script chạy trên database
-  // của khách, tức nặng hơn hẳn mọi thao tác kéo thả khác. Khác lọc nhanh ở chỗ KHÔNG sửa XML.
-  context.subscriptions.push(
-    vscode.commands.registerCommand('fboDesigner.addColumns', () => addColumns(core, output)),
+    vscode.commands.registerCommand(
+      'fboDesigner.declareFilter',
+      withLicense(context, () => declareFilter(core, output)),
+    ),
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('fboDesigner.showDialogDemo', async () => {
-      const result = await dialogService.demo();
-      output.appendLine(`Dialog demo result: ${JSON.stringify(result)}`);
-    }),
+    vscode.commands.registerCommand(
+      'fboDesigner.addColumns',
+      withLicense(context, () => addColumns(core, output)),
+    ),
   );
 
-  // Delete không tới document của webview — host bắt phím rồi gửi hotkey sang webview đang active.
   context.subscriptions.push(
-    vscode.commands.registerCommand('fboDesigner.deleteSelection', (args) => {
-      const shiftKey = !!(args && args.shift);
-      postToActiveDesigner({ type: 'hotkey', key: 'Delete', shiftKey });
-    }),
+    vscode.commands.registerCommand(
+      'fboDesigner.showDialogDemo',
+      withLicense(context, async () => {
+        const result = await dialogService.demo();
+        output.appendLine(`Dialog demo result: ${JSON.stringify(result)}`);
+      }),
+    ),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'fboDesigner.deleteSelection',
+      withLicense(context, (args) => {
+        const shiftKey = !!(args && args.shift);
+        postToActiveDesigner({ type: 'hotkey', key: 'Delete', shiftKey });
+      }),
+    ),
   );
 }
 

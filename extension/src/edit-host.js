@@ -238,64 +238,92 @@ async function applySplice(plan, hostDocument, output, label = 'sửa form') {
 }
 
 /**
- * Hỏi để dựng một control MỚI: kiểu, tên field, nhãn.
+ * Hỏi để dựng một control MỚI — form ngắn theo thuộc tính `<field>` thật
+ * (name, header v/e, type, dataFormatString, items@style).
  *
- * Thêm control nghĩa là thêm một thứ CHƯA CÓ — nên nó tạo luôn khai báo `<field>`. Bản trước
- * cho chọn trong danh sách field đã khai, tức chỉ đặt thêm một ô cho field sẵn có; đó là việc
- * khác, và nó khiến không có đường nào tạo field mới từ designer.
+ * Tham chiếu: Dir.xsd / Grid.xsd + mẫu HOATP `Dir/zzSQTran.xml`. Không liệt kê hết thuộc
+ * tính XSD — mục đích nhập nhanh; phần còn lại sửa tay trên XML.
  *
  * @returns {Promise<{xml:string, tokens:string[], name:string}|null>}
  */
 async function askNewControl(core, { width = false } = {}) {
-  const kind = await vscode.window.showQuickPick(
-    core.FIELD_KINDS.map((k) => ({ label: k.label, detail: k.detail, id: k.id })),
-    { title: `Thêm ${width ? 'cột' : 'control'} — chọn kiểu`, matchOnDetail: true },
-  );
-  if (!kind) return null;
+  const context = width ? 'grid' : 'form';
+  const builtDlg = typeof core.buildAddControlDialog === 'function'
+    ? core.buildAddControlDialog({ context })
+    : null;
 
-  const name = await vscode.window.showInputBox({
-    title: `Thêm ${kind.label} — tên field`,
-    placeHolder: 'vd: ma_kh, ngay_ct, t_tien',
-    validateInput: (v) => (core.isValidFieldName(v)
-      ? null
-      : 'Tên field: chữ/số/gạch dưới, bắt đầu bằng chữ; có thể kết thúc bằng %l'),
+  const body = builtDlg?.body || [
+    {
+      type: 'field',
+      name: 'name',
+      label: t('extension.add_control_name'),
+      control: 'text',
+      placeholder: t('extension.add_control_name_ph'),
+      required: true,
+    },
+    {
+      type: 'field-row',
+      fields: [
+        {
+          type: 'field',
+          name: 'header_v',
+          label: t('extension.add_control_header_v'),
+          control: 'text',
+          placeholder: t('extension.add_control_header_ph'),
+        },
+        {
+          type: 'field',
+          name: 'header_e',
+          label: t('extension.add_control_header_e'),
+          control: 'text',
+          placeholder: t('extension.add_control_header_ph'),
+        },
+      ],
+    },
+  ];
+
+  const result = await dialogs().show({
+    type: 'info',
+    title: width ? t('extension.add_column_dialog_title') : t('extension.add_control_dialog_title'),
+    size: builtDlg?.size || 'large',
+    body,
+    buttons: [
+      { id: 'cancel', label: t('dialog.btn.cancel'), variant: 'secondary', action: 'cancel' },
+      { id: 'ok', label: t('dialog.btn.add'), variant: 'primary', action: 'confirm' },
+    ],
   });
-  if (!name) return null;
+  if (!result || result.action === 'close' || result.action === 'cancel') return null;
 
-  const label = await vscode.window.showInputBox({
-    title: `Thêm ${kind.label} — nhãn tiếng Việt`,
-    placeHolder: 'bỏ trống thì lấy luôn tên field',
-  });
-  if (label === undefined) return null; // Esc — khác hẳn với bỏ trống
+  const values = result.values || {};
+  const name = String(values.name || '').trim();
 
-  /*
-   * Bề rộng CHỈ hỏi cho cột lưới, và hỏi với 100 điền sẵn.
-   *
-   * Cột lưới có bề rộng riêng khai ở `<field width="N">`; không khai thì runtime tự cho 100px —
-   * tức con số vẫn tồn tại, chỉ là nằm ở chỗ không ai đọc được. Điền sẵn 100 nên người dùng chỉ
-   * cần Enter là đi tiếp, mà vẫn đổi được ngay tại đây thay vì tạo xong rồi kéo.
-   *
-   * Ô của FORM không hỏi: nó không có bề rộng riêng, px của nó nằm ở list cột của vùng
-   * (`<item value="100, 60, …">`). Hỏi ở đó là hứa một thứ định dạng không có.
-   */
-  let px;
+  const spec = typeof core.valuesToFieldSpec === 'function'
+    ? core.valuesToFieldSpec(values, { context })
+    : {
+      name,
+      headerV: values.header_v,
+      headerE: values.header_e,
+      type: values.type,
+      dataFormatString: values.dataFormatString,
+      style: values.style,
+      ...(width ? { width: values.width } : {}),
+    };
+
   if (width) {
-    const answer = await vscode.window.showInputBox({
-      title: `Thêm ${kind.label} — bề rộng cột (px)`,
-      value: '100',
-      prompt: 'Enter để lấy 100px, mức runtime tự dùng khi cột không khai width',
-      validateInput: (v) => (/^\d+$/.test(String(v).trim()) ? null : 'Bề rộng là số nguyên px, ví dụ 100'),
-    });
-    if (answer === undefined) return null; // Esc
-    px = Number(String(answer).trim());
+    const answer = String(spec.width ?? values.width ?? '').trim();
+    if (!/^\d+$/.test(answer)) {
+      vscode.window.showWarningMessage(toast('extension.add_control_width_invalid'));
+      return null;
+    }
+    spec.width = Number(answer);
   }
 
-  const built = core.buildField(kind.id, name, label, null, width ? { width: px } : {});
+  const built = core.buildField(spec);
   if (!built.ok) {
     warnReason(built.reason);
     return null;
   }
-  return { ...built, name: name.trim(), width: px };
+  return { ...built, name: built.name || name, width: width ? Number(spec.width) : undefined };
 }
 
 /**
@@ -921,53 +949,36 @@ async function handleColumnEdit(msg, core, hostDocument, output, rebuild) {
     }
     plan = core.planMoveColumn(grid.model, msg.column, anchor, side, sourceText);
   } else {
-    // Chèn cột: chọn trong các field ĐÃ KHAI mà lưới chưa dùng, hoặc tạo hẳn field mới.
-    const inGrid = new Set(grid.model.columns.map((c) => c.name));
-    const spare = core.scanFields(core.readSource(grid.file).text)
-      .map((f) => f.name).filter((n) => !inGrid.has(n));
-
-    const pickedNew = { label: '$(add) Tạo field mới…', isNew: true };
-    const choice = await vscode.window.showQuickPick(
-      [pickedNew, ...spare.map((n) => ({ label: n }))],
-      { title: `Chèn cột ${msg.side === 'left' ? 'bên trái' : 'bên phải'} "${msg.column}"` },
-    );
-    if (!choice) return false;
-
-    let name = choice.label;
-    let declare = null;
-    if (choice.isNew) {
-      // `width: true` — cột lưới có bề rộng riêng, hỏi luôn lúc tạo. Xem `askNewControl`.
-      const made = await askNewControl(core, { width: true });
-      if (!made) return false;
-      name = made.name;
-      /*
-       * Khai báo `<field>` của một cột lưới đi vào `<fields>` CỦA CHÍNH FILE LƯỚI — không bao
-       * giờ vào controller chứa nó.
-       *
-       * Bản trước dùng `fieldsHost`, thứ rơi về controller đang mở khi file lưới không có
-       * `<fields>`. Với lưới nhúng thì đó là một cái bẫy im lặng: cột được thêm vào `<view>` của
-       * `Grid/X.xml` trong khi khai báo của nó nằm ở `Dir/Y.xml`, hai file khác hẳn nhau. Runtime
-       * đọc lưới thì không thấy `<field>` nào tên ấy — cột hiện ra rỗng, và không có gì nối hai
-       * chỗ đó lại với nhau khi đi tìm nguyên nhân.
-       *
-       * Không có `<fields>` trong file lưới thì TỪ CHỐI kèm lý do, chứ không đoán sang file khác.
-       */
-      if (!/<fields/i.test(sourceText)) {
-        vscode.window.showWarningMessage(
-          `FBO Designer: ${grid.file.split(/[\\/]/).pop()} không có <fields> để thêm khai báo cột vào.`
-          + ' Thêm tay khối <fields> rồi thử lại — khai báo cột lưới không được đặt sang file khác.',
-        );
-        return false;
-      }
-      declare = core.planAddField(sourceText, made.xml, made.name);
-      if (!declare.ok) {
-        warnReason(declare.reason);
-        return false;
-      }
-      declare = { ...declare, splice: { ...declare.splice, file: grid.file } };
+    // Chèn cột = tạo field mới (cùng dialog Basic/Advanced với thêm control; context grid → có width).
+    const made = await askNewControl(core, { width: true });
+    if (!made) return false;
+    /*
+     * Khai báo `<field>` của một cột lưới đi vào `<fields>` CỦA CHÍNH FILE LƯỚI — không bao
+     * giờ vào controller chứa nó.
+     *
+     * Bản trước dùng `fieldsHost`, thứ rơi về controller đang mở khi file lưới không có
+     * `<fields>`. Với lưới nhúng thì đó là một cái bẫy im lặng: cột được thêm vào `<view>` của
+     * `Grid/X.xml` trong khi khai báo của nó nằm ở `Dir/Y.xml`, hai file khác hẳn nhau. Runtime
+     * đọc lưới thì không thấy `<field>` nào tên ấy — cột hiện ra rỗng, và không có gì nối hai
+     * chỗ đó lại với nhau khi đi tìm nguyên nhân.
+     *
+     * Không có `<fields>` trong file lưới thì TỪ CHỐI kèm lý do, chứ không đoán sang file khác.
+     */
+    if (!/<fields/i.test(sourceText)) {
+      vscode.window.showWarningMessage(
+        `FBO Designer: ${grid.file.split(/[\\/]/).pop()} không có <fields> để thêm khai báo cột vào.`
+        + ' Thêm tay khối <fields> rồi thử lại — khai báo cột lưới không được đặt sang file khác.',
+      );
+      return false;
     }
-    plan = core.planInsertColumn(grid.model, msg.column, msg.side, name, sourceText);
-    if (plan.ok && declare) plan = { ...plan, extra: declare.splice };
+    let declare = core.planAddField(sourceText, made.xml, made.name);
+    if (!declare.ok) {
+      warnReason(declare.reason);
+      return false;
+    }
+    declare = { ...declare, splice: { ...declare.splice, file: grid.file } };
+    plan = core.planInsertColumn(grid.model, msg.column, msg.side, made.name, sourceText);
+    if (plan.ok) plan = { ...plan, extra: declare.splice };
   }
 
   if (!plan.ok) {

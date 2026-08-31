@@ -1,5 +1,256 @@
 {
   "namePattern": "^[A-Za-z_][\\w$]*(%l)?$",
+  "types": [
+    "String",
+    "Decimal",
+    "Boolean",
+    "DateTime",
+    "Int32",
+    "Int64",
+    "Double",
+    "Single",
+    "Byte"
+  ],
+  "styles": [
+    "AutoComplete",
+    "Lookup",
+    "Numeric",
+    "Mask",
+    "DropDownList",
+    "ListBox",
+    "CheckBox",
+    "RadioButtonList",
+    "TextBox",
+    "Grid"
+  ],
+  "boolOptions": [
+    { "value": "", "labelKey": "extension.add_control_type_none" },
+    { "value": "true", "label": "true" },
+    { "value": "false", "label": "false" }
+  ],
+  "alignOptions": [
+    { "value": "", "labelKey": "extension.add_control_type_none" },
+    { "value": "left", "label": "left" },
+    { "value": "center", "label": "center" },
+    { "value": "right", "label": "right" }
+  ],
+  "formatOptions": [
+    "@upperCaseFormat",
+    "@lowercaseFormat",
+    "@datetimeFormat",
+    "@exchangeRateInputFormat",
+    "@exchangeRateViewFormat",
+    "@quantityInputFormat",
+    "@quantityViewFormat",
+    "@baseCurrencyAmountInputFormat",
+    "@baseCurrencyAmountViewFormat",
+    "@foreignCurrencyAmountInputFormat",
+    "@foreignCurrencyAmountViewFormat",
+    "@baseCurrencyPriceInputFormat",
+    "@baseCurrencyPriceViewFormat",
+    "@foreignCurrencyPriceInputFormat",
+    "@foreignCurrencyPriceViewFormat",
+    "@generalCurrencyAmountInputFormat",
+    "@generalCurrencyAmountViewFormat",
+    "@generalCurrencyPriceInputFormat",
+    "@generalCurrencyPriceViewFormat",
+    "@markInputFormat",
+    "@markViewFormat",
+    "@analysisInputFormat",
+    "@analysisViewFormat",
+    "@coefficientInputFormat",
+    "@coefficientViewFormat",
+    "@CapacityNumberInputFormat",
+    "@CapacityNumberViewFormat",
+    "@HourInputFormat",
+    "@HourViewFormat"
+  ],
+  "softDefaults": {
+    "byStyle": {
+      "Numeric": {
+        "type": "Decimal",
+        "dataFormatString": "@baseCurrencyAmountInputFormat",
+        "clientDefault": "0",
+        "defaultValue": "0"
+      }
+    },
+    "byType": {
+      "DateTime": {
+        "dataFormatString": "@datetimeFormat"
+      },
+      "Boolean": {
+        "clientDefault": "Default",
+        "defaultValue": "false",
+        "labelAfter": true
+      }
+    }
+  },
+  "dialog": {
+    "defaultMode": "basic",
+    "modes": [
+      { "id": "basic", "labelKey": "extension.dialog_mode_basic" },
+      { "id": "advanced", "labelKey": "extension.dialog_mode_advanced" }
+    ],
+    "groups": [
+      {
+        "id": "identity",
+        "labelKey": "extension.field_group_identity",
+        "modes": ["basic", "advanced"],
+        "attrs": ["name", "header", "width"]
+      },
+      {
+        "id": "data",
+        "labelKey": "extension.field_group_data",
+        "modes": ["advanced"],
+        "attrs": ["type", "dataFormatString", "align", "maxLength", "allowNulls", "clientDefault", "defaultValue"]
+      },
+      {
+        "id": "items",
+        "labelKey": "extension.field_group_items",
+        "modes": ["advanced"],
+        "attrs": ["style"]
+      },
+      {
+        "id": "behavior",
+        "labelKey": "extension.field_group_behavior",
+        "modes": ["advanced"],
+        "attrs": ["readOnly", "disabled", "inactivate", "external", "hidden", "filter"]
+      },
+      {
+        "id": "layout",
+        "labelKey": "extension.field_group_layout",
+        "modes": ["advanced"],
+        "attrs": ["categoryIndex", "rows"]
+      }
+    ]
+  },
+  "attrs": {
+    "name": {
+      "control": "text",
+      "labelKey": "extension.add_control_name",
+      "placeholderKey": "extension.add_control_name_ph",
+      "required": true,
+      "xml": { "place": "name" }
+    },
+    "header": {
+      "control": "header",
+      "labelVKey": "extension.add_control_header_v",
+      "labelEKey": "extension.add_control_header_e",
+      "placeholderKey": "extension.add_control_header_ph",
+      "xml": { "place": "header" }
+    },
+    "width": {
+      "control": "text",
+      "labelKey": "extension.add_control_width",
+      "placeholder": "100",
+      "value": "100",
+      "required": true,
+      "hintKey": "extension.add_field_width_prompt",
+      "when": "grid",
+      "xml": { "place": "attribute", "name": "width" }
+    },
+    "type": {
+      "control": "select",
+      "labelKey": "extension.add_control_type",
+      "optionsKey": "types",
+      "allowEmpty": true,
+      "emptyLabelKey": "extension.add_control_type_none",
+      "xml": { "place": "attribute", "name": "type" }
+    },
+    "dataFormatString": {
+      "control": "combobox",
+      "labelKey": "extension.add_control_format",
+      "placeholderKey": "extension.add_control_format_ph",
+      "optionsKey": "formatOptions",
+      "xml": { "place": "attribute", "name": "dataFormatString" }
+    },
+    "align": {
+      "control": "select",
+      "label": "align",
+      "optionsKey": "alignOptions",
+      "xml": { "place": "attribute", "name": "align" }
+    },
+    "maxLength": {
+      "control": "text",
+      "label": "maxLength",
+      "placeholder": "vd: 33",
+      "xml": { "place": "attribute", "name": "maxLength" }
+    },
+    "allowNulls": {
+      "control": "select",
+      "label": "allowNulls",
+      "optionsKey": "boolOptions",
+      "xml": { "place": "attribute", "name": "allowNulls" }
+    },
+    "clientDefault": {
+      "control": "text",
+      "label": "clientDefault",
+      "placeholder": "vd: 0, Default, {ngay_ct}",
+      "xml": { "place": "attribute", "name": "clientDefault" }
+    },
+    "defaultValue": {
+      "control": "text",
+      "label": "defaultValue",
+      "placeholder": "vd: false, 0",
+      "xml": { "place": "attribute", "name": "defaultValue" }
+    },
+    "style": {
+      "control": "select",
+      "labelKey": "extension.add_control_style",
+      "optionsKey": "styles",
+      "allowEmpty": true,
+      "emptyLabelKey": "extension.add_control_style_none",
+      "xml": { "place": "items", "attr": "style" }
+    },
+    "readOnly": {
+      "control": "select",
+      "label": "readOnly",
+      "optionsKey": "boolOptions",
+      "xml": { "place": "attribute", "name": "readOnly" }
+    },
+    "disabled": {
+      "control": "select",
+      "label": "disabled",
+      "optionsKey": "boolOptions",
+      "xml": { "place": "attribute", "name": "disabled" }
+    },
+    "inactivate": {
+      "control": "select",
+      "label": "inactivate",
+      "optionsKey": "boolOptions",
+      "xml": { "place": "attribute", "name": "inactivate" }
+    },
+    "external": {
+      "control": "select",
+      "label": "external",
+      "optionsKey": "boolOptions",
+      "xml": { "place": "attribute", "name": "external" }
+    },
+    "hidden": {
+      "control": "select",
+      "label": "hidden",
+      "optionsKey": "boolOptions",
+      "xml": { "place": "attribute", "name": "hidden" }
+    },
+    "filter": {
+      "control": "text",
+      "label": "filter",
+      "placeholder": "biểu thức lọc lookup",
+      "xml": { "place": "attribute", "name": "filter" }
+    },
+    "categoryIndex": {
+      "control": "text",
+      "label": "categoryIndex",
+      "placeholder": "vd: 1",
+      "xml": { "place": "attribute", "name": "categoryIndex" }
+    },
+    "rows": {
+      "control": "text",
+      "label": "rows",
+      "placeholder": "chiều cao lưới nhúng (px)",
+      "xml": { "place": "attribute", "name": "rows" }
+    }
+  },
   "kinds": [
     {
       "id": "textbox",
@@ -45,9 +296,9 @@
     {
       "id": "dropdownlist",
       "label": "Dropdownlist",
-      "detail": "items@style=\"Dropdownlist\"",
+      "detail": "items@style=\"DropDownList\"",
       "attrs": {},
-      "items": "Dropdownlist"
+      "items": "DropDownList"
     },
     {
       "id": "autocomplete",

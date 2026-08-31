@@ -15,7 +15,7 @@ import {
   planRemoveControl, planInlineEntity,
 } from '../src/edit.mjs';
 import { moveCell, swapCells } from '../src/item-value.mjs';
-import { FIELD_KINDS, buildField, isValidFieldName } from '../src/field-template.mjs';
+import { FIELD_KINDS, FIELD_TYPES, FIELD_STYLES, buildField, buildAddControlDialog, valuesToFieldSpec, isValidFieldName } from '../src/field-template.mjs';
 import { expandEntities, refResolvedSpan } from '../src/entities.mjs';
 import { applySplices } from '../src/spans.mjs';
 
@@ -219,42 +219,71 @@ eq('đúng một hàng đổi', changed.length, 1);
 eq('và là hàng đã nhắm', changed[0].index, rowTen.index);
 
 section('thêm control = tạo field MỚI, không phải chọn field cũ');
-// Bảy kiểu đều là "textbox cộng thêm gì đó"; khác nhau ở `type`, `dataFormatString` và
-// `<items style>` — ba thứ runtime dùng để chọn control.
-eq('đủ bảy kiểu', FIELD_KINDS.map((k) => k.id),
-  ['textbox', 'datetime', 'numeric', 'checkbox', 'dropdownlist', 'autocomplete', 'lookup']);
+// Form nhập bám thuộc tính thật trên `<field>` (type / dataFormatString / items@style).
+eq('catalog type có String/Decimal/Boolean/DateTime', FIELD_TYPES.slice(0, 4), ['String', 'Decimal', 'Boolean', 'DateTime']);
+ok('catalog type mở rộng Int32…', FIELD_TYPES.includes('Int32'));
+eq('catalog style có AutoComplete/Lookup/Numeric/Mask', FIELD_STYLES.slice(0, 4), ['AutoComplete', 'Lookup', 'Numeric', 'Mask']);
+ok('catalog style mở rộng DropDownList', FIELD_STYLES.includes('DropDownList'));
 
-const tb = buildField('textbox', 'ma_kh', 'Mã khách');
+section('dialog thêm control — basic / advanced từ fields.json');
+const dlgForm = buildAddControlDialog({ context: 'form' });
+ok('có mode-toggle', dlgForm.body.some((b) => b.type === 'mode-toggle'));
+const formGroups = dlgForm.body.filter((b) => b.type === 'group');
+ok('basic có nhóm identity', formGroups.some((g) => g.id === 'identity' && g.modes.includes('basic')));
+ok('advanced có nhóm data/behavior', formGroups.some((g) => g.id === 'data') && formGroups.some((g) => g.id === 'behavior'));
+ok('form không hỏi width', !JSON.stringify(dlgForm.body).includes('"name":"width"'));
+const dlgGrid = buildAddControlDialog({ context: 'grid' });
+ok('grid hỏi width trong identity', JSON.stringify(dlgGrid.body).includes('"name":"width"'));
+const mapped = valuesToFieldSpec({
+  name: 'ma_vv', header_v: 'Vụ việc', type: 'String', readOnly: 'true', style: 'Lookup',
+}, { context: 'form' });
+eq('values → spec name', mapped.name, 'ma_vv');
+eq('values → spec readOnly', mapped.readOnly, 'true');
+eq('values → spec style', mapped.style, 'Lookup');
+ok('buildField nhận attr advanced',
+  buildField(mapped).xml.includes('readOnly="true"') && buildField(mapped).xml.includes('style="Lookup"'));
+
+const tb = buildField({ name: 'ma_kh', headerV: 'Mã khách' });
 ok('textbox dựng được', tb.ok);
 eq('khai báo tối giản, không bịa thuộc tính', tb.xml,
   '<field name="ma_kh"><header v="Mã khách" e="Mã khách"/></field>');
 // "textbox: có label + input" — một control ra HAI ô.
 eq('ra hai token: nhãn rồi ô nhập', tb.tokens, ['[ma_kh].Label', '[ma_kh]']);
 
-// Mẫu lấy từ field THẬT trong Dir/Customer.xml, không phải bịa cho hợp lý.
+// Mẫu lấy từ field THẬT trong Dir/zzSQTran.xml (HOATP), không phải bịa cho hợp lý.
 ok('datetime có type + dataFormatString',
-  buildField('datetime', 'ngay_gh', 'Đến ngày').xml.includes('type="DateTime" dataFormatString="@datetimeFormat"'));
-const num = buildField('numeric', 't_tien', 'Tiền');
-ok('numeric là Decimal', num.xml.includes('type="Decimal"'));
+  buildField({ name: 'ngay_hl', headerV: 'Hiệu lực đến', headerE: 'Effective to', type: 'DateTime' })
+    .xml.includes('type="DateTime" dataFormatString="@datetimeFormat"'));
+const num = buildField({ name: 't_tien', headerV: 'Tiền', style: 'Numeric' });
+ok('numeric suy ra Decimal', num.xml.includes('type="Decimal"'));
 ok('numeric có items style Numeric', num.xml.includes('<items style="Numeric"/>'));
-ok('checkbox là Boolean', buildField('checkbox', 'kh_yn', 'Khách').xml.includes('type="Boolean"'));
+ok('checkbox là Boolean', buildField({ name: 'kh_yn', headerV: 'Khách', type: 'Boolean' })
+  .xml.includes('type="Boolean"'));
 // Nhãn checkbox nằm BÊN PHẢI hộp tick, nên token đảo thứ tự so với mọi control khác.
-eq('checkbox: ô tick trước, nhãn sau', buildField('checkbox', 'kh_yn', 'K').tokens, ['[kh_yn]', '[kh_yn].Label']);
-for (const [id, style] of [['dropdownlist', 'Dropdownlist'], ['autocomplete', 'AutoComplete'], ['lookup', 'Lookup']]) {
-  ok(`${id} → items style ${style}`, buildField(id, 'x', 'X').xml.includes(`<items style="${style}"/>`));
+eq('checkbox: ô tick trước, nhãn sau',
+  buildField({ name: 'kh_yn', headerV: 'K', type: 'Boolean' }).tokens,
+  ['[kh_yn]', '[kh_yn].Label']);
+for (const style of ['AutoComplete', 'Lookup', 'Mask']) {
+  ok(`style ${style}`, buildField({ name: 'x', headerV: 'X', style }).xml.includes(`<items style="${style}"/>`));
 }
+
+// Chữ ký cũ (kindId) vẫn chạy — chỗ test/migration chưa đổi hết.
+eq('đủ bảy kiểu cũ', FIELD_KINDS.map((k) => k.id),
+  ['textbox', 'datetime', 'numeric', 'checkbox', 'dropdownlist', 'autocomplete', 'lookup']);
+ok('kind dropdownlist → DropDownList (XSD)',
+  buildField('dropdownlist', 'x', 'X').xml.includes('<items style="DropDownList"/>'));
 
 section('tên field và nhãn — kiểm trước khi ghi, không ghi rồi mới biết');
 ok('tên hợp lệ', isValidFieldName('ma_kh') && isValidFieldName('ten_tk%l'));
 ok('tên có dấu cách thì không', !isValidFieldName('ma kh'));
 ok('tên bắt đầu bằng số thì không', !isValidFieldName('1ma'));
-ok('buildField từ chối tên hỏng', !buildField('textbox', 'ma kh', 'X').ok);
-ok('kiểu lạ thì từ chối', !buildField('khong_co', 'ma_kh', 'X').ok);
+ok('buildField từ chối tên hỏng', !buildField({ name: 'ma kh', headerV: 'X' }).ok);
+ok('type lạ thì từ chối', !buildField({ name: 'ma_kh', type: 'Weird' }).ok);
 // Bỏ trống nhãn thì lấy tên field, không để nhãn rỗng.
-ok('nhãn rỗng rơi về tên field', buildField('textbox', 'ma_kh', '').xml.includes('v="ma_kh"'));
+ok('nhãn rỗng rơi về tên field', buildField({ name: 'ma_kh', headerV: '' }).xml.includes('v="ma_kh"'));
 // Nhãn có ký tự XML phải được thoát, nếu không file thành không đọc được.
 ok('nhãn có & và " được thoát',
-  buildField('textbox', 'x', 'A & B "c"').xml.includes('v="A &amp; B &quot;c&quot;"'));
+  buildField({ name: 'x', headerV: 'A & B "c"' }).xml.includes('v="A &amp; B &quot;c&quot;"'));
 
 section('planAddField — chèn khai báo vào cuối <fields>');
 const decl = planAddField(DOC, '<field name="moi"><header v="Mới" e="New"/></field>', 'moi');

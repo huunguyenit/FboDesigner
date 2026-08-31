@@ -66,7 +66,11 @@ class OverlayDialogs {
    */
   handleMessage(msg) {
     if (!msg || msg.type !== 'dialog-result') return false;
-    this.settle(msg.id, { action: msg.action, buttonId: msg.buttonId });
+    this.settle(msg.id, {
+      action: msg.action,
+      buttonId: msg.buttonId,
+      values: msg.values && typeof msg.values === 'object' ? msg.values : null,
+    });
     return true;
   }
 

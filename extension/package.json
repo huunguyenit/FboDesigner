@@ -2,7 +2,7 @@
   "name": "fbo-designer",
   "displayName": "FBO Designer",
   "description": "Xem và kéo thả thiết kế form FBO",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "NGUYENTDH",
   "private": true,
   "icon": "icon.png",
@@ -19,6 +19,7 @@
   ],
   "main": "./src/extension.js",
   "activationEvents": [
+    "onStartupFinished",
     "onWebviewPanel:fboDesigner.preview"
   ],
   "contributes": {
@@ -199,6 +200,22 @@
           "default": "ask",
           "category": "FBO Designer",
           "description": "%fboDesigner.entityEditTarget.desc%"
+        },
+        "fboDesigner.licenseKey": {
+          "type": "string",
+          "default": "",
+          "order": 1,
+          "scope": "application",
+          "category": "FBO Designer",
+          "description": "%fboDesigner.licenseKey.desc%"
+        },
+        "fboDesigner.machineId": {
+          "type": "string",
+          "default": "",
+          "order": 2,
+          "scope": "application",
+          "category": "FBO Designer",
+          "description": "%fboDesigner.machineId.desc%"
         }
       }
     }

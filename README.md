@@ -78,6 +78,38 @@ Chạy **Sinh script thêm cột cho field mới** trên form/lưới: extension
 
 
 
+## Kích hoạt License
+
+Mọi tính năng Designer chỉ chạy khi đã có **License Key** hợp lệ trên máy của bạn.
+
+### 1. Lấy Machine ID
+
+1. Cài / mở extension **FBO Designer**.
+2. Mở **Settings** (`Ctrl+,`) → gõ `FBO Designer` hoặc `machineId`.
+3. Copy giá trị **Machine Id** (chuỗi hex, ví dụ `aec330dc91f04a326cf470d5d2ddad61`).
+
+Gửi **Machine Id** + tên công ty / bộ phận cho người cấp license (admin nội bộ).
+
+### 2. Nhận và dán License Key
+
+1. Admin phát hành key (thường dạng `FBO1....`, hạn dùng theo thỏa thuận).
+2. Trong Settings → **FBO Designer** → **License Key**, dán toàn bộ key rồi Enter / lưu.
+3. Extension kích hoạt offline: không cần gọi server khi dùng hàng ngày.
+
+Khi thành công, **License Key** vẫn hiện trong Settings để bạn đối chiếu. Xóa hết ô License Key = hủy kích hoạt trên máy đó.
+
+### 3. Khi bị khóa
+
+| Hiện tượng | Việc cần làm |
+| ---------- | ------------ |
+| Thông báo cần License / trang “đang khoá” | Dán key vào Settings như trên |
+| License hết hạn | Xin admin key mới, dán đè lên key cũ |
+| Machine ID không khớp | Gửi đúng Machine Id máy hiện tại để admin cấp lại |
+
+Machine Id gắn với máy; đổi máy / cài lại Windows thường cần key mới (hoặc key đã gồm Machine Id máy mới).
+
+
+
 ## Cách dùng nhanh
 
 

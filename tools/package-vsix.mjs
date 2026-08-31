@@ -54,6 +54,17 @@ const CONTENT = [
   ['extension/src/add-column-host.js', 'extension/src/add-column-host.js'],
   ['extension/src/sql-host.js', 'extension/src/sql-host.js'],
   ['extension/src/locale.js', 'extension/src/locale.js'],
+  ['extension/src/license/index.js', 'extension/src/license/index.js'],
+  ['extension/src/license/public-key.js', 'extension/src/license/public-key.js'],
+  // license lib (ESM) — verify offline; private key không bao giờ đóng gói.
+  ['license/src/index.mjs', 'extension/license/index.mjs'],
+  ['license/src/codec.mjs', 'extension/license/codec.mjs'],
+  ['license/src/crypto.mjs', 'extension/license/crypto.mjs'],
+  ['license/src/payload.mjs', 'extension/license/payload.mjs'],
+  ['license/src/machine-id.mjs', 'extension/license/machine-id.mjs'],
+  ['license/src/key.mjs', 'extension/license/key.mjs'],
+  ['license/src/verify.mjs', 'extension/license/verify.mjs'],
+  ['license/src/store.mjs', 'extension/license/store.mjs'],
   // core chép VÀO gói: khi cài từ .vsix thì không có package anh em bên cạnh nữa.
   ['core/src/index.mjs', 'extension/core/index.mjs'],
   ['core/src/encoding.mjs', 'extension/core/encoding.mjs'],
@@ -297,28 +308,35 @@ for (const [from, to] of CONTENT) {
   fs.mkdirSync(path.dirname(dst), { recursive: true });
   /*
    * README trong panel Details KHÔNG đọc file local của extension đã cài.
-   * Relative `docs/images/…` bị resolve qua `repository` HTTPS (GitHub) — ảnh chưa push
-   * hoặc nhánh không khớp thì vỡ icon. Nhúng base64 lúc đóng gói thì VSIX tự đủ, không
-   * phụ thuộc remote.
+   * Relative `docs/images/…` resolve qua `repository` HTTPS — ổn khi ảnh đã có trên remote.
+   *
+   * KHÔNG nhúng base64: 8 ảnh screenshot (~210KB) → README ~285KB data-URI; mở Details là
+   * decode hết một lúc và Cursor/VS Code chết OOM (`reason: 'oom'`). Viết lại thành
+   * raw.githubusercontent.com trên nhánh mặc định của repo.
    */
   if (from.replace(/\\/g, '/') === 'README.md') {
+    const repo = String(manifest.repository?.url || '')
+      .replace(/\.git$/i, '')
+      .replace(/^git\+/i, '');
+    const m = /github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?$/i.exec(repo);
+    if (!m) {
+      process.stderr.write('package.json.repository phải là HTTPS GitHub để README ảnh resolve được\n');
+      process.exit(1);
+    }
+    const rawBase = `https://raw.githubusercontent.com/${m[1]}/${m[2]}/master`;
     const md = fs.readFileSync(src, 'utf8');
-    const mimeOf = (ext) => ({
-      png: 'image/png', gif: 'image/gif', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
-    }[ext] || 'application/octet-stream');
     let missing = 0;
-    const inlined = md.replace(/!\[([^\]]*)\]\((docs\/images\/[^)\s]+)\)/g, (full, alt, rel) => {
+    const rewritten = md.replace(/!\[([^\]]*)\]\((docs\/images\/[^)\s]+)\)/g, (full, alt, rel) => {
       const abs = path.join(ROOT, rel);
       if (!fs.existsSync(abs)) {
-        process.stderr.write(`README ảnh thiếu, giữ nguyên link: ${rel}\n`);
+        process.stderr.write(`README ảnh thiếu: ${rel}\n`);
         missing += 1;
         return full;
       }
-      const mime = mimeOf(path.extname(abs).slice(1).toLowerCase());
-      return `![${alt}](data:${mime};base64,${fs.readFileSync(abs).toString('base64')})`;
+      return `![${alt}](${rawBase}/${rel.replace(/\\/g, '/')})`;
     });
     if (missing) process.exit(1);
-    fs.writeFileSync(dst, inlined.replace(/\r\n/g, '\n'), 'utf8');
+    fs.writeFileSync(dst, rewritten.replace(/\r\n/g, '\n'), 'utf8');
     continue;
   }
   fs.copyFileSync(src, dst);

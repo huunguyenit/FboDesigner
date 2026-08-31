@@ -7,6 +7,47 @@ function buildTextContent(value) {
   return escapeHtml(String(value ?? '')).replace(/\n/g, '<br>');
 }
 
+function buildFieldMarkup(item) {
+  if (!item || typeof item !== 'object') return '';
+  const name = String(item.name || '').trim();
+  if (!name) return '';
+  const id = `dlg-field-${escapeHtml(name)}`;
+  const label = escapeHtml(item.label || name);
+  const required = item.required ? ' required' : '';
+  const value = item.value !== undefined && item.value !== null ? String(item.value) : '';
+  let control;
+  if (item.control === 'select') {
+    const options = (item.options || []).map((opt) => {
+      const v = String(opt.value ?? '');
+      const text = opt.detail
+        ? `${opt.label ?? opt.value} — ${opt.detail}`
+        : String(opt.label ?? opt.value ?? '');
+      const selected = v === value ? ' selected' : '';
+      return `<option value="${escapeHtml(v)}"${selected}>${escapeHtml(text)}</option>`;
+    }).join('');
+    control = `<select id="${id}" class="dlg-input" data-field-name="${escapeHtml(name)}"${required}>${options}</select>`;
+  } else if (item.control === 'combobox') {
+    const listId = `${id}-list`;
+    const options = (item.options || [])
+      .map((opt) => {
+        const v = String(opt.value ?? opt ?? '');
+        if (!v) return '';
+        return `<option value="${escapeHtml(v)}"></option>`;
+      })
+      .filter(Boolean)
+      .join('');
+    const placeholder = item.placeholder ? ` placeholder="${escapeHtml(item.placeholder)}"` : '';
+    control = `<input type="text" id="${id}" class="dlg-input" list="${listId}" data-field-name="${escapeHtml(name)}" value="${escapeHtml(value)}"${placeholder}${required} autocomplete="off" /><datalist id="${listId}">${options}</datalist>`;
+  } else {
+    const placeholder = item.placeholder ? ` placeholder="${escapeHtml(item.placeholder)}"` : '';
+    control = `<input type="text" id="${id}" class="dlg-input" data-field-name="${escapeHtml(name)}" value="${escapeHtml(value)}"${placeholder}${required} />`;
+  }
+  const hint = item.hint
+    ? `<div class="field-hint">${escapeHtml(item.hint)}</div>`
+    : '';
+  return `<div class="field-block"><label class="field-label" for="${id}">${label}</label>${control}${hint}</div>`;
+}
+
 function buildBodyContent(body) {
   if (!Array.isArray(body) || body.length === 0) return '';
 
@@ -54,6 +95,45 @@ function buildBodyContent(body) {
         const kind = item.kind || 'info';
         return `<div class="block highlight-block"><span class="semantic ${kind}">${escapeHtml(String(item.content || ''))}</span></div>`;
       }
+      case 'field': {
+        const name = String(item.name || '').trim();
+        if (!name) return '';
+        return buildFieldMarkup(item);
+      }
+      case 'field-row': {
+        const cells = (item.fields || []).map((child) => buildFieldMarkup(child)).filter(Boolean);
+        if (cells.length === 0) return '';
+        return `<div class="block field-row">${cells.join('')}</div>`;
+      }
+      case 'mode-toggle': {
+        const modes = Array.isArray(item.modes) ? item.modes : [];
+        if (modes.length === 0) return '';
+        const current = String(item.value || modes[0]?.id || 'basic');
+        const buttons = modes.map((m) => {
+          const id = String(m.id || '');
+          const active = id === current ? ' is-active' : '';
+          return `<button type="button" class="mode-btn${active}" data-dlg-mode="${escapeHtml(id)}">${escapeHtml(m.label || id)}</button>`;
+        }).join('');
+        return `<div class="block mode-toggle" data-field-name="${escapeHtml(item.name || '_mode')}" data-mode-value="${escapeHtml(current)}">
+          <div class="mode-toggle-track" role="tablist">${buttons}</div>
+        </div>`;
+      }
+      case 'group': {
+        const modes = Array.isArray(item.modes) ? item.modes.join(',') : 'advanced';
+        const inner = (item.fields || []).map((child) => {
+          if (!child || typeof child !== 'object') return '';
+          if (child.type === 'field-row') {
+            const cells = (child.fields || []).map((c) => buildFieldMarkup(c)).filter(Boolean);
+            return cells.length ? `<div class="field-row">${cells.join('')}</div>` : '';
+          }
+          return buildFieldMarkup(child);
+        }).filter(Boolean).join('');
+        if (!inner) return '';
+        return `<div class="block field-group" data-dlg-modes="${escapeHtml(modes)}">
+          <div class="field-group-title">${escapeHtml(item.label || item.id || '')}</div>
+          <div class="field-group-body">${inner}</div>
+        </div>`;
+      }
       case 'custom': {
         return `<div class="block custom-block">${sanitizeHtml(item.content || '')}</div>`;
       }
@@ -99,7 +179,11 @@ class DialogPanel {
       if (!message || typeof message !== 'object') return;
 
       if (message.type === 'dialog-action') {
-        const result = { action: message.action, buttonId: message.buttonId || message.action };
+        const result = {
+          action: message.action,
+          buttonId: message.buttonId || message.action,
+          values: message.values && typeof message.values === 'object' ? message.values : null,
+        };
         this.resolve(result);
         this.panel.dispose();
       }
@@ -293,7 +377,13 @@ class DialogPanel {
             overflow: auto;
             padding: 12px;
             background: var(--dialog-body-background);
-            max-height: min(45vh, 400px);
+            max-height: min(60vh, 520px);
+            flex: 1 1 auto;
+            min-height: 0;
+          }
+
+          .dialog-root[data-size="large"] .dialog-body {
+            max-height: min(70vh, 640px);
           }
 
           .block {
@@ -301,6 +391,33 @@ class DialogPanel {
           }
 
           .block:last-child { margin-bottom: 0; }
+
+          .mode-toggle { margin-bottom: 14px; }
+          .mode-toggle-track {
+            display: inline-flex;
+            gap: 0;
+            border: 1px solid var(--dialog-border);
+            border-radius: 6px;
+            overflow: hidden;
+            background: var(--vscode-input-background, var(--dialog-background));
+          }
+          .mode-btn {
+            border: none;
+            background: transparent;
+            color: var(--dialog-muted);
+            padding: 5px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+          }
+          .mode-btn.is-active {
+            background: var(--dialog-accent-soft);
+            color: var(--dialog-accent);
+          }
+          .mode-btn:focus-visible {
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: -1px;
+          }
 
           .text-block,
           .rich-text,
@@ -459,6 +576,67 @@ class DialogPanel {
             word-break: break-word;
           }
 
+          .field-block { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+          .field-row {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            min-width: 0;
+          }
+          .field-group {
+            border: 1px solid var(--dialog-border);
+            border-radius: 8px;
+            padding: 10px;
+            background: color-mix(in srgb, var(--dialog-background) 92%, var(--dialog-accent) 8%);
+            min-width: 0;
+            overflow: hidden;
+          }
+          .field-group + .field-group { margin-top: 10px; }
+          .field-group-title {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            color: var(--dialog-muted);
+            margin-bottom: 8px;
+          }
+          .field-group-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+          .field-group[hidden] { display: none !important; }
+          .field-group-body > .field-block + .field-block,
+          .field-group-body > .field-row + .field-block,
+          .field-group-body > .field-block + .field-row { margin-top: 0; }
+          .field-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--dialog-muted);
+          }
+          .dlg-input {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+            padding: 6px 8px;
+            border: 1px solid var(--dialog-border);
+            border-radius: 3px;
+            background: var(--vscode-input-background, var(--dialog-background));
+            color: var(--vscode-input-foreground, var(--dialog-foreground));
+            font-family: var(--vscode-font-family);
+            font-size: 12px;
+          }
+          select.dlg-input {
+            height: 30px;
+            padding-right: 6px;
+          }
+          .dlg-input:focus {
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: -1px;
+          }
+          .field-hint {
+            font-size: 11px;
+            color: var(--dialog-muted);
+            line-height: 1.4;
+          }
+
           .dialog-footer {
             display: flex;
             justify-content: flex-end;
@@ -554,12 +732,66 @@ class DialogPanel {
               }, 1500);
             };
 
+            const readValues = () => {
+              const values = {};
+              document.querySelectorAll('[data-field-name]').forEach((el) => {
+                const key = el.getAttribute('data-field-name');
+                if (!key) return;
+                if (el.classList.contains('mode-toggle')) {
+                  values[key] = el.getAttribute('data-mode-value') || '';
+                  return;
+                }
+                values[key] = el.value;
+              });
+              return values;
+            };
+
+            const applyMode = (mode) => {
+              const toggle = document.querySelector('.mode-toggle');
+              if (toggle) toggle.setAttribute('data-mode-value', mode);
+              document.querySelectorAll('.mode-btn').forEach((btn) => {
+                btn.classList.toggle('is-active', btn.getAttribute('data-dlg-mode') === mode);
+              });
+              document.querySelectorAll('[data-dlg-modes]').forEach((el) => {
+                const modes = (el.getAttribute('data-dlg-modes') || '')
+                  .split(',').map((s) => s.trim()).filter(Boolean);
+                el.hidden = modes.length > 0 && !modes.includes(mode);
+              });
+            };
+
+            const canConfirm = () => {
+              const missing = [...document.querySelectorAll('[data-field-name][required]')]
+                .find((el) => {
+                  if (el.closest('[hidden]')) return false;
+                  return !String(el.value || '').trim();
+                });
+              if (!missing) return true;
+              missing.focus();
+              return false;
+            };
+
+            document.querySelectorAll('.mode-btn').forEach((btn) => {
+              btn.addEventListener('click', () => {
+                applyMode(btn.getAttribute('data-dlg-mode') || 'basic');
+              });
+            });
+            const initialMode = document.querySelector('.mode-toggle')?.getAttribute('data-mode-value') || 'basic';
+            if (document.querySelector('.mode-toggle')) applyMode(initialMode);
+
             closeButton && closeButton.addEventListener('click', () => post('dialog-close', {}));
 
             actionButtons.forEach((button) => {
               const action = button.getAttribute('data-action');
               const buttonId = button.getAttribute('data-button-id');
-              button.addEventListener('click', () => post('dialog-action', { action, buttonId }));
+              button.addEventListener('click', () => {
+                const confirming = action !== 'cancel' && action !== 'close';
+                if (confirming && !canConfirm()) return;
+                post('dialog-action', {
+                  action,
+                  buttonId,
+                  values: confirming ? readValues() : null,
+                });
+              });
             });
 
             copyButtons.forEach((button) => {
@@ -597,15 +829,20 @@ class DialogPanel {
                 post('dialog-close', {});
               }
 
-              if (event.key === 'Enter' && document.activeElement && document.activeElement.tagName === 'BODY') {
+              if (event.key === 'Enter' && event.target && event.target.classList
+                && event.target.classList.contains('dlg-input')
+                && event.target.tagName !== 'TEXTAREA'
+                && event.target.tagName !== 'SELECT') {
+                event.preventDefault();
                 const primary = document.querySelector('.action-button.primary');
-                if (primary) {
-                  primary.click();
-                }
+                if (primary) primary.click();
               }
             });
 
-            if (root) {
+            const firstField = document.querySelector('.dlg-input');
+            if (firstField) {
+              firstField.focus();
+            } else if (root) {
               root.setAttribute('tabindex', '-1');
             }
           })();
