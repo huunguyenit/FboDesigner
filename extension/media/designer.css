@@ -627,8 +627,11 @@ body.bp-on .GridTabPanel td.HeaderCellDefault[data-fbo-width]::after {
 }
 
 /* Con trỏ đổi ngay khi rê vào dải bắt kéo ở cạnh phải ô — báo trước là kéo được, trước khi
-   người dùng phải thử. */
+   người dùng phải thử.
+   Phải thắng `#fbo-form td…fbo-selected { cursor:move }` (specificity cao hơn `fbo-resizing *`):
+   không thì mép ô (padding/`td`, không phủ input) vẫn hiện move dù class resizing đã bật. */
 #fbo-form.fbo-resizing,
+#fbo-form.fbo-resizing td[data-fbo-cell].fbo-selected:not(.DwfEmptyCell),
 #fbo-form.fbo-resizing * { cursor: col-resize; }
 
 body.fbo-dragging,

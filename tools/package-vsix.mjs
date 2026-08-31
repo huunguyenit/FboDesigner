@@ -33,6 +33,7 @@ const engine = manifest.engines.vscode;
 /** File nào vào gói — khai TƯỜNG MINH, không quét cả thư mục. Gói lỡ mang theo file lạ là gói không kiểm được. */
 const CONTENT = [
   ['extension/package.json', 'extension/package.json'],
+  ['extension/icon.png', 'extension/icon.png'],
   ['README.md', 'extension/README.md'],
   ['extension/package.nls.json', 'extension/package.nls.json'],
   ['extension/src/extension.js', 'extension/src/extension.js'],
@@ -124,6 +125,19 @@ const CONTENT_TYPES = `<?xml version="1.0" encoding="utf-8"?>
 </Types>
 `;
 
+// Ảnh README: README nằm ở extension/README.md trong gói, đường dẫn tương đối docs/images/…
+// phải khớp — chép nguyên cây docs/images vào extension/docs/images/. Thu thập TRƯỚC khi
+// dựng manifest để gắn Asset Addressable — không thì panel Details của Cursor/VS Code
+// chỉ thấy README, mọi ![…](docs/images/…) bị vỡ.
+const README_IMAGES = path.join(ROOT, 'docs', 'images');
+const readmeImageAssets = [];
+if (fs.existsSync(README_IMAGES)) {
+  for (const f of fs.readdirSync(README_IMAGES).sort()) {
+    if (!/\.(png|gif|jpe?g|webp)$/i.test(f)) continue;
+    CONTENT.push([`docs/images/${f}`, `extension/docs/images/${f}`]);
+    readmeImageAssets.push(`    <Asset Type="Microsoft.VisualStudio.Services.Content.Details" Path="extension/docs/images/${f}" Addressable="true" />`);
+  }
+}
 
 const VSIX_MANIFEST = `<?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
@@ -131,6 +145,7 @@ const VSIX_MANIFEST = `<?xml version="1.0" encoding="utf-8"?>
     <Identity Language="en-US" Id="${esc(name)}" Version="${esc(version)}" Publisher="${esc(publisher)}" />
     <DisplayName>${esc(displayName)}</DisplayName>
     <Description xml:space="preserve">${esc(description)}</Description>
+    <Icon>extension/icon.png</Icon>
     <Tags>fbo,erp,designer,xml</Tags>
     <Categories>Visualization,Other</Categories>
     <GalleryFlags>Public</GalleryFlags>
@@ -148,6 +163,8 @@ const VSIX_MANIFEST = `<?xml version="1.0" encoding="utf-8"?>
   <Assets>
     <Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json" Addressable="true" />
     <Asset Type="Microsoft.VisualStudio.Services.Content.Details" Path="extension/README.md" Addressable="true" />
+    <Asset Type="Microsoft.VisualStudio.Services.Icons.Default" Path="extension/icon.png" Addressable="true" />
+${readmeImageAssets.join('\n')}
   </Assets>
 </PackageManifest>
 `;
@@ -231,16 +248,6 @@ for (const sub of ['css', 'image']) {
   }
 }
 
-// Ảnh README: README nằm ở extension/README.md trong gói, đường dẫn tương đối docs/images/…
-// phải khớp — chép nguyên cây docs/images vào extension/docs/images/.
-const README_IMAGES = path.join(ROOT, 'docs', 'images');
-if (fs.existsSync(README_IMAGES)) {
-  for (const f of fs.readdirSync(README_IMAGES).sort()) {
-    if (!/\.(png|gif|jpe?g|webp)$/i.test(f)) continue;
-    CONTENT.push([`docs/images/${f}`, `extension/docs/images/${f}`]);
-  }
-}
-
 /*
  * Đuôi file ảnh phải KHỚP nội dung thật.
  *
@@ -288,6 +295,32 @@ for (const [from, to] of CONTENT) {
   }
   const dst = path.join(STAGE, to);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
+  /*
+   * README trong panel Details KHÔNG đọc file local của extension đã cài.
+   * Relative `docs/images/…` bị resolve qua `repository` HTTPS (GitHub) — ảnh chưa push
+   * hoặc nhánh không khớp thì vỡ icon. Nhúng base64 lúc đóng gói thì VSIX tự đủ, không
+   * phụ thuộc remote.
+   */
+  if (from.replace(/\\/g, '/') === 'README.md') {
+    const md = fs.readFileSync(src, 'utf8');
+    const mimeOf = (ext) => ({
+      png: 'image/png', gif: 'image/gif', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
+    }[ext] || 'application/octet-stream');
+    let missing = 0;
+    const inlined = md.replace(/!\[([^\]]*)\]\((docs\/images\/[^)\s]+)\)/g, (full, alt, rel) => {
+      const abs = path.join(ROOT, rel);
+      if (!fs.existsSync(abs)) {
+        process.stderr.write(`README ảnh thiếu, giữ nguyên link: ${rel}\n`);
+        missing += 1;
+        return full;
+      }
+      const mime = mimeOf(path.extname(abs).slice(1).toLowerCase());
+      return `![${alt}](data:${mime};base64,${fs.readFileSync(abs).toString('base64')})`;
+    });
+    if (missing) process.exit(1);
+    fs.writeFileSync(dst, inlined.replace(/\r\n/g, '\n'), 'utf8');
+    continue;
+  }
   fs.copyFileSync(src, dst);
 }
 

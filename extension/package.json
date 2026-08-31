@@ -1,10 +1,15 @@
 {
   "name": "fbo-designer",
   "displayName": "FBO Designer",
-  "description": "Xem và (về sau) kéo thả thiết kế form FBO ngay trong VS Code.",
-  "version": "0.0.2",
+  "description": "Xem và kéo thả thiết kế form FBO",
+  "version": "1.0.0",
   "publisher": "NGUYENTDH",
   "private": true,
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/huunguyenit/FboDesigner.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -17,33 +22,41 @@
     "onWebviewPanel:fboDesigner.preview"
   ],
   "contributes": {
-    "customEditors": [
+    "submenus": [
       {
-        "viewType": "fboDesigner.form",
-        "displayName": "%fboDesigner.form.displayName%",
-        "selector": [
-          {
-            "filenamePattern": "**/Dir/*.xml"
-          },
-          {
-            "filenamePattern": "**/Filter/*.xml"
-          },
-          {
-            "filenamePattern": "**/Grid/*.xml"
-          },
-          {
-            "filenamePattern": "**/Dir/*.f"
-          },
-          {
-            "filenamePattern": "**/Filter/*.f"
-          },
-          {
-            "filenamePattern": "**/Grid/*.f"
-          }
-        ],
-        "priority": "option"
+        "id": "fboDesigner.mainMenu",
+        "label": "%fboDesigner.mainMenu.title%"
       }
     ],
+    "menus": {
+      "editor/context": [
+        {
+          "submenu": "fboDesigner.mainMenu",
+          "when": "resourceScheme == file && resourceExtname =~ /\\.(xml|f)$/",
+          "group": "navigation@1"
+        }
+      ],
+      "fboDesigner.mainMenu": [
+        {
+          "command": "fboDesigner.open",
+          "group": "navigation@10"
+        },
+        {
+          "command": "fboDesigner.declareFilter",
+          "group": "navigation@20"
+        },
+        {
+          "command": "fboDesigner.addColumns",
+          "group": "navigation@30"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "fboDesigner.showDialogDemo",
+          "when": "false"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "fboDesigner.open",
@@ -75,72 +88,55 @@
       {
         "command": "fboDesigner.open",
         "key": "ctrl+alt+o",
-        "when": "editorTextFocus"
+        "mac": "cmd+alt+o"
       },
       {
         "command": "fboDesigner.declareFilter",
         "key": "ctrl+alt+f",
-        "when": "resourceScheme == file && resourceExtname =~ /\\.(xml|f)$/ && editorTextFocus"
+        "mac": "cmd+alt+f"
+      },
+      {
+        "command": "fboDesigner.addColumns",
+        "key": "ctrl+alt+c",
+        "mac": "cmd+alt+c"
       },
       {
         "command": "fboDesigner.deleteSelection",
         "key": "delete",
-        "when": "activeCustomEditorId == 'fboDesigner.form'"
+        "when": "activeWebviewPanelId == 'fboDesigner.preview' || activeCustomEditorId == 'fboDesigner.form'"
       },
       {
         "command": "fboDesigner.deleteSelection",
         "key": "shift+delete",
-        "when": "activeCustomEditorId == 'fboDesigner.form'",
-        "args": { "shift": true }
-      },
-      {
-        "command": "fboDesigner.deleteSelection",
-        "key": "delete",
-        "when": "activeWebviewPanelId == 'fboDesigner.preview'"
-      },
-      {
-        "command": "fboDesigner.deleteSelection",
-        "key": "shift+delete",
-        "when": "activeWebviewPanelId == 'fboDesigner.preview'",
-        "args": { "shift": true }
+        "args": { "shift": true },
+        "when": "activeWebviewPanelId == 'fboDesigner.preview' || activeCustomEditorId == 'fboDesigner.form'"
       }
     ],
-    "menus": {
-      "commandPalette": [
-        {
-          "command": "fboDesigner.showDialogDemo",
-          "when": "false"
-        }
-      ],
-      "editor/context": [
-        {
-          "submenu": "fboDesigner.mainMenu",
-          "when": "resourceScheme == file && resourceExtname =~ /\\.(xml|f)$/",
-          "group": "navigation@20"
-        }
-      ],
-      "fboDesigner.mainMenu": [
-        {
-          "command": "fboDesigner.declareFilter",
-          "when": "resourceScheme == file && resourceExtname =~ /\\.(xml|f)$/",
-          "group": "navigation@10"
-        },
-        {
-          "command": "fboDesigner.addColumns",
-          "when": "resourceScheme == file && resourceExtname =~ /\\.(xml|f)$/",
-          "group": "navigation@15"
-        },
-        {
-          "command": "fboDesigner.open",
-          "when": "resourceScheme == file && resourceExtname =~ /\\.(xml|f)$/",
-          "group": "navigation@20"
-        }
-      ]
-    },
-    "submenus": [
+    "customEditors": [
       {
-        "id": "fboDesigner.mainMenu",
-        "label": "%fboDesigner.mainMenu.title%"
+        "viewType": "fboDesigner.form",
+        "displayName": "%fboDesigner.form.displayName%",
+        "selector": [
+          {
+            "filenamePattern": "**/Dir/*.xml"
+          },
+          {
+            "filenamePattern": "**/Filter/*.xml"
+          },
+          {
+            "filenamePattern": "**/Grid/*.xml"
+          },
+          {
+            "filenamePattern": "**/Dir/*.f"
+          },
+          {
+            "filenamePattern": "**/Filter/*.f"
+          },
+          {
+            "filenamePattern": "**/Grid/*.f"
+          }
+        ],
+        "priority": "option"
       }
     ],
     "configuration": {
