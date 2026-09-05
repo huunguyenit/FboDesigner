@@ -12,7 +12,7 @@
 // Hàm ở đây nhận `model` do `buildViewModel` dựng (đã có `rows[].range` trỏ về file nguồn) và
 // trả `{ok, splice, file, warning}` — tầng vỏ chỉ việc áp.
 
-import { serializeRow, setSpan, setStart, removeCell, insertCell, moveCell, swapCells, placeCell, newRow, takeRowHalf, joinRowHalves, parseRow, buildCells, resolvePattern } from './item-value.mjs';
+import { isBlankAnchorName, parseToken, serializeRow, setSpan, setStart, removeCell, insertCell, moveCell, swapCells, placeCell, newRow, takeRowHalf, joinRowHalves, parseRow, buildCells, resolvePattern } from './item-value.mjs';
 import { segmentAt } from './entities.mjs';
 // Vùng của một hàng suy từ `<field categoryIndex>`, và luật ấy sống ở `render.mjs`. Tầng edit
 // phải tính lại vùng SAU một phép dời, nên nó dùng chung hàm chứ không chép luật sang đây.
@@ -309,6 +309,33 @@ export function planRowEdit(model, op, sourceText) {
     }
     if (!result.ok) return result;
 
+    /*
+     * Hàng vừa nhận control THẬT thì neo hết việc — gỡ token neo trong CÙNG splice với phép chèn.
+     *
+     * Cùng một splice chứ không hai lượt sửa: neo còn lại một nhịp là file trên đĩa có một hàng
+     * mang token thừa, và Ctrl+Z một nửa để lại đúng trạng thái đó.
+     *
+     * Gỡ neo là hàng MẤT chỗ khai vùng, nên phải trả lại vùng bằng đường khác: field vừa chèn
+     * chính là field tầng vỏ sắp khai, nên nó ghi `categoryIndex` lên đó. Chỉ đòi khi thật sự
+     * cần — hàng chèn vào một field đã khai đúng vùng thì không ghi thêm gì.
+     */
+    let anchorDropped = null;
+    let requireCategory = null;
+    if (op.kind === 'insert') {
+      const found = blankAnchorIn(result.row, widths);
+      if (found) {
+        const tokens = result.row.tokens.filter((_, i) => i !== found.index);
+        anchorDropped = found.field;
+        result = { ok: true, row: { ...result.row, tokens } };
+        const target = row.categoryIndex;
+        if (Number.isInteger(target) && target !== 0 && regionOfTokens(model, tokens) !== target) {
+          const first = tokens.find((t) => t.field);
+          if (!first) return { ok: false, reason: msg('edit.anchor_drop_unsafe', { p0: target }) };
+          requireCategory = { name: first.field, index: target };
+        }
+      }
+    }
+
     // Bỏ control CUỐI CÙNG của hàng thì bỏ luôn thẻ `<item>` — xem `emptyRowSplice`.
     if (op.kind === 'remove') {
       const drop = emptyRowSplice(row, result.row, sourceText);
@@ -322,6 +349,8 @@ export function planRowEdit(model, op, sourceText) {
       file: row.range.file,
       splice: { start: row.range.start, end: row.range.end, text },
       warning: src.warning,
+      anchorDropped,
+      requireCategory,
     };
   }
 
@@ -343,6 +372,94 @@ export function planRowEdit(model, op, sourceText) {
     splice: { start: row.range.start, end: row.range.end, text },
     warning: allowed.warning,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Field NEO VÙNG cho hàng trống
+//
+
+/*
+ * Vùng của một hàng suy từ `<field categoryIndex>` của các token TRONG hàng — và hàng trống thì
+ * không có token nào. Nên `<item value="------"/>` LUÔN rơi về header, ở CẢ BA tầng: hàm
+ * `rowCategoryIndex` bên `render.mjs`, `ErpViewLayoutBuilder.ResolveRowCategoryIndex` và
+ * `FboXmlParser.ResolveRowCategoryIndex` của DWF đều `return 0` ở đúng chỗ ấy. Preview không sai;
+ * cái sai là hàng ghi ra không diễn đạt được ý "trống, nhưng thuộc tab 18".
+ *
+ * Kẽ hở ĐÚNG LUẬT: một token mà không `1` nào nhận.
+ *
+ *   - Hai vòng dựng ô của DWF (`ParseViewRow`, `BuildRow`) chỉ tăng `control_index` khi gặp `'1'`.
+ *     Pattern toàn `-` nên KHÔNG control nào được dựng — hàng vẫn trống thật.
+ *   - `ResolveRowCategoryIndex` quét CHUỖI `item_value` thô bằng regex, không đi qua pattern.
+ *     Nên nó vẫn thấy token, và vẫn lấy được `categoryIndex` từ đó.
+ *
+ * Hai đường độc lập, nên `------: [zzblank18].Label` là hàng trống NẰM TRONG tab 18 — đúng ở cả
+ * runtime lẫn preview, không phải mẹo riêng của designer.
+ *
+ * Vì sao kind `.Label` chứ không `[zzblank18]` trần: `rowCategoryIndex` xét token nhãn TRƯỚC, và
+ * bỏ hẳn vòng token input khi hàng đã có nhãn. Neo bằng token input thì lúc hàng vừa nhận thêm
+ * `[x].Label, [x]` (x chưa khai vùng), FboDesigner đọc ra header còn DWF đọc ra 18 — hai engine
+ * lệch nhau ở đúng trạng thái trung gian mà người dùng nhìn thấy. Neo bằng `.Label` thì cả hai
+ * luật cùng trả về vùng của neo, ở MỌI trạng thái.
+ *
+ * Vì sao `external="true"`: neo không phải cột của bảng. Dir.xsd nói thẳng — "the external field
+ * does not exist in table. External fields can not be updated". Mẫu có sẵn trong corpus là field
+ * `cookie` (`Dir/Account.f:188`): external + hidden + readOnly, không vẽ gì, chỉ giữ chỗ. Thiếu
+ * `external` là FBO đi tìm một cột không tồn tại trong bảng.
+ */
+
+/** Tên field neo của một vùng. `-1` (footer) không viết được dấu `-` vào tên nên mã hoá thành `m1`. */
+export function blankAnchorName(categoryIndex) {
+  const n = Number(categoryIndex);
+  if (!Number.isInteger(n) || n === 0) return null;
+  return n < 0 ? `zzblankm${Math.abs(n)}` : `zzblank${n}`;
+}
+
+/** Token neo — luôn kind `.Label`, xem ghi chú ở đầu mục. */
+export function blankAnchorToken(categoryIndex) {
+  const name = blankAnchorName(categoryIndex);
+  return name === null ? null : `[${name}].Label`;
+}
+
+/** Khai báo `<field>` của neo. Bám nguyên hình dạng của `cookie` trong corpus, kể cả `<header v="" e="">`. */
+export function blankAnchorField(categoryIndex) {
+  const name = blankAnchorName(categoryIndex);
+  if (name === null) return null;
+  return `<field name="${name}" external="true" hidden="true" readOnly="true"`
+    + ` defaultValue="''" categoryIndex="${Number(categoryIndex)}">`
+    + `<header v="" e=""></header></field>`;
+}
+
+/**
+ * Token neo THỪA trong một hàng — token mang tên neo mà không `1` nào nhận.
+ *
+ * Đòi CẢ HAI điều kiện, và không rút xuống một:
+ *   thừa   — token được một `1` nhận là control thật của người dùng, dù tên có giống neo.
+ *   tên    — token thừa do người dùng gõ nhầm (`còn N token không có "1" nào nhận`) là lỗi của
+ *            họ, designer không được lặng lẽ xoá hộ.
+ *
+ * @returns {{index:number, field:string}|null}
+ */
+export function blankAnchorIn(row, widths) {
+  const { cells } = buildCells(row, widths);
+  let taken = 0;
+  for (const c of cells) if (!c.empty && c.token) taken++;
+  for (let i = taken; i < row.tokens.length; i++) {
+    const t = row.tokens[i];
+    if (t.field && isBlankAnchorName(t.field)) return { index: i, field: t.field };
+  }
+  return null;
+}
+
+/** Gắn token neo vào một hàng vừa dựng. Pattern KHÔNG đụng tới — neo phải ở lại ngoài mọi `1`. */
+function attachBlankAnchor(row, categoryIndex) {
+  const raw = blankAnchorToken(categoryIndex);
+  if (raw === null) return row;
+  return { ...row, tokens: [...row.tokens, parseToken(raw)], hasColon: true, afterColon: ' ' };
+}
+
+/** Vùng mà một hàng SẼ rơi vào với danh sách token này — dùng chung luật với `render.mjs`. */
+function regionOfTokens(model, tokens) {
+  return rowCategoryIndex({ tokens }, fieldCategories([...model.fieldByName.values()]));
 }
 
 /**
@@ -389,10 +506,36 @@ export function planAddRow(model, op, sourceText, itemRange) {
   const eol = sourceText.includes('\r\n') ? '\r\n' : '\n';
   const at = op.side === 'above' ? lineStart : itemRange.end;
 
+  /*
+   * Hàng TRỐNG mới phải ở cùng vùng với hàng neo, và tự nó không khai được vùng — xem mục
+   * «Field NEO VÙNG cho hàng trống». Chỉ gắn khi hàng dựng ra THẬT SỰ lệch vùng: hàng nửa-trống
+   * của nhánh split thường vẫn giữ được một field khai `categoryIndex` ở nửa kia, và gắn thêm
+   * neo vào đó chỉ là rác.
+   *
+   * Nhánh KHÔNG blank không đi qua đây: nó khai luôn một `<field>` mới, nên chỗ đúng để ghi vùng
+   * là `categoryIndex` của chính field ấy, không phải một field neo thứ hai.
+   */
+  const target = row.categoryIndex;
+  const anchorIfNeeded = (made) => {
+    if (!op.blank || !Number.isInteger(target) || target === 0) return { row: made, anchor: null };
+    if (regionOfTokens(model, made.tokens) === target) return { row: made, anchor: null };
+    const name = blankAnchorName(target);
+    return {
+      row: attachBlankAnchor(made, target),
+      anchor: {
+        name,
+        categoryIndex: target,
+        xml: blankAnchorField(target),
+        declared: model.fieldByName.has(name),
+      },
+    };
+  };
+
   if (!useSplitCascade) {
     const made = newRow(row.widths, op.token);
     if (!made.ok) return made;
-    const tag = `<item value="${escapeAttr(serializeRow(made.row))}"/>`;
+    const anchored = anchorIfNeeded(made.row);
+    const tag = `<item value="${escapeAttr(serializeRow(anchored.row))}"/>`;
     const text = op.side === 'above'
       ? `${indent}${tag}${eol}`
       : `${eol}${indent}${tag}`;
@@ -401,6 +544,7 @@ export function planAddRow(model, op, sourceText, itemRange) {
       file: row.range.file,
       splice: { start: at, end: at, text },
       warning: allowed.warning,
+      anchorField: anchored.anchor,
     };
   }
 
@@ -418,7 +562,8 @@ export function planAddRow(model, op, sourceText, itemRange) {
   });
   if (!cascade.ok) return cascade;
 
-  const tag = `<item value="${escapeAttr(serializeRow(cascade.inserted))}"/>`;
+  const anchoredCascade = anchorIfNeeded(cascade.inserted);
+  const tag = `<item value="${escapeAttr(serializeRow(anchoredCascade.row))}"/>`;
   const insertText = op.side === 'above'
     ? `${indent}${tag}${eol}`
     : `${eol}${indent}${tag}`;
@@ -443,6 +588,7 @@ export function planAddRow(model, op, sourceText, itemRange) {
     file: row.range.file,
     edits,
     warning: cascade.warning ?? allowed.warning,
+    anchorField: anchoredCascade.anchor,
   };
 }
 

@@ -32,7 +32,7 @@
 
 /* Chỉ `.FormContainerInput` và `.FormContainerTextArea` có viền. `.FormContainerInputDisabled`
    CÓ trong HTML runtime nhưng KHÔNG có rule nào — ô readOnly không có gạch chân. */
-.FormContainerInput { border-bottom: 1px solid #c0cfdc; }
+.FormContainerInput { border-bottom: 1px solid #82aed5; }
 .FormContainerTextArea {
   border-top: 1px solid #e6ebf0;
   border-bottom: 1px solid #c0cfdc;

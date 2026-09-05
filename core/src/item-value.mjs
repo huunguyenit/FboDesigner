@@ -14,6 +14,20 @@ import { msg } from './msg.mjs';
 
 const RE_ENTITY_REF = /&[A-Za-z_][\w.:-]*;/;
 
+/**
+ * Tên field NEO VÙNG — `zzblank18` (tab 18), `zzblankm1` (footer; `-` không viết được vào tên).
+ *
+ * Hằng số nằm ở tầng này vì `buildCells` phải nhận ra neo để không kêu "token thừa", còn
+ * `edit.mjs` — nơi luật neo sống — thì import xuống. Chép tay hai bản regex ở hai file là cách
+ * chắc chắn để một ngày nào đó chúng lệch nhau.
+ */
+const RE_BLANK_ANCHOR = /^zzblank(m?\d+)$/;
+
+/** Tên này có phải field neo vùng không. */
+export function isBlankAnchorName(name) {
+  return RE_BLANK_ANCHOR.test(String(name ?? ''));
+}
+
 /** Ba kind hợp lệ. Mọi thứ khác sau dấu chấm là TYPO, không phải biến thể. */
 const KINDS = new Map([['label', 'label'], ['description', 'description'], ['footer', 'footer']]);
 
@@ -102,8 +116,17 @@ export function parseRow(value) {
   const ones = countOnes(pattern);
 
   const warnings = [];
-  if (ones !== tokens.length) {
-    warnings.push(`bất biến hỏng: ${ones} ký tự "1" nhưng ${tokens.length} token`);
+  /*
+   * Bất biến "mỗi `1` một token" có ĐÚNG MỘT ngoại lệ: field neo vùng.
+   *
+   * `zzblank18` cố tình đứng ngoài mọi `1` — đó là cách duy nhất FBO diễn đạt được "hàng trống
+   * nhưng thuộc tab 18" (xem mục «Field NEO VÙNG cho hàng trống» ở `edit.mjs`). Đếm cả nó vào
+   * thì mỗi hàng trống designer vừa tạo lại đẻ một cảnh báo giả, và cảnh báo giả làm người đọc
+   * bỏ qua luôn cảnh báo thật ngay bên cạnh.
+   */
+  const counted = tokens.filter((t) => !isBlankAnchorName(t.field)).length;
+  if (ones !== counted) {
+    warnings.push(`bất biến hỏng: ${ones} ký tự "1" nhưng ${counted} token`);
   }
   for (const t of tokens) {
     if (!t.valid && t.kindRaw) warnings.push(`token "${t.raw}": ".${t.kindRaw}" không phải kind hợp lệ (typo?)`);
@@ -202,7 +225,16 @@ export function buildCells({ pattern, tokens }, widths) {
     col++;
   }
 
-  if (nextToken < tokens.length) warnings.push(`còn ${tokens.length - nextToken} token không có "1" nào nhận`);
+  /*
+   * Token thừa là LỖI — trừ field neo vùng.
+   *
+   * `zzblank18` cố tình không được `1` nào nhận: đó là cả cơ chế giữ một hàng trống nằm trong
+   * tab thay vì rơi về header (xem mục «Field NEO VÙNG cho hàng trống» ở `edit.mjs`). Kêu nó
+   * lên là mỗi hàng trống designer vừa tạo lại đẻ một cảnh báo giả, và cảnh báo giả làm người
+   * đọc bỏ qua luôn cảnh báo thật ngay bên cạnh.
+   */
+  const leftover = tokens.slice(nextToken).filter((t) => !isBlankAnchorName(t?.field));
+  if (leftover.length > 0) warnings.push(`còn ${leftover.length} token không có "1" nào nhận`);
   return { cells, warnings, resolved };
 }
 

@@ -19,7 +19,7 @@ const RE_FIELD_OPEN = /<field\b([^>]*?)(\/?)>/gi;
 const RE_ATTR = /([\w:%.-]+)\s*=\s*(["'])([\s\S]*?)\2/g;
 const RE_ENTITY_REF = /&[A-Za-z_][\w.:-]*;/;
 const RE_OPTION = /<item\b([^>]*)>([\s\S]*?)<\/item>/gi;
-const RE_CATEGORIES = /<categories\b[^>]*>([\s\S]*?)<\/categories>/i;
+const RE_CATEGORIES = /<categories\b[^>]*>([\s\S]*?)<\/categories>/gi;
 const RE_CATEGORY = /<category\b([^>]*?)(?:\/>|>([\s\S]*?)<\/category>)/gi;
 const RE_TEXT = /<text\b([^>]*)/i;
 const RE_ROOT_NS = /<([A-Za-z_][\w.:-]*)\b([^>]*xmlns\s*=\s*["']urn:schemas-fast-com:data-([\w-]+)["'][^>]*)>/i;
@@ -108,7 +108,7 @@ export function scanViews(text) {
       columns.push({ start, end: start + cf[0].length, attrs: parsed.attrs, attrSpans: parsed.spans, name: parsed.attrs.name });
     }
 
-    const categories = scanCategories(inner, innerStart);
+    const categories = scanCategories(inner, innerStart, skip);
 
     views.push({ start: v.index, end: innerEnd + '</view>'.length, innerStart, innerEnd, attrs, attrSpans: spans, items, columns, categories });
     RE_VIEW_OPEN.lastIndex = innerEnd;
@@ -128,8 +128,19 @@ export function scanViews(text) {
  * Thứ tự trả về là thứ tự KHAI trong XML, không sort theo index — runtime xếp tab theo thứ tự
  * khai (`ErpViewLayoutBuilder.ParseCategories` của DWF ghi rõ điều này).
  */
-function scanCategories(inner, innerStart) {
-  const block = RE_CATEGORIES.exec(inner);
+function scanCategories(inner, innerStart, skip) {
+  /*
+   * Cả khối `<categories>` bị comment thì bản khai THẬT là khối đứng sau nó — nên lấy khối đầu
+   * tiên KHÔNG nằm trong comment, chứ không phải khối đầu tiên khớp regex.
+   */
+  let block = null;
+  RE_CATEGORIES.lastIndex = 0;
+  let b;
+  while ((b = RE_CATEGORIES.exec(inner)) !== null) {
+    if (skip(innerStart + b.index)) continue;
+    block = b;
+    break;
+  }
   if (!block) return [];
 
   const bodyOffset = innerStart + block.index + block[0].length - block[1].length - '</categories>'.length;
@@ -138,6 +149,12 @@ function scanCategories(inner, innerStart) {
   let c;
   while ((c = RE_CATEGORY.exec(block[1])) !== null) {
     const start = bodyOffset + c.index;
+    /*
+     * Tab bị comment thì KHÔNG tồn tại — cùng luật với `<item>` và `<field>` ở `scanViews`.
+     * Đo được trên `Dir/ZTHTran.xml` của FAHASAKHANHHOA: `<!--<category index="18">…</category>-->`
+     * vẫn vẽ ra tab «Khác», và `columns` của nó vẫn được dùng để chia cột cho vùng đó.
+     */
+    if (skip(start)) continue;
     const attrOffset = start + c[0].indexOf(c[1]);
     const { attrs, spans } = parseAttrs(c[1], attrOffset);
     const index = Number.parseInt(attrs.index, 10);
@@ -288,18 +305,42 @@ export function scanRoot(text) {
  * (30px thay vì 22px). Bỏ qua `<menuItems>` là nút «Lấy dữ liệu» hiện icon của nút «Sửa».
  */
 export function scanToolbar(text) {
-  const block = /<toolbar\b[^>]*>([\s\S]*?)<\/toolbar>/i.exec(text);
+  /*
+   * Nút bị comment thì KHÔNG tồn tại — cùng luật với `<item>`, `<field>` và `<category>`.
+   * Đếm trên `App_Data\Controllers` của FAHASAKHANHHOA: 46 file có `<!--<button`, nên đây là
+   * cách người viết file TẮT một lệnh, không phải chuyện hiếm.
+   *
+   * Cả khối `<toolbar>` bị comment thì bản khai THẬT là khối đứng sau nó — lấy khối đầu tiên
+   * KHÔNG nằm trong comment, không phải khối đầu tiên khớp regex.
+   */
+  const skip = commentSkipper(text);
+  const blockRe = /<toolbar\b[^>]*>([\s\S]*?)<\/toolbar>/gi;
+  let block = null;
+  let b;
+  while ((b = blockRe.exec(text)) !== null) {
+    if (skip(b.index)) continue;
+    block = b;
+    break;
+  }
   if (!block) return [];
+
+  // Offset TUYỆT ĐỐI của ruột `<toolbar>`: `skip` hỏi theo vị trí trong văn bản GỐC, còn vòng
+  // lặp dưới chạy trên chuỗi con `block[1]`.
+  const bodyOffset = block.index + block[0].length - block[1].length - '</toolbar>'.length;
 
   const buttons = [];
   const re = /<button\b([^>]*?)(?:\/>|>([\s\S]*?)<\/button>)/gi;
   let m;
   while ((m = re.exec(block[1])) !== null) {
+    const start = bodyOffset + m.index;
+    if (skip(start)) continue;
     const command = parseAttrs(m[1], 0).attrs.command ?? '';
     const body = m[2] ?? '';
     const t = body ? /<title\b([^>]*)/i.exec(body) : null;
     const title = t ? parseAttrs(t[1], 0).attrs : {};
-    buttons.push({ command, v: title.v ?? '', e: title.e ?? '', menu: scanMenuItems(body) });
+    // Ruột nút bắt đầu ngay sau thẻ mở; `m[0]` của nút có ruột luôn kết thúc bằng `</button>`.
+    const bodyStart = body ? start + m[0].length - body.length - '</button>'.length : start;
+    buttons.push({ command, v: title.v ?? '', e: title.e ?? '', menu: scanMenuItems(body, bodyStart, skip) });
   }
   return buttons;
 }
@@ -310,14 +351,32 @@ export function scanToolbar(text) {
  * Mảng RỖNG = nút không phải group. Quy ước này phải giữ nguyên ở mọi lối ra, vì chỗ gọi chỉ
  * nhìn vào độ dài mảng để quyết tên class của nút.
  */
-function scanMenuItems(body) {
-  const block = /<menuItems\b[^>]*>([\s\S]*?)<\/menuItems>/i.exec(body);
+function scanMenuItems(body, bodyStart, skip) {
+  /*
+   * `bodyStart` là vị trí của `body` trong văn bản GỐC — bắt buộc phải có, vì `skip` chỉ hiểu
+   * offset gốc. Khối `<menuItems>` bị comment thì nút KHÔNG còn là group.
+   *
+   * Nói rõ giới hạn: khối còn sống mà mọi `<menuItem>` con đều bị comment sẽ ra mảng rỗng, tức
+   * nút tụt về «không group». Đó đúng bằng cách `grid.mjs` đọc mảng này từ trước tới nay
+   * (`menu.length > 0`), nên không đổi hợp đồng; chỉ là nó không phân biệt được với một
+   * `<menuItems/>` rỗng khai sẵn.
+   */
+  const blockRe = /<menuItems\b[^>]*>([\s\S]*?)<\/menuItems>/gi;
+  let block = null;
+  let b;
+  while ((b = blockRe.exec(body)) !== null) {
+    if (skip(bodyStart + b.index)) continue;
+    block = b;
+    break;
+  }
   if (!block) return [];
 
+  const itemsOffset = bodyStart + block.index + block[0].length - block[1].length - '</menuItems>'.length;
   const items = [];
   const re = /<menuItem\b([^>]*?)(?:\/>|>([\s\S]*?)<\/menuItem>)/gi;
   let m;
   while ((m = re.exec(block[1])) !== null) {
+    if (skip(itemsOffset + m.index)) continue;
     const arg = parseAttrs(m[1], 0).attrs.commandArgument ?? '';
     const h = m[2] ? /<header\b([^>]*)/i.exec(m[2]) : null;
     const header = h ? parseAttrs(h[1], 0).attrs : {};

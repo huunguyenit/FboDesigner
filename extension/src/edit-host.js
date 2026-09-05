@@ -244,9 +244,13 @@ async function applySplice(plan, hostDocument, output, label = 'sửa form') {
  * Tham chiếu: Dir.xsd / Grid.xsd + mẫu HOATP `Dir/zzSQTran.xml`. Không liệt kê hết thuộc
  * tính XSD — mục đích nhập nhanh; phần còn lại sửa tay trên XML.
  *
+ * `categoryIndex` — CHỈ truyền khi hàng đích đang được một field neo giữ vùng. Control mới sắp
+ * thay neo làm chỗ khai vùng, nên nó phải mang sẵn thuộc tính ấy từ lúc dựng; mọi ca khác để
+ * trống, vì ghi `categoryIndex` lên một field không cần là thêm nhiễu vào file của khách.
+ *
  * @returns {Promise<{xml:string, tokens:string[], name:string}|null>}
  */
-async function askNewControl(core, { width = false } = {}) {
+async function askNewControl(core, { width = false, categoryIndex = null } = {}) {
   const context = width ? 'grid' : 'form';
   const builtDlg = typeof core.buildAddControlDialog === 'function'
     ? core.buildAddControlDialog({ context })
@@ -308,6 +312,8 @@ async function askNewControl(core, { width = false } = {}) {
       style: values.style,
       ...(width ? { width: values.width } : {}),
     };
+
+  if (Number.isInteger(categoryIndex) && categoryIndex !== 0) spec.categoryIndex = categoryIndex;
 
   if (width) {
     const answer = String(spec.width ?? values.width ?? '').trim();
@@ -470,8 +476,12 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
       plan = core.planRowEdit(model, op, sourceText);
     } else if (msg.op === 'insert' || msg.op === 'addRow') {
       /*
-       * `addRow` + `blank: true` — chỉ chèn hàng `---------`, không hỏi control / không khai
-       * `<field>`. Field thêm sau bằng nút (+) trên slot trống.
+       * `addRow` + `blank: true` — chèn hàng `---------`, không hỏi control.
+       *
+       * Vẫn có thể phải khai MỘT `<field>`: hàng trống trong một tab không tự khai được vùng,
+       * nên nó mượn một field neo `external="true"` (xem mục «Field NEO VÙNG cho hàng trống»
+       * ở `core/src/edit.mjs`). Core nói có cần hay không qua `plan.anchorField`; ở dải header
+       * thì không cần gì cả.
        */
       if (msg.op === 'addRow' && msg.blank) {
         if (!row.itemRange) {
@@ -490,8 +500,33 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
           splitSide,
           split: Number.isFinite(split) && split > 0 ? split : undefined,
         }, sourceText, row.itemRange);
+
+        if (plan.ok && plan.anchorField && !plan.anchorField.declared) {
+          const declHost = fieldsHost(core, hostDocument, sourceText, targetFile);
+          const decl = core.planAddField(declHost.text, plan.anchorField.xml, plan.anchorField.name);
+          if (!decl.ok) {
+            warnReason(decl.reason);
+            return false;
+          }
+          // Nhánh split trả về `edits[]`, nhánh thường trả `splice` — `spliceList` chỉ đọc
+          // `extra` khi KHÔNG có `edits`, nên khai báo phải vào đúng cái đang dùng.
+          const declEdit = { ...decl.splice, file: declHost.file };
+          plan = Array.isArray(plan.edits)
+            ? { ...plan, edits: [...plan.edits, declEdit] }
+            : { ...plan, extra: declEdit };
+        }
       } else {
-        const made = await askNewControl(core);
+        /*
+         * Hàng đích đang được field neo giữ vùng? Thì control mới phải KHAI vùng ấy.
+         *
+         * Phải biết TRƯỚC khi hỏi, vì `buildField` dựng XML ngay trong `askNewControl` — hỏi
+         * xong mới biết thì đã muộn, và ghi thêm `categoryIndex` bằng một splice thứ hai lên
+         * một thẻ vừa chèn là đường vòng dễ lệch offset nhất.
+         */
+        const anchored = msg.op === 'insert' ? core.blankAnchorIn(row.row, row.widths) : null;
+        const made = await askNewControl(core, {
+          categoryIndex: anchored ? row.categoryIndex : null,
+        });
         if (!made) return false;
 
         if (msg.op === 'addRow' && !row.itemRange) {
@@ -523,7 +558,42 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
             warnReason(decl.reason);
             return false;
           }
-          plan = { ...plan, extra: { ...decl.splice, file: declHost.file } };
+          const edits = [{ file: plan.file, ...plan.splice }, { ...decl.splice, file: declHost.file }];
+
+          /*
+           * Core nói "gỡ neo rồi thì phải có field khác khai vùng" — và field ấy phải là field
+           * vừa dựng. Không khớp nghĩa là hai bên đã trôi khỏi nhau; từ chối còn hơn ghi ra một
+           * hàng lặng lẽ rơi khỏi tab.
+           */
+          if (plan.requireCategory
+            && !(plan.requireCategory.name === made.name
+              && made.xml.includes(`categoryIndex="${plan.requireCategory.index}"`))) {
+            warnReason(core.msg('edit.anchor_drop_unsafe', { p0: plan.requireCategory.index }));
+            return false;
+          }
+
+          /*
+           * Hàng vừa nhận control thật → core đã gỡ token neo khỏi `value`. Còn lại khai báo
+           * `<field>` của neo, và nó chỉ được xoá khi KHÔNG hàng nào khác còn mượn.
+           *
+           * Hỏi trên `model.rows` TRỪ hàng vừa sửa: hàng ấy trong model vẫn là bản CŨ (còn
+           * token neo), tính cả nó vào thì neo vĩnh viễn "còn người dùng" và rác không bao giờ
+           * dọn được — đúng cái bẫy `removeControl` đã ghi lại một lần.
+           *
+           * Không tìm ra khai báo thì THÔI, không báo lỗi: hàng vẫn đúng, chỉ còn một field
+           * external không ai dùng — và huỷ cả phép chèn vì một mẩu rác là tệ hơn nhiều.
+           */
+          if (plan.anchorDropped) {
+            const stillUsed = model.rows.some((r) => r.index !== msg.item
+              && r.row.tokens.some((t) => t.field === plan.anchorDropped));
+            if (!stillUsed) {
+              const rowDoc = await openTarget(row.range.file, hostDocument);
+              const at = findFieldDecl(plan.anchorDropped, [hostDocument, rowDoc]);
+              if (at) edits.push({ file: at.file, start: at.start, end: at.end, text: '' });
+            }
+          }
+
+          plan = { ...plan, edits };
         }
       }
     } else {

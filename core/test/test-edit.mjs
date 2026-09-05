@@ -1088,3 +1088,114 @@ eq('width 0 là hợp lệ — cột khoá kỹ thuật khai đúng như vậy',
 // Giá trị hỏng thì BỎ QUA chứ không ghi ra `width="NaN"` — thà thiếu còn hơn sai.
 ok('width không phải số thì bỏ qua', !buildField('textbox', 'x', 'X', null, { width: 'to' }).xml.includes('width='));
 ok('width âm cũng bỏ qua', !buildField('textbox', 'x', 'X', null, { width: -5 }).xml.includes('width='));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hàng trống trong TAB — field neo vùng
+//
+// Bất biến: một hàng trống thêm vào tab 18 phải Ở LẠI tab 18, và phải ở lại theo luật mà
+// runtime thật đọc được — không phải theo một quy ước riêng của preview. Xem mục
+// «Field NEO VÙNG cho hàng trống» ở `core/src/edit.mjs`.
+
+const CAT = [
+  '<?xml version="1.0" encoding="utf-8"?>',
+  '<dir table="dmkho">',
+  '  <fields>',
+  '    <field name="ma_kho"><header v="Mã kho" e="Code"/></field>',
+  '    <field name="dien_giai" categoryIndex="18"><header v="Diễn giải" e="Note"/></field>',
+  '  </fields>',
+  '  <view id="Dir">',
+  '    <categories>',
+  '      <category index="18"><header v="Khác" e="Other"/></category>',
+  '    </categories>',
+  '    <item value="100, 60, 90, 150"/>',
+  '    <item value="1100: [ma_kho].Label, [ma_kho]"/>',
+  '    <item value="1100: [dien_giai].Label, [dien_giai]"/>',
+  '  </view>',
+  '</dir>',
+].join(NL);
+
+const cat = build(CAT);
+const rowTab = cat.model.rows.find((r) => r.row.tokens.some((t) => t.field === 'dien_giai'));
+const rowTop = cat.model.rows.find((r) => r.row.tokens.some((t) => t.field === 'ma_kho'));
+
+section('hàng trống trong tab — neo bằng field external');
+eq('hàng neo đang ở tab 18', rowTab.categoryIndex, 18);
+
+const blankTab = planAddRow(cat.model,
+  { kind: 'addRow', item: rowTab.index, side: 'below', token: [], blank: true }, CAT, rowTab.itemRange);
+ok('lập được kế hoạch', blankTab.ok);
+ok('hàng mới mang token neo', blankTab.splice.text.includes('[zzblank18].Label'));
+// Pattern KHÔNG có `1` nào — đó là cả cơ chế: DWF chỉ tăng `control_index` khi gặp `1`, nên
+// token neo không bao giờ được dựng thành control. Có một `1` là hàng hết trống.
+ok('pattern không có control nào', /value="-+:/.test(blankTab.splice.text));
+
+eq('đòi khai field neo', blankTab.anchorField.name, 'zzblank18');
+eq('và nó chưa được khai', blankTab.anchorField.declared, false);
+ok('khai báo là external', blankTab.anchorField.xml.includes('external="true"'));
+ok('và mang đúng categoryIndex', blankTab.anchorField.xml.includes('categoryIndex="18"'));
+
+// Đọc lại từ VĂN BẢN THẬT: hàng trống phải nằm trong tab 18, không rơi về header.
+const withDecl = CAT.replace('  </fields>', `    ${blankTab.anchorField.xml}${NL}  </fields>`);
+const reBlank = build(applySplices(withDecl, [{
+  start: blankTab.splice.start + (withDecl.length - CAT.length),
+  end: blankTab.splice.end + (withDecl.length - CAT.length),
+  text: blankTab.splice.text,
+}]));
+const anchorRow = reBlank.model.rows.find((r) => r.row.tokens.some((t) => t.field === 'zzblank18'));
+ok('đọc lại thấy hàng mới', anchorRow !== undefined);
+eq('và nó ở tab 18, không phải header', anchorRow.categoryIndex, 18);
+ok('không có ô nào được vẽ', anchorRow.cells.every((c) => c.empty));
+// Token neo cố tình không được `1` nào nhận; kêu "token thừa" ở đây là cảnh báo giả.
+eq('không đẻ ra cảnh báo mới', reBlank.warnings.length, cat.warnings.length);
+
+section('hàng trống ở DẢI HEADER — không neo gì cả');
+const blankTop = planAddRow(cat.model,
+  { kind: 'addRow', item: rowTop.index, side: 'below', token: [], blank: true }, CAT, rowTop.itemRange);
+ok('lập được kế hoạch', blankTop.ok);
+eq('không đòi field neo', blankTop.anchorField, null);
+ok('hàng vẫn là dấu gạch trần', !blankTop.splice.text.includes('zzblank'));
+
+section('neo thứ hai trong cùng tab — dùng lại khai báo đã có');
+const catDecl = build(withDecl);
+const rowTab2 = catDecl.model.rows.find((r) => r.row.tokens.some((t) => t.field === 'dien_giai'));
+const blankAgain = planAddRow(catDecl.model,
+  { kind: 'addRow', item: rowTab2.index, side: 'below', token: [], blank: true }, withDecl, rowTab2.itemRange);
+eq('vẫn là field neo ấy', blankAgain.anchorField.name, 'zzblank18');
+// Khai lần hai là `planAddField` từ chối («field đã có») và cả phép thêm hàng đổ theo.
+eq('nhưng đã khai rồi', blankAgain.anchorField.declared, true);
+
+section('thả control vào hàng trống — neo bị gỡ');
+const ANCHORED = withDecl.replace(
+  '    <item value="1100: [dien_giai].Label, [dien_giai]"/>',
+  `    <item value="1100: [dien_giai].Label, [dien_giai]"/>${NL}    <item value="----: [zzblank18].Label"/>`,
+);
+const anch = build(ANCHORED);
+const blankRow = anch.model.rows.find((r) => r.row.tokens.some((t) => t.field === 'zzblank18'));
+eq('hàng trống đang ở tab 18', blankRow.categoryIndex, 18);
+
+const filled = planRowEdit(anch.model,
+  { kind: 'insert', item: blankRow.index, cell: 0, side: 'in', token: ['[ghi_chu].Label', '[ghi_chu]'] },
+  ANCHORED);
+ok('lập được kế hoạch', filled.ok);
+eq('token neo đã bị gỡ khỏi value', filled.splice.text.includes('zzblank18'), false);
+eq('và nói ra là đã gỡ field nào', filled.anchorDropped, 'zzblank18');
+// Gỡ neo là hàng mất chỗ khai vùng — core phải đòi field vừa chèn gánh lại, không thì hàng
+// lặng lẽ rơi về header ngay lần render sau.
+eq('đòi ghi categoryIndex lên field mới', filled.requireCategory.name, 'ghi_chu');
+eq('đúng vùng của hàng', filled.requireCategory.index, 18);
+
+// Có `categoryIndex` trên field mới thì hàng ở lại tab 18 kể cả khi neo đã biến mất hẳn.
+const DROPPED = applySplices(ANCHORED, [{ start: blankRow.range.start, end: blankRow.range.end, text: filled.splice.text }])
+  .replace('  </fields>', `    <field name="ghi_chu" categoryIndex="18"><header v="Ghi chú" e="Note"/></field>${NL}  </fields>`)
+  .replace(`    <field name="zzblank18" external="true" hidden="true" readOnly="true" defaultValue="''" categoryIndex="18"><header v="" e=""></header></field>${NL}`, '');
+const reDrop = build(DROPPED);
+ok('khai báo neo đã đi hẳn', !DROPPED.includes('zzblank18'));
+const nowFilled = reDrop.model.rows.find((r) => r.row.tokens.some((t) => t.field === 'ghi_chu'));
+eq('hàng vẫn ở tab 18 sau khi neo đi', nowFilled.categoryIndex, 18);
+eq('không đẻ ra cảnh báo mới', reDrop.warnings.length, cat.warnings.length);
+
+section('token thừa KHÔNG phải neo — vẫn phải kêu');
+// Chỉ tên đúng lối `zzblank<n>` mới được miễn. Người dùng gõ thừa một token là lỗi của họ,
+// và nuốt nó đi là designer giấu mất một lỗi thật.
+const STRAY = CAT.replace('1100: [ma_kho].Label, [ma_kho]', '1100: [ma_kho].Label, [ma_kho], [ma_kho]');
+ok('vẫn cảnh báo token thừa', build(STRAY).warnings.some((w) => String(w.message ?? w).includes('bất biến hỏng')));

@@ -33,6 +33,7 @@
   "dialog.info.title": "Thông tin",
   "dialog.success.title": "Thành công",
   "dialog.warning.title": "Cảnh báo",
+  "edit.anchor_drop_unsafe": "gỡ field neo thì hàng rơi khỏi tab {p0} — không còn token nào giữ vùng",
   "edit.anchor_hidden_config": "cột neo \"{anchorName}\" đến từ cấu hình ẩn — không chèn cạnh nó bằng reorder view",
   "edit.anchor_missing": "không có cột neo \"{anchorName}\"",
   "edit.anchor_pos_unknown": "không xác định được vị trí cột neo \"{anchorName}\" trong file nguồn",

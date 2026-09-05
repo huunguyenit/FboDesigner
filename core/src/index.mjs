@@ -29,8 +29,9 @@ export {
   takeRowHalf,
   joinRowHalves,
   newSplitBlankRow,
+  isBlankAnchorName,
 } from './item-value.mjs';
-export { canEditRow, planRowEdit, planMoveControl, planMoveRowBlock, planSwapControl, moveControlFiles, rowEditTargetFile, planAddRow, planAddField, planRemoveField, planRemoveControl, planInlineEntity, planColumnWidth, planRemoveColumn, planInsertColumn, planMoveColumn, planViewHeight, planFieldRows, planRegionMetadata, planRegionColumns, regionColumnFiles } from './edit.mjs';
+export { canEditRow, planRowEdit, planMoveControl, planMoveRowBlock, planSwapControl, moveControlFiles, rowEditTargetFile, planAddRow, planAddField, blankAnchorName, blankAnchorField, blankAnchorToken, blankAnchorIn, planRemoveField, planRemoveControl, planInlineEntity, planColumnWidth, planRemoveColumn, planInsertColumn, planMoveColumn, planViewHeight, planFieldRows, planRegionMetadata, planRegionColumns, regionColumnFiles } from './edit.mjs';
 export {
   FIELD_KINDS,
   FIELD_TYPES,

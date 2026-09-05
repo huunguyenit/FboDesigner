@@ -7,7 +7,7 @@
 
 import { ok, eq, section } from './harness.mjs';
 import { commentRanges, inComment } from '../src/xml-comment.mjs';
-import { scanViews, scanFields } from '../src/spans.mjs';
+import { scanViews, scanFields, scanToolbar } from '../src/spans.mjs';
 import { expandEntities } from '../src/entities.mjs';
 
 section('comment — nhận đúng vùng, CDATA thì đục');
@@ -97,3 +97,100 @@ ok('không chèn view đã tắt vào', !ref.clearText.includes("id='Cu'"));
 eq('nên chỉ quét ra view thật', scanViews(ref.clearText).map((v) => v.attrs.id), ['Moi']);
 // Entity vẫn được KHAI BÁO bình thường — chỉ chỗ dùng bị comment mới không bung.
 ok('khai báo vẫn còn, không phải bị xoá', ref.declarations.has('ViewCu'));
+
+section('comment — <category> bị comment không thành tab');
+/*
+ * Ca thật: `Dir/ZTHTran.xml` của FAHASAKHANHHOA comment cả khối
+ * `<!--<category index="18">…</category>-->` mà tab «Khác» vẫn hiện. Nặng hơn một cái tab thừa:
+ * `columns` của category là list px RIÊNG của vùng đó, nên vùng bị vẽ theo một bản khai đã tắt.
+ */
+const CAT = [
+  '<dir xmlns="urn:schemas-fast-com:data-dir">',
+  '  <fields><field name="a" categoryIndex="18"><header v="A" e="A"/></field></fields>',
+  '  <views><view id="Dir" columns="100,300">',
+  '    <item value="100, 300"/>',
+  '    <categories>',
+  '      <category index="1" columns="400"><header v="Chi tiết" e="Detail"/></category>',
+  '      <!--<category index="18" columns="100, 300">',
+  '        <header v="Khác" e="Other"/>',
+  '      </category>-->',
+  '      <category index="-1" columns="400"><header v="" e=""/></category>',
+  '    </categories>',
+  '  </view></views>',
+  '</dir>',
+].join('\n');
+eq('chỉ còn tab không bị comment', scanViews(CAT)[0].categories.map((c) => c.index), [1, -1]);
+ok('không nhặt nhãn của bản đã tắt', scanViews(CAT)[0].categories.every((c) => c.header?.v !== 'Khác'));
+
+section('comment — cả khối <categories> bị comment thì lấy khối THẬT đứng sau');
+const CATS = [
+  '<dir xmlns="urn:schemas-fast-com:data-dir">',
+  '  <fields><field name="a"><header v="A" e="A"/></field></fields>',
+  '  <views><view id="Dir" columns="100">',
+  '    <item value="100"/>',
+  '    <!--<categories>',
+  '      <category index="9" columns="100"><header v="Cũ" e="Old"/></category>',
+  '    </categories>-->',
+  '    <categories>',
+  '      <category index="1" columns="100"><header v="Chi tiết" e="Detail"/></category>',
+  '    </categories>',
+  '  </view></views>',
+  '</dir>',
+].join('\n');
+eq('khối bị comment không thắng khối thật', scanViews(CATS)[0].categories.map((c) => c.index), [1]);
+
+section('comment — <button> bị comment không lên toolbar');
+/*
+ * 46 file trong `App_Data\Controllers` của FAHASAKHANHHOA tắt lệnh bằng cách comment cả thẻ
+ * `<button>`. Vẽ chúng ra là designer bày lệnh mà runtime không có.
+ */
+const TB = [
+  '<grid xmlns="urn:schemas-fast-com:data-grid">',
+  '  <toolbar>',
+  '    <button command="New"><title v="Mới" e="New"/></button>',
+  '    <!--<button command="Delete"><title v="Xoá" e="Delete"/></button>-->',
+  '    <button command="Edit"><title v="Sửa" e="Edit"/></button>',
+  '  </toolbar>',
+  '</grid>',
+].join('\n');
+eq('chỉ còn nút không bị comment', scanToolbar(TB).map((b) => b.command), ['New', 'Edit']);
+
+section('comment — cả khối <toolbar> bị comment thì lấy khối THẬT đứng sau');
+const TB2 = [
+  '<grid xmlns="urn:schemas-fast-com:data-grid">',
+  '  <!--<toolbar>',
+  '    <button command="Cu"><title v="Cũ" e="Old"/></button>',
+  '  </toolbar>-->',
+  '  <toolbar>',
+  '    <button command="New"><title v="Mới" e="New"/></button>',
+  '  </toolbar>',
+  '</grid>',
+].join('\n');
+eq('khối bị comment không thắng khối thật', scanToolbar(TB2).map((b) => b.command), ['New']);
+
+section('comment — <menuItem> bị comment không thành mục xổ xuống');
+/*
+ * Nặng hơn một dòng menu thừa: `grid.mjs` quyết nút là «group» bằng ĐỘ DÀI mảng này, và group
+ * đổi cả tên class lẫn bề rộng nút. Comment hết mục con là nút phải trở lại nút thường.
+ */
+const MENU = [
+  '<grid xmlns="urn:schemas-fast-com:data-grid">',
+  '  <toolbar>',
+  '    <button command="Retrieve"><title v="Lấy dữ liệu" e="Retrieve"/>',
+  '      <menuItems>',
+  '        <menuItem commandArgument="10"><header v="Từ đơn hàng" e="From SO"/></menuItem>',
+  '        <!--<menuItem commandArgument="20"><header v="Từ hợp đồng" e="From contract"/></menuItem>-->',
+  '      </menuItems>',
+  '    </button>',
+  '    <button command="Compose"><title v="Gộp" e="Compose"/>',
+  '      <!--<menuItems>',
+  '        <menuItem commandArgument="30"><header v="Đã tắt" e="Off"/></menuItem>',
+  '      </menuItems>-->',
+  '    </button>',
+  '  </toolbar>',
+  '</grid>',
+].join('\n');
+const tb = scanToolbar(MENU);
+eq('mục menu bị comment không lọt', tb[0].menu.map((i) => i.arg), ['10']);
+eq('cả khối <menuItems> bị comment thì nút hết là group', tb[1].menu, []);
+ok('nhãn của mục còn lại vẫn đọc đúng', tb[0].menu[0].v === 'Từ đơn hàng');
