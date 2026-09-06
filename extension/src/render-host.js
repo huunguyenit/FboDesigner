@@ -408,6 +408,10 @@ function buildPayload(core, document, { cfg, paths, output, webview = null, bust
       fitWidth: result.fitWidth === true,
       sourceFiles,
       warnings: result.warnings || [],
+      // Nhánh đầy đủ bên dưới trả `diagnostics`; nhánh này phải trả y hệt. Hai hình dạng lệch
+      // nhau là cái bẫy chờ người gọi tiếp theo — `diagnostic-host.js` cần đúng khoá này, và
+      // `undefined` ở đây thì mọi lỗi entity biến mất khỏi Problems mà không có dấu hiệu gì.
+      diagnostics: expanded.diagnostics,
     };
   }
 
@@ -759,6 +763,10 @@ module.exports = {
   config,
   panelColumn,
   loadDetail,
+  // Xuất ra cho `diagnostic-host.js`: nó phải quy offset về dòng/cột trên ĐÚNG chuỗi mà
+  // `buildPayload` đã đọc. Tự đọc lại bằng đường khác là hai bản decode cho cùng một file, và
+  // gạch đỏ lệch cột ở mọi dòng có ký tự ngoài ASCII đứng trước.
+  cachedReadFile,
   isControllerDocument,
   programAssets,
   buildPayload,

@@ -4,6 +4,59 @@
 
 ## [Chưa phát hành]
 
+### Thêm — CHẨN ĐOÁN trong Problems panel
+
+Chỗ hai bước nền trước hiện ra ngoài. Mở một file trong `Dir` / `Filter` / `Grid` là lỗi vào
+thẳng Problems (`Ctrl+Shift+M`), bấm một dòng là nhảy tới chỗ khai — không cần mở designer.
+
+KHÔNG gate license, có chủ ý. Mọi lệnh nghiệp vụ đi qua `withLicense`, nhưng gạch đỏ là thứ
+chạy nền chứ không phải một lệnh người ta bấm: khoá nó lại thì người chưa kích hoạt mở một
+controller hỏng ra và thấy không gì cả — không thông báo, không chỗ để hỏi vì sao. Im lặng là
+câu trả lời tệ hơn cả một lời từ chối.
+
+Phần khó nhất KHÔNG phải là gọi `createDiagnosticCollection`, mà là **một file Include được
+nhiều controller kéo vào**. `DiagnosticCollection.set(uri, …)` THAY TOÀN BỘ danh sách của uri
+đó, nên cách viết tự nhiên nhất — mỗi controller tự `set` lên từng file nó chạm — làm controller
+chạy sau xoá sạch chẩn đoán của controller chạy trước. Hỏng im lặng: không ném, không log, chỉ
+là một nửa số gạch đỏ không bao giờ hiện. Include dùng chung là chuyện thường ngày của FBO nên
+đây là ca THẬT, không phải ca biên. Nên kết quả giữ RIÊNG theo từng controller, và mỗi lần đổi
+thì dựng lại HỢP của mọi controller cho từng file bị chạm.
+
+Dọn phải theo dấu vết của lượt TRƯỚC, không chỉ lượt này: sửa xong một lỗi thì lượt mới chẳng
+nhắc gì tới file ấy nữa, và không ai bảo VS Code bỏ gạch cũ đi thì nó nằm lại vĩnh viễn.
+
+Cùng một khiếm khuyết trong một Include được mọi controller kéo file ấy vào cùng báo lên, nên
+bản gộp bỏ trùng theo (mã, dải, câu chữ). Khiếm khuyết là của FILE; năm controller đọc nó không
+làm nó thành năm khiếm khuyết.
+
+Offset quy ra dòng/cột trên ĐÚNG CHUỖI đã sinh ra offset ấy — `document.getText()` cho controller
+đang mở, `core.readSource` cho Include. Đổi chỗ hai bên là để VS Code giải mã lại theo cấu hình
+của NÓ, và gạch lệch cột ở mọi dòng có ký tự ngoài ASCII đứng trước. Hệ quả đã biết và chấp
+nhận: Include đang sửa dở chưa lưu thì chẩn đoán tính trên bản đã lưu — đúng hành vi của
+designer hôm nay, và hai bên nói khác nhau về cùng một file còn tệ hơn.
+
+`severity: 'info'` KHÔNG vào Problems. Luật duy nhất ở mức ấy — thiếu CSS nền — là lỗi nạp tài
+nguyên của extension, không phải khiếm khuyết của file người dùng đang mở; đặt nó vào Problems
+là chỉ tay vào một file không có gì sai. Nó ở lại Output Channel, và có một phép kiểm giữ quyết
+định ấy khỏi bị "dọn gọn" mất.
+
+Ba chốt nhỏ hơn: quét lần đầu đẩy sang nhịp sau chứ không chạy trong `activate` (VS Code CHỜ
+`activate` xong, và ai khôi phục một phiên hai chục controller sẽ trả giá bằng một khoảng treo
+lúc mở IDE); gõ thì debounce 300ms còn lưu thì chạy ngay; quét ném thì GIỮ NGUYÊN kết quả lần
+trước, vì gõ dở một thẻ XML là trạng thái bình thường của file đang sửa và xoá trắng Problems
+mỗi lần như thế làm cả bảng nhấp nháy.
+
+Dùng lại `buildPayload` với `skipHtml`, không tự dựng đường tính riêng: cảnh báo phụ thuộc cả
+`loadDetail` lẫn `gridConfig`, và hai đường nói hai chuyện khác nhau về cùng một file đúng là
+thứ đầu `render-host.js` đã cảnh báo. Nhánh `skipHtml` của nó nay trả thêm `diagnostics` cho
+khớp nhánh đầy đủ — hai hình dạng lệch nhau là cái bẫy chờ người gọi tiếp theo.
+
+Vỏ ở [`extension/src/diagnostic-host.js`](extension/src/diagnostic-host.js). Kèm bộ test ĐẦU
+TIÊN cho tầng extension ([`extension/test/`](extension/test/run.mjs), 30 phép kiểm, `npm run
+test:extension`) — chạy bằng node trần với một `vscode` giả. Nó đứng riêng khỏi `core/test`:
+bộ test của core là bằng chứng sống cho luật "core không phụ thuộc gì" (ADR-0002), và trộn một
+bản giả lập vào đó là làm mờ đúng cái ranh giới ấy.
+
 ### Thêm — chẩn đoán entity mang mã và dải nguồn
 
 Nửa còn lại của bước nền. Chín chỗ `expandEntities` báo lỗi — entity chưa khai, entity đệ quy,

@@ -221,7 +221,9 @@
     }
   },
   "scripts": {
-    "test:core": "node ../core/test/run.mjs"
+    "test": "node ../core/test/run.mjs && node ../extension/test/run.mjs",
+    "test:core": "node ../core/test/run.mjs",
+    "test:extension": "node ../extension/test/run.mjs"
   },
   "dependencies": {},
   "devDependencies": {}

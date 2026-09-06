@@ -18,6 +18,7 @@ const { initDialogs } = require('./dialog/dialog-service');
 const { postToActiveDesigner } = require('./designer-webview');
 const { toast } = require('./locale');
 const { initLicenseSettings, withLicense, ensureLicense } = require('./license');
+const { registerDiagnostics } = require('./diagnostic-host');
 
 /**
  * Core nằm ở hai chỗ khác nhau tuỳ cách chạy, và đó là chuyện cố ý:
@@ -55,6 +56,16 @@ async function activate(context) {
   const dialogService = initDialogs(context);
 
   context.subscriptions.push(FboDesignerProvider.register(context, core, output));
+
+  /*
+   * Chẩn đoán KHÔNG đi qua `withLicense`, khác mọi lệnh bên dưới.
+   *
+   * Gạch đỏ trên file là thứ chạy nền, không phải một lệnh người dùng bấm. Khoá nó lại thì
+   * người chưa kích hoạt mở một controller hỏng ra và thấy... không gì cả — không thông báo,
+   * không chỗ để hỏi vì sao. Im lặng là câu trả lời tệ hơn cả một lời từ chối, và đây cũng là
+   * cách tự nhiên nhất để người ta thấy extension này làm được gì.
+   */
+  registerDiagnostics(context, core, output);
 
   // Mọi lệnh nghiệp vụ đều qua withLicense — Settings (machineId / dán key) vẫn dùng được.
   context.subscriptions.push(

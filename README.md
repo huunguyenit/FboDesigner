@@ -78,6 +78,25 @@ Chạy **Sinh script thêm cột cho field mới** trên form/lưới: extension
 
 
 
+### 3. Chẩn đoán trong Problems panel
+
+Mở một file trong `Dir` / `Filter` / `Grid` là extension quét ngay và đẩy lỗi vào **Problems**
+(`Ctrl+Shift+M`) — không cần mở designer, không cần license.
+
+- Token trỏ vào field chưa khai, `<field>` khai mà lưới không có, pattern lệch số cột, list px
+  hỏng, tab khai trùng, entity chưa khai / đệ quy / file `SYSTEM` không đọc được
+- **Lỗi hiện ở đúng file phải sửa**: hàng viết trong `Include` thì gạch đỏ nằm trong chính file
+  Include ấy, không nằm ở controller đang mở
+- Gạch vào đúng khúc chữ hỏng — đúng token, đúng phần tử trong list px — chứ không bôi cả hàng
+- Mức `Error` dành cho thứ làm control **biến mất khỏi màn hình**; `Warning` cho thứ vẫn vẽ ra
+  được nhưng đáng ngờ
+- Bấm vào một dòng trong Problems là nhảy thẳng tới chỗ khai
+
+Sửa một file `Include` thì mọi controller đang mở có kéo file ấy vào đều được tính lại. Lưu ý:
+Include đang sửa **chưa lưu** thì chẩn đoán vẫn tính trên bản đã lưu — giống hệt cách designer
+đọc file, nên hai bên luôn nói cùng một chuyện.
+
+
 ## Kích hoạt License
 
 Mọi tính năng Designer chỉ chạy khi đã có **License Key** hợp lệ trên máy của bạn.
