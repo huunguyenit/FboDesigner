@@ -4,6 +4,65 @@
 
 ## [Chưa phát hành]
 
+### Thêm — cảnh báo của core mang MÃ, MỨC và DẢI NGUỒN
+
+Bước nền cho chẩn đoán trong Problems panel. Chưa đổi gì người dùng nhìn thấy: webview vẫn đọc
+đúng `item` và `message` như cũ, và bản vẽ không khác một pixel nào.
+
+Cái đổi là thứ đi kèm. Core có sẵn khoảng ba mươi luật cảnh báo — token trỏ vào field không
+khai, pattern lệch số cột, list px hỏng, cột lưới không có `<field>`, tab khai trùng — nhưng
+chúng chỉ đi tới một danh sách trong webview và một dòng trong Output Channel. Muốn đặt một
+gạch đỏ vào file thì ba thứ còn thiếu:
+
+    code      khoá `messages.json`. Thứ ổn định để lọc/tắt từng luật; chuỗi thông điệp thì
+              không — nó đổi mỗi lần ai đó viết lại cho dễ đọc hơn.
+    severity  phân biệt «form CHẮC CHẮN vẽ sai» với «vẽ được nhưng đáng ngờ». Trộn hai thứ vào
+              một mức là Problems panel đỏ đều và người đọc thôi phân biệt.
+    range     `{file, start, end}` trong file nguồn.
+
+`range` là phần đắt, và lý do nằm ở entity. Cộng offset vào chuỗi `value` chỉ cho ra toạ độ
+trong văn bản ĐÃ BUNG — một chuỗi không nằm trên đĩa của ai cả; đặt gạch đỏ theo con số ấy là
+đặt vào hư không, mà nó lại TRÔNG như một toạ độ thật. Nên mọi cảnh báo đi qua `sourceRange`
+đúng đường mà `range` của mỗi hàng đã đi từ trước: quy CẢ DẢI về một file một lần, không map
+riêng hai đầu. Kết quả là lỗi của một hàng khai trong Include hiện ở CHÍNH file Include —
+đúng file phải sửa, chứ không phải controller đang mở.
+
+Toạ độ đi hai tầng, tách theo đúng chỗ đứt của thông tin. `parseWidths`/`parseRow`/`buildCells`
+chỉ nhìn thấy một chuỗi `value` và không biết file nào, offset nào — nên chúng phát ra `at`/`len`
+TƯƠNG ĐỐI trong chính chuỗi ấy. `render.mjs`/`grid.mjs` cộng offset gốc rồi mới quy về file.
+
+Nhờ tầng dưới có `at`, cảnh báo chỉ đúng khúc chữ hỏng thay vì bôi cả hàng: `token "[a].Lable"
+sai kind` gạch đúng token đó, `cột 7 không phải số px` gạch đúng phần tử thứ 7 trong list mười
+bảy cột. Token nay nhớ luôn chỗ mình đứng (`at`/`len` trong `parseRow`), đo bằng con trỏ chạy
+chứ không `indexOf` — một hàng có hai token trùng văn bản thì `indexOf` trả cùng một chỗ cho cả
+hai, và gạch đỏ thứ hai nằm chồng lên gạch thứ nhất.
+
+`range: null` là một câu trả lời HỢP LỆ, không phải chỗ còn thiếu, và có hai ca thật. Cảnh báo
+`arrangement` đọc chuỗi đến từ `Grid/Config/Fields/<Tên>.xml` — file mà `segments` không phủ, nên
+không có dải nào đúng để mà trả; bịa ra một dải trong controller là chỉ tay vào file không chứa
+lỗi. Và `pattern dài hơn N cột` nói về quan hệ pattern↔số cột của view, không về một khúc chữ
+nào hẹp hơn cả `value`.
+
+Bảy chuỗi tiếng Việt viết thẳng trong `item-value.mjs` chuyển hết vào `messages.json` (nguyên
+văn, không sửa câu chữ) để có khoá mà làm `code`. Mức thì chia theo hậu quả THẬT: lệch pattern
+với token, pattern vượt số cột, `"1"` hết token, token không ai nhận, token trỏ field không khai,
+cột lưới không có field — sáu ca này làm control BIẾN MẤT khỏi màn hình nên là `error`; list px
+hỏng thì coi như 0 và vẫn vẽ ra được nên là `warning`. Thiếu CSS nền xuống `info`: đó là lỗi nạp
+tài nguyên của extension, không phải khiếm khuyết của file người dùng đang mở, và đẩy nó vào
+Problems cùng mức lỗi thật là bắt người ta đi sửa một file không có gì sai.
+
+`category index="8"` khai trùng nay neo vào bản khai THỨ HAI. Thông điệp nói «chỉ lần đầu được
+dùng», nên cái đáng gạch là cái bị bỏ qua — gạch vào bản đầu là chỉ tay vào đúng bản đang chạy.
+
+Hình dạng mới ở [`core/src/warn.mjs`](core/src/warn.mjs); chỗ phát ở
+[`core/src/item-value.mjs`](core/src/item-value.mjs), chỗ neo ở
+[`core/src/render.mjs`](core/src/render.mjs) và [`core/src/grid.mjs`](core/src/grid.mjs)
+(test: 26 phép kiểm mới, trong đó phép đắt nhất cắt dải trả về trên văn bản THẬT của file
+Include và khẳng định nó ra đúng `[khong_co]`).
+
+`tools/package-vsix.mjs` dùng danh sách file tường minh, nên `warn.mjs` được thêm vào đó —
+thiếu một dòng ấy thì mọi test vẫn xanh mà bản `.vsix` cài lên máy khác không nạp nổi core.
+
 ### Thêm — ĐỔI CHỖ hai control trong cùng một hàng
 
 Kéo một control thả lên control khác cùng bề rộng, hoặc bấm `⇄←` / `⇄→` trên thanh lệnh của ô

@@ -126,6 +126,9 @@ ok('cột Numeric canh phải', html.includes('class="CellInput TextInput" style
 section('grid — cột trỏ vào field không khai thì báo, không im');
 const orphan = renderControllerHtml(XML.replace('<field name="so_luong"/>', '<field name="khong_co"/>'));
 ok('có cảnh báo nêu đúng tên', orphan.warnings.some((w) => w.message.includes('khong_co')));
+const orphanW = orphan.warnings.find((w) => w.code === 'grid.col_field_missing');
+// Cột BIẾN MẤT khỏi lưới (hàm `return` ngay sau khi báo), không phải hiện sai — nên ERROR.
+eq('cột không có field là ERROR', orphanW.severity, 'error');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Lưới Detail NHÚNG trong một tab của form.
@@ -971,6 +974,20 @@ const noBase = renderControllerHtml([
 ].join('\r\n'));
 ok('có cảnh báo thiếu baseCss', noBase.model.warnings.some((w) => String(w.message).includes('baseCss')));
 ok('và nút vẫn vẽ ra, chỉ là không icon', noBase.html.includes('data-fbo-command="New"'));
+
+/*
+ * Ba cảnh báo của `applyArrangement` đi ra với `range: null`, và đó là câu trả lời ĐÚNG:
+ * chuỗi `arrangement` đến từ `Grid/Config/Fields/<Tên>.xml`, một file mà `segments` không phủ.
+ * Bịa ra một dải trong controller là chỉ tay vào file không chứa lỗi.
+ */
+section('grid — arrangement hỏng: có mã, không có dải (và nói thật về điều đó)');
+const arrW = [];
+applyArrangement([{ name: 'a', source: null }], 'khong_co:%l0;a:%z(x)', arrW);
+eq('hai cảnh báo', arrW.length, 2);
+eq('cột không tồn tại', arrW[0].code, 'grid.arr_col_missing');
+eq('luật không đọc được', arrW[1].code, 'grid.arr_unread');
+ok('cả hai đều không có dải, vì thật sự không có', arrW.every((w) => w.range === null));
+ok('nhưng vẫn có mức', arrW.every((w) => w.severity === 'warning'));
 
 /* ══════════════════════════════════════════════════════════════════════════
  * `<field rows="N">` = divHeader + divGrid. Không gồm toolbar, divSplit, dải cuộn.

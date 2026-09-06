@@ -33,7 +33,46 @@ eq('pattern', r1.pattern, '1100-');
 eq('2 token', r1.tokens.length, 2);
 eq('không cảnh báo', r1.warnings, []);
 const broken = parseRow('111-: [a].Label, [a]');
-ok('3 "1" mà 2 token → báo hỏng bất biến', broken.warnings.some((w) => w.includes('bất biến')));
+ok('3 "1" mà 2 token → báo hỏng bất biến', broken.warnings.some((w) => w.message.includes('bất biến')));
+
+section('cảnh báo mang MÃ, MỨC và TOẠ ĐỘ — ba thứ để đặt được một gạch đỏ');
+/*
+ * Vì sao `code` chứ không so chuỗi: câu chữ đổi mỗi lần ai đó viết lại cho dễ đọc hơn, và mọi
+ * phép lọc/tắt từng luật bám vào chuỗi ấy sẽ hỏng im lặng ở lần sửa câu chữ tiếp theo.
+ */
+eq('code là khoá messages.json', broken.warnings[0].code, 'item.invariant_broken');
+// Lệch số "1" với số token = control rơi sai cột hoặc mất hẳn. Không phải "vẽ hơi xấu".
+eq('lệch pattern↔token là ERROR', broken.warnings[0].severity, 'error');
+// Neo vào PATTERN (`111-`) — nửa mà người sửa gần như luôn phải đếm lại.
+eq('neo vào pattern, không phải cả hàng', [broken.warnings[0].at, broken.warnings[0].len], [0, 4]);
+
+const NAN_W = '50, abc, 70';
+const nan = parseWidths(NAN_W);
+eq('list px hỏng chỉ đúng phần tử hỏng', NAN_W.slice(nan.warnings[0].at, nan.warnings[0].at + nan.warnings[0].len), 'abc');
+eq('coi như 0 thì vẫn vẽ ra được → warning', nan.warnings[0].severity, 'warning');
+/*
+ * Hai phần tử TRÙNG VĂN BẢN là phép thử thật của con trỏ chạy: `indexOf` trả cùng một chỗ cho
+ * cả hai, và gạch đỏ thứ hai sẽ nằm chồng lên gạch thứ nhất.
+ */
+eq('hai phần tử trùng văn bản ra hai offset khác nhau', parseWidths('x, x').warnings.map((w) => w.at), [0, 3]);
+
+const TWIN = '11: [ma_kh].Label, [ma_kh].Label';
+const twin = parseRow(TWIN);
+eq('token cũng vậy — hai token trùng văn bản, hai offset', twin.tokens.map((t) => t.at), [4, 19]);
+eq('len đo đúng token đã trim', TWIN.slice(twin.tokens[1].at, twin.tokens[1].at + twin.tokens[1].len), '[ma_kh].Label');
+
+const STRAY_V = '1-: [a], [b]';
+const stray = buildCells(parseRow(STRAY_V), parseWidths('50, 50').widths);
+eq('token không "1" nào nhận là ERROR', stray.warnings[0].severity, 'error');
+eq('và neo vào CHÍNH token bị bỏ rơi', STRAY_V.slice(stray.warnings[0].at, stray.warnings[0].at + stray.warnings[0].len), '[b]');
+/*
+ * `at: null` là câu trả lời THÀNH THẬT, không phải chỗ còn thiếu: cảnh báo nói về quan hệ
+ * pattern↔số cột của view, không về một khúc chữ nào hẹp hơn cả chuỗi. Tầng trên neo trọn
+ * `value`. Bịa ra số 0 ở đây là gạch đỏ vào ký tự đầu tiên, trông như đã biết chỗ mà không biết.
+ */
+const overCut = buildCells(parseRow('111: [a], [b], [c]'), parseWidths('50, 50').widths);
+eq('pattern vượt số cột là ERROR', overCut.warnings[0].severity, 'error');
+eq('và không giả vờ biết chỗ', overCut.warnings[0].at, null);
 ok('phát hiện entity trong value', parseRow('110&UnitCols;: [&UnitFields;].Label').hasEntity === true);
 
 section('resolvePattern — ngắn thì pad, dài thì CẮT');

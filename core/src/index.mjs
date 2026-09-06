@@ -42,6 +42,15 @@ export {
   isValidFieldName,
 } from './field-template.mjs';
 export { msg, t, MESSAGES, FIELDS_CONFIG, VIEWS_CONFIG, SQL_CONFIG } from './msg.mjs';
+/*
+ * Hình dạng cảnh báo chẩn đoán. Tầng vỏ nhận `{code, message, severity, item, range}`, trong đó
+ * `range` là `{file, start, end}` trong FILE NGUỒN — có thể là một file Include, không nhất
+ * thiết là file đang mở — hoặc `null` khi cảnh báo không gắn vào khúc chữ nào.
+ *
+ * `warnLocal`/`warnAbsoluteSpan` là chuyện nội bộ của core (toạ độ tương đối trong một chuỗi
+ * `value`); vỏ không cần tới, nhưng test thì có, nên vẫn xuất ra.
+ */
+export { local as warnLocal, anchored as warnAnchored, attach as warnAttach, absoluteSpan as warnAbsoluteSpan } from './warn.mjs';
 export { splitPatternAt, mergePatternAt, splitWidthsAt, mergeWidthsAt } from './columns.mjs';
 export { scopeCss, FORM_SCOPE } from './css-scope.mjs';
 export { commentRanges, inComment, commentSkipper } from './xml-comment.mjs';

@@ -17,6 +17,7 @@
 import { renderGridControl, isDisabled, resolveLocaleName, alignOf } from './control.mjs';
 import { sourceRange, hostRefAt } from './entities.mjs';
 import { msg, VIEWS_CONFIG } from './msg.mjs';
+import * as warn from './warn.mjs';
 
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
@@ -398,6 +399,9 @@ export function buildGridModel(view, fields, {
 } = {}) {
   const fieldByName = new Map(fields.map((f) => [f.name, f]));
   const warnings = [];
+
+  /** Dải nguồn của một thuộc tính trên thẻ `<field>` của view lưới. Xem `anchor` ở `render.mjs`. */
+  const spanRange = (span) => (span && segments ? sourceRange(segments, span.start, span.end) : null);
   const freeze = Number(root?.attrs?.freezeColumns);
   const frozen = Number.isFinite(freeze) && freeze > 0 ? freeze : 0;
   const voucher = isVoucherGrid(root?.attrs?.type);
@@ -406,7 +410,12 @@ export function buildGridModel(view, fields, {
   (view.columns ?? []).forEach((col, i) => {
     const field = fieldByName.get(col.name);
     if (!field) {
-      warnings.push({ item: i, message: msg('grid.col_field_missing', { name: col.name, name2: col.name }) });
+      // ERROR: cột BIẾN MẤT khỏi lưới (`return` ngay dưới đây), không phải hiện sai.
+      warnings.push(warn.anchored(
+        'grid.col_field_missing',
+        { name: col.name, name2: col.name },
+        { severity: 'error', item: i, range: spanRange(col.attrSpans?.name) },
+      ));
       return;
     }
     /*
@@ -895,6 +904,15 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null } = 
  * Neo vào một cột không tồn tại thì để cột đó ở nguyên chỗ cũ và ghi cảnh báo — đẩy nó về cuối
  * lặng lẽ là giấu mất một khai báo hỏng.
  */
+/*
+ * Ba cảnh báo trong hàm này đi ra với `range: null`, và đó là câu trả lời ĐÚNG chứ không phải
+ * chỗ còn thiếu: chuỗi `arrangement` đến từ `Grid/Config/Fields/<Tên>.xml` — một file mà
+ * `segments` KHÔNG phủ (segments dựng từ controller cộng Include của nó, Config nằm ngoài
+ * đường ấy). Bịa ra một dải trong file controller là chỉ tay vào file không chứa lỗi.
+ *
+ * Muốn có dải thì phải cho `mergeGridConfig` mang theo cả offset lẫn đường dẫn của từng mảnh
+ * Config — việc riêng, đáng làm khi có ai đó thật sự cần nhảy tới đó.
+ */
 export function applyArrangement(columns, arrangement, warnings = []) {
   const raw = String(arrangement ?? '').trim();
   if (raw === '') return columns;
@@ -920,14 +938,14 @@ export function applyArrangement(columns, arrangement, warnings = []) {
 
     const from = out.findIndex((c) => c.name === name);
     if (from === -1) {
-      warnings.push({ item: null, message: msg('grid.arr_col_missing', { name }) });
+      warnings.push(warn.anchored('grid.arr_col_missing', { name }));
       continue;
     }
 
     const m = /^%([ab])\((.+)\)$/.exec(spec);
     if (!m) {
       if (!/^%l/i.test(spec)) {
-        warnings.push({ item: null, message: msg('grid.arr_unread', { p0: rule.trim() }) });
+        warnings.push(warn.anchored('grid.arr_unread', { p0: rule.trim() }));
         continue;
       }
       // `%l0`: sau cột cuối của file Grid, và mốc tiến dần theo từng luật để hai cột cùng `%l0`
@@ -943,7 +961,7 @@ export function applyArrangement(columns, arrangement, warnings = []) {
     const anchorName = m[2].trim();
     const anchor = out.findIndex((c) => c.name === anchorName);
     if (anchor === -1) {
-      warnings.push({ item: null, message: msg('grid.arr_anchor_missing', { name, anchorName }) });
+      warnings.push(warn.anchored('grid.arr_anchor_missing', { name, anchorName }));
       continue;
     }
     if (anchor === from) continue;
@@ -1101,11 +1119,16 @@ export function renderGrid(views, fields, opts = {}) {
   model.toolbarCss = [model.baseCss, model.css].filter(Boolean).join('\n');
   // Không có CSS nền mà vẫn có nút: mọi nút sẽ ra chỉ-chữ. Nói ra, đừng để người đọc tự đoán.
   if (model.toolbar.length > 0 && model.baseCss === '') {
-    model.warnings.push({
-      item: -1,
-      message: msg('grid.no_base_css')
-        + ' vì icon quyết định theo CSS quy tắc chung',
-    });
+    /*
+     * INFO, không phải warning: đây là lỗi NẠP TÀI NGUYÊN CỦA EXTENSION, không phải khiếm
+     * khuyết của file người dùng đang mở. Đẩy nó vào Problems cùng mức với lỗi thật là bắt
+     * người ta đi sửa một file không có gì sai.
+     */
+    model.warnings.push(warn.anchored(
+      'grid.no_base_css',
+      {},
+      { severity: 'info', item: -1 },
+    ));
   }
   if (model.columns.length === 0) {
     return {

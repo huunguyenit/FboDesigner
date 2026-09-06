@@ -77,6 +77,56 @@ const bad = renderControllerHtml([
 ].join('\n'));
 ok('token trỏ vào field không tồn tại thì báo', bad.warnings.some((w) => w.message.includes('khong_co')));
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * Cảnh báo có DẢI NGUỒN — phần đắt, và là lý do cả `warn.mjs` tồn tại.
+ *
+ * Cộng offset vào chuỗi `value` chỉ cho ra toạ độ trong văn bản ĐÃ BUNG ENTITY: một chuỗi
+ * không nằm trên đĩa của ai cả. Đặt gạch đỏ theo con số ấy là đặt vào hư không, và tệ hơn — nó
+ * TRÔNG như một toạ độ thật.
+ *
+ * Ca dưới đây là ca đáng giá nhất và cũng là ca dễ làm sai nhất: hàng hỏng nằm trong file
+ * Include, không nằm trong controller đang mở. Quy đúng thì lỗi hiện ở đúng file phải sửa.
+ * ══════════════════════════════════════════════════════════════════════════ */
+section('render — cảnh báo quy về ĐÚNG file nguồn, kể cả file Include');
+/** Quy separator về `/` để so đường dẫn — `resolveSystemPath` trả theo separator của OS. */
+const norm = (p) => String(p).split(String.fromCharCode(92)).join('/');
+const ANC_HOST = 'C:/P/App_Data/Controllers/Dir/Kh.xml';
+const ANC_INC = [
+  '<item value="11: [a].Label, [khong_co]"/>',
+  '<item value="11--: [a].Label, [a]"/>',
+].join('\r\n');
+const ANC_SRC = [
+  '<?xml version="1.0" encoding="utf-8"?>',
+  '<!DOCTYPE dir [',
+  '  <!ENTITY Rows SYSTEM "../Include/Rows.ent">',
+  ']>',
+  '<dir table="dmkh">',
+  '  <fields><field name="a"><header v="A" e="A"/></field></fields>',
+  '  <view id="Dir">',
+  '    <item value="50, 50, 50, 50"/>',
+  '    &Rows;',
+  '  </view>',
+  '</dir>',
+].join('\r\n');
+const ancEx = expandEntities(ANC_SRC, {
+  filePath: ANC_HOST,
+  readFile: (abs) => (norm(abs).endsWith('/Include/Rows.ent') ? ANC_INC : null),
+});
+const anc = renderControllerHtml(ancEx.clearText, { segments: ancEx.segments, hostFile: ANC_HOST });
+const ancW = anc.warnings.find((w) => w.code === 'render.token_no_field');
+ok('có cảnh báo, và nó mang code', ancW !== undefined);
+ok('quy về CHÍNH file Include, không phải controller đang mở',
+  norm(ancW.range.file).endsWith('/Include/Rows.ent'));
+// Dải cắt trên văn bản THẬT của file Include phải ra đúng token hỏng — đây là phép kiểm duy
+// nhất chứng minh offset đã đi qua `sourceRange` mà không lệch.
+eq('và neo đúng token hỏng, không phải cả hàng', ANC_INC.slice(ancW.range.start, ancW.range.end), '[khong_co]');
+eq('field biến mất khỏi form → ERROR', ancW.severity, 'error');
+
+// Không có `segments` thì KHÔNG có file nào để quy về — trả `null` chứ đừng lấy `hostFile` ra
+// đoán, cùng quy ước với `range` của mỗi hàng.
+eq('gọi thẳng, không segments → range null', bad.warnings[0].range, null);
+ok('nhưng code và severity thì vẫn có', bad.warnings[0].code === 'render.token_no_field' && bad.warnings[0].severity === 'error');
+
 section('render — file không có view');
 ok('nói không có view thay vì ném', renderControllerHtml('<dir/>').html.includes('Không tìm thấy'));
 
@@ -334,6 +384,16 @@ eq('mỗi index đúng một nút tab', (dup.html.match(/class="DwfTabButton"/g)
 eq('không có id panel nào lặp lại', (dup.html.match(/id="fbo-tab-8"/g) || []).length, 1);
 // Khai lần hai mang `columns="300"` khác hẳn lần đầu — nuốt im lặng là giấu mất một khác biệt.
 ok('nói ra chỗ khai trùng', dup.warnings.some((w) => /category index="8".*nhiều lần/.test(w.message)));
+const dupW = dup.warnings.find((w) => w.code === 'render.category_dup');
+/*
+ * Neo vào bản khai THỨ HAI, không phải bản đầu.
+ *
+ * Thông điệp nói «chỉ lần đầu được dùng», nên cái đáng gạch đỏ là cái BỊ BỎ QUA. Gạch vào bản
+ * đầu là chỉ tay vào đúng bản đang chạy — người đọc sẽ đi sửa nhầm bản.
+ */
+const idxSpans = [...DUP.matchAll(/<category index="8"/g)].map((m) => m.index);
+eq('có đúng hai bản khai index=8 trong fixture', idxSpans.length, 2);
+ok('neo vào bản khai THỨ HAI, cái bị bỏ qua', dupW.range === null || dupW.range.start > idxSpans[0]);
 // Lần khai ĐẦU thắng, nên list px của tab 8 vẫn là của lần đầu.
 ok('lần khai đầu thắng', dup.html.includes('data-fbo-col-widths="100,200"'));
 

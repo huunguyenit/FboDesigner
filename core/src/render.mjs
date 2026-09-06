@@ -30,6 +30,7 @@ import {
 import { sourceRange, hostRefAt } from './entities.mjs';
 import { renderGrid } from './grid.mjs';
 import { msg, VIEWS_CONFIG } from './msg.mjs';
+import * as warn from './warn.mjs';
 
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
@@ -422,6 +423,29 @@ export function buildViewModel(view, fields, {
     : f]));
   const warnings = [];
 
+  /*
+   * `local` (toạ độ TƯƠNG ĐỐI trong một chuỗi `value`) → `anchored` (dải trong FILE NGUỒN).
+   *
+   * Bước hai mới là bước đắt. Cộng `span.start` chỉ cho ra toạ độ trong văn bản ĐÃ BUNG ENTITY
+   * — một chuỗi không tồn tại trên đĩa, nên đặt gạch đỏ theo nó là đặt vào hư không.
+   * `sourceRange` quy về file thật, và với hàng đến từ Include thì file thật KHÁC file đang mở:
+   * đó chính là chỗ chẩn đoán này đáng giá nhất, vì lỗi hiện ở đúng file phải sửa.
+   *
+   * Quy CẢ DẢI một lần, không map riêng hai đầu — cùng lý do đã ghi ở chỗ dựng `range` của mỗi
+   * hàng bên dưới: hàng có entity ở giữa cho ra hai file khác nhau, và một dải ghép từ hai hệ
+   * toạ độ bôi đen mấy chục dòng.
+   *
+   * Không có `segments` (test gọi thẳng, `tools/probe-layout.mjs`) thì `range: null` — cùng quy
+   * ước với `range` của hàng, chứ không tự lấy `hostFile` ra đoán.
+   */
+  const anchor = (w, item, span) => {
+    const abs = warn.absoluteSpan(w, span);
+    return warn.attach(w, {
+      item,
+      range: abs && segments ? sourceRange(segments, abs.start, abs.end) : null,
+    });
+  };
+
   let widths = [];
   let widthsItem = null;
   const rows = [];
@@ -432,13 +456,13 @@ export function buildViewModel(view, fields, {
       const w = parseWidths(item.value);
       widths = w.widths;
       widthsItem = { index: i, value: item.value, span: item.valueSpan ?? null };
-      warnings.push(...w.warnings.map((m) => ({ item: i, message: m })));
+      warnings.push(...w.warnings.map((x) => anchor(x, i, item.valueSpan)));
       return;
     }
 
     const row = parseRow(item.value);
     rows.push({ item, index: i, row });
-    warnings.push(...row.warnings.map((m) => ({ item: i, message: m })));
+    warnings.push(...row.warnings.map((x) => anchor(x, i, item.valueSpan)));
   });
 
   // Item đầu đã có `:` → view không khai list cột: số cột suy từ pattern dài nhất, mọi cột bằng nhau.
@@ -452,7 +476,18 @@ export function buildViewModel(view, fields, {
   const categoryByField = fieldCategories(fields);
   const categories = (view.categories ?? []).map((c) => {
     const w = parseWidths(c.columns);
-    warnings.push(...w.warnings.map((m) => ({ item: null, message: msg('render.category_warn', { index: c.index, m }) })));
+    /*
+     * Bọc câu chữ để nói rõ lỗi nằm ở list px của TAB nào, nhưng GIỮ NGUYÊN `code` bên trong.
+     *
+     * `code` là thứ dùng để tắt/lọc từng luật, và mức đúng để tắt là luật (`item.widths_nan`),
+     * không phải nơi luật ấy nổ ra. Đổi thành `render.category_warn` thì tắt một luật nhảm ở
+     * tab cũng tắt luôn mọi luật khác ở mọi tab.
+     */
+    warnings.push(...w.warnings.map((x) => anchor(
+      { ...x, message: msg('render.category_warn', { index: c.index, m: x.message }) },
+      null,
+      c.attrSpans?.columns,
+    )));
     return { ...c, widths: w.widths };
   });
   const categoryByIndex = new Map(categories.map((c) => [c.index, c]));
@@ -490,10 +525,20 @@ export function buildViewModel(view, fields, {
     const categoryIndex = rowCategoryIndex(r.row, categoryByField);
     const widths = regionWidths(categoryIndex);
     const { cells, warnings: w } = buildCells(r.row, widths);
-    warnings.push(...w.map((m) => ({ item: r.index, message: m })));
+    warnings.push(...w.map((x) => anchor(x, r.index, r.item.valueSpan)));
     for (const c of cells) {
       if (c.token?.field && !fieldByName.has(c.token.field)) {
-        warnings.push({ item: r.index, message: msg('render.token_no_field', { raw: c.token.raw, field: c.token.field }) });
+        // ERROR: ô ấy sẽ RỖNG trên form — control biến mất, không phải hiện xấu.
+        // Neo vào đúng token nhờ `at`/`len` `parseRow` đã ghi lại, không phải cả hàng.
+        warnings.push(anchor(
+          warn.local(
+            'render.token_no_field',
+            { raw: c.token.raw, field: c.token.field },
+            { severity: 'error', at: c.token.at ?? null, len: c.token.len ?? null },
+          ),
+          r.index,
+          r.item.valueSpan,
+        ));
       }
     }
     // Hàng có textarea thì runtime canh CẢ HÀNG lên đỉnh — nhãn phải đi theo, không thì nhãn
@@ -520,10 +565,16 @@ export function buildViewModel(view, fields, {
   const duplicateCategories = [];
   const regions = buildRegions(built, categories, view, regionWidths, duplicateCategories, segments);
   for (const index of duplicateCategories) {
-    warnings.push({
-      item: -1,
-      message: msg('render.category_dup', { index }),
-    });
+    /*
+     * Neo vào bản khai THỨ HAI, không phải bản đầu: thông điệp nói «chỉ lần đầu được dùng», nên
+     * cái đáng gạch đỏ là cái bị bỏ qua. Gạch vào bản đầu là chỉ tay vào bản đang chạy đúng.
+     */
+    const dup = categories.filter((c) => c.index === index);
+    warnings.push(anchor(
+      warn.local('render.category_dup', { index }),
+      -1,
+      (dup[1] ?? dup[0])?.attrSpans?.index,
+    ));
   }
 
   return {

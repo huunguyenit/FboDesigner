@@ -10,6 +10,7 @@
 //
 // Mọi hàm ở đây THUẦN: nhận dữ liệu, trả dữ liệu. Không đọc file, không chạm DOM.
 import { msg } from './msg.mjs';
+import * as warn from './warn.mjs';
 
 
 const RE_ENTITY_REF = /&[A-Za-z_][\w.:-]*;/;
@@ -65,23 +66,36 @@ export function classifyItem(value, indexInView) {
   return indexInView === 0 && !value.includes(':') ? 'widths' : 'row';
 }
 
-/** `"120, 30, 45"` → `[120, 30, 45]`. Width 0 là hợp lệ và có thật (cột neo/đệm). */
+/**
+ * `"120, 30, 45"` → `[120, 30, 45]`. Width 0 là hợp lệ và có thật (cột neo/đệm).
+ *
+ * Cảnh báo mang `at`/`len` trỏ vào ĐÚNG phần tử hỏng trong chuỗi. Neo cả list thì «cột 7 không
+ * phải số px» vẫn bắt người đọc tự đếm tới cột thứ 7 trên một list 17 cột — đúng việc mà cái
+ * gạch đỏ lẽ ra phải làm hộ.
+ */
 export function parseWidths(value) {
-  const parts = String(value).split(',');
+  const text = String(value);
+  const parts = text.split(',');
   const widths = [];
   const warnings = [];
+  // Offset đầu mỗi phần tử trong `text`. `split` vứt mất thông tin này, mà cảnh báo thì cần —
+  // nên đi bằng con trỏ chạy thay vì `indexOf` lại từ đầu (list có hai phần tử trùng văn bản,
+  // vd `"0, 0"`, thì `indexOf` trả về cùng một chỗ cho cả hai).
+  let cursor = 0;
   for (const [i, p] of parts.entries()) {
     const t = p.trim();
+    const at = cursor + p.indexOf(t);
+    cursor += p.length + 1; // +1 cho chính dấu phẩy `split` đã ăn mất
     if (t === '') continue;
     const n = Number(t);
     if (!Number.isFinite(n) || n < 0) {
-      warnings.push(`cột ${i + 1}: "${t}" không phải số px hợp lệ — coi như 0`);
+      warnings.push(warn.local('item.widths_nan', { col: i + 1, text: t }, { at, len: t.length }));
       widths.push(0);
     } else {
       widths.push(n);
     }
   }
-  return { widths, warnings, hasEntity: RE_ENTITY_REF.test(String(value)) };
+  return { widths, warnings, hasEntity: RE_ENTITY_REF.test(text) };
 }
 
 /** `"[ten_tk%l].Label"` → token. Tên trong `[]` giữ NGUYÊN VĂN: `%l` là một phần của tên, `&k;` cũng vậy. */
@@ -111,7 +125,27 @@ export function parseRow(value) {
   const patternRaw = colon === -1 ? text : text.slice(0, colon);
   const tokensRaw = colon === -1 ? '' : text.slice(colon + 1);
 
-  const tokens = tokensRaw.split(',').map((t) => t.trim()).filter((t) => t !== '').map(parseToken);
+  /*
+   * Mỗi token nhớ luôn chỗ nó đứng trong `value` (`at`/`len`).
+   *
+   * Không phải để dựng lại chuỗi — `serializeRow` dựng từ `raw` và `separator`, không đụng tới
+   * hai con số này. Nó là để CHỈ ĐÚNG token khi có gì đó sai: `token "[ma_kh].Lable" sai kind`
+   * mà bôi đen cả hàng 6 control thì vẫn phải đọc thủ công xem cái nào. `buildCells` cũng đọc
+   * `at` của token thừa để neo cảnh báo «không có "1" nào nhận».
+   *
+   * Đi bằng con trỏ chạy chứ không `indexOf`: một hàng có hai token trùng văn bản
+   * (`[ma_kh].Label, [ma_kh].Label`) thì `indexOf` trả cùng một chỗ cho cả hai.
+   */
+  const tokens = [];
+  let cursor = colon === -1 ? 0 : colon + 1; // offset của `tokensRaw` trong `text`
+  for (const part of tokensRaw.split(',')) {
+    const trimmed = part.trim();
+    if (trimmed !== '') {
+      tokens.push({ ...parseToken(trimmed), at: cursor + part.indexOf(trimmed), len: trimmed.length });
+    }
+    cursor += part.length + 1; // +1 cho dấu phẩy
+  }
+
   const pattern = patternRaw.trim();
   const ones = countOnes(pattern);
 
@@ -126,11 +160,21 @@ export function parseRow(value) {
    */
   const counted = tokens.filter((t) => !isBlankAnchorName(t.field)).length;
   if (ones !== counted) {
-    warnings.push(`bất biến hỏng: ${ones} ký tự "1" nhưng ${counted} token`);
+    // ERROR, không phải warning: lệch số `1` với số token là form vẽ SAI chắc chắn — control
+    // rơi vào cột khác hoặc mất hẳn. Khác với `widths_nan` (coi như 0, vẫn vẽ ra được).
+    //
+    // Neo vào PATTERN, tức phần trước dấu `:` — lỗi nằm ở quan hệ giữa pattern và danh sách
+    // token, và pattern là nửa mà người sửa gần như luôn phải đếm lại.
+    warnings.push(warn.local(
+      'item.invariant_broken',
+      { ones, counted },
+      { severity: 'error', at: 0, len: patternRaw.length },
+    ));
   }
   for (const t of tokens) {
-    if (!t.valid && t.kindRaw) warnings.push(`token "${t.raw}": ".${t.kindRaw}" không phải kind hợp lệ (typo?)`);
-    else if (!t.valid) warnings.push(`token "${t.raw}": không đọc được`);
+    const at = { at: t.at, len: t.len };
+    if (!t.valid && t.kindRaw) warnings.push(warn.local('item.token_bad_kind', { raw: t.raw, kindRaw: t.kindRaw }, at));
+    else if (!t.valid) warnings.push(warn.local('item.token_unreadable', { raw: t.raw }, at));
   }
 
   return {
@@ -194,7 +238,13 @@ export function buildCells({ pattern, tokens }, widths) {
   const columnCount = widths.length;
   const resolved = resolvePattern(pattern, columnCount);
   const warnings = [];
-  if (resolved.lostOnes > 0) warnings.push(`pattern dài hơn ${columnCount} cột: cắt mất ${resolved.lostOnes} control`);
+  if (resolved.lostOnes > 0) {
+    warnings.push(warn.local(
+      'item.pattern_too_long',
+      { columnCount, lost: resolved.lostOnes },
+      { severity: 'error' },
+    ));
+  }
 
   const cells = [];
   let open = null; // ô đang mở — chỉ ô mở bằng `1` mới nhận `0`
@@ -204,7 +254,8 @@ export function buildCells({ pattern, tokens }, widths) {
   for (const ch of Array.from(resolved.pattern)) {
     if (ch === '1') {
       const token = nextToken < tokens.length ? tokens[nextToken++] : null;
-      if (!token) warnings.push(`cột ${col + 1}: "1" nhưng đã hết token`);
+      // ERROR: chỗ ấy ra một ô TRỐNG thay vì control — mất hẳn một khai báo khỏi màn hình.
+      if (!token) warnings.push(warn.local('item.one_no_token', { col: col + 1 }, { severity: 'error' }));
       open = { col, span: 1, width: widths[col] ?? 0, token, empty: false };
       cells.push(open);
     } else if (ch === '0' && open) {
@@ -234,7 +285,25 @@ export function buildCells({ pattern, tokens }, widths) {
    * đọc bỏ qua luôn cảnh báo thật ngay bên cạnh.
    */
   const leftover = tokens.slice(nextToken).filter((t) => !isBlankAnchorName(t?.field));
-  if (leftover.length > 0) warnings.push(`còn ${leftover.length} token không có "1" nào nhận`);
+  if (leftover.length > 0) {
+    /*
+     * Neo vào CHÍNH những token bị bỏ rơi, từ cái đầu tới hết cái cuối.
+     *
+     * `at` chỉ có khi token đi ra từ `parseRow`. Vài chỗ trong `edit.mjs` dựng token trên đường
+     * đi (tách/gộp hàng) và không có toạ độ nào để mà mang theo — `at: null` ở đó là câu trả
+     * lời đúng, không phải thiếu sót, nên đừng bịa ra một số 0.
+     */
+    const first = leftover[0];
+    const last = leftover[leftover.length - 1];
+    const span = Number.isFinite(first?.at) && Number.isFinite(last?.at)
+      ? { at: first.at, len: last.at + (last.len ?? 0) - first.at }
+      : {};
+    warnings.push(warn.local(
+      'item.token_unclaimed',
+      { count: leftover.length },
+      { severity: 'error', ...span },
+    ));
+  }
   return { cells, warnings, resolved };
 }
 
