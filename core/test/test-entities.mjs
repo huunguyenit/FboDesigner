@@ -4,6 +4,9 @@
 import { ok, eq, section } from './harness.mjs';
 import { expandEntities, findInternalSubset, resolveSystemPath, mapToSource, hostRefAt, sourceRange } from '../src/entities.mjs';
 
+/** Quy separator về `/` — `resolveSystemPath` trả theo separator của OS. */
+const nrm = (p) => String(p).split(String.fromCharCode(92)).join('/');
+
 const FILES = {
   'C:/P/App_Data/Controllers/Include/BIMode.txt': 'INCLUDE',
   'C:/P/App_Data/Controllers/Include/Off.txt': 'IGNORE',
@@ -207,3 +210,74 @@ eq('nháy đơn + giá trị có ">"', QUOTED.slice(rW.start, rW.end), 'a > b');
 const EMPTY = ['<!DOCTYPE dir [', '  <!ENTITY E "">', ']>', '<dir><item value="x&E;y"/></dir>'].join('\r\n');
 const empty = expandEntities(EMPTY, { filePath: 'C:/P/Dir/C.xml', readFile: () => null });
 ok('entity rỗng không làm hỏng phép bung', empty.clearText.includes('value="xy"'));
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Chẩn đoán entity mang MÃ và DẢI NGUỒN.
+ *
+ * Khác cảnh báo của `render.mjs` ở một điểm đáng nhớ: ở đây KHÔNG có `sourceRange` nào cả.
+ * `collect`/`expand` luôn cầm sẵn cặp (`file`, `base`) của đoạn đang xét, nên chỗ phát chẩn
+ * đoán đã đứng trong hệ toạ độ file nguồn từ đầu. Bung entity là việc SINH RA `clearText` — nó
+ * không thể tra một bản đồ mà chính nó chưa dựng xong.
+ *
+ * Mọi phép kiểm dưới đây CẮT văn bản thật tại dải trả về rồi so chữ. So `start`/`end` với một
+ * con số chép tay thì chỉ chứng minh code hôm nay khớp con số hôm nay.
+ * ══════════════════════════════════════════════════════════════════════════ */
+section('chẩn đoán entity — mã, mức, và dải cắt ra đúng chữ');
+const D_HOST = 'C:/P/App_Data/Controllers/Dir/K.xml';
+const D_INC = 'C:/P/App_Data/Controllers/Include/R.ent';
+const D_INC_TEXT = '<item value="11: [a].Label, [a]"/>\r\n&ThieuHan;\r\n';
+const D_SRC = [
+  '<?xml version="1.0" encoding="utf-8"?>',
+  '<!DOCTYPE dir [',
+  '  <!ENTITY R SYSTEM "../Include/R.ent">',
+  '  <!ENTITY Vong "&Vong;">',
+  '  <!ENTITY Mat SYSTEM "../Include/KhongDoc.ent">',
+  '  %ThamSoLa;',
+  ']>',
+  '<dir table="t">',
+  '  <view id="Dir">',
+  '    <item value="50, 50"/>',
+  '    &R;',
+  '    &Vong;',
+  '    &Mat;',
+  '    &ChuaKhai;',
+  '  </view>',
+  '</dir>',
+].join('\r\n');
+const dSrcByFile = { [D_HOST]: D_SRC, [D_INC]: D_INC_TEXT };
+const dEx = expandEntities(D_SRC, {
+  filePath: D_HOST,
+  readFile: (abs) => dSrcByFile[nrm(abs)] ?? null,
+});
+/*
+ * Cắt văn bản THẬT của file mà chẩn đoán trỏ tới. Đây là phép kiểm, không phải phép đọc.
+ *
+ * Nhận thêm `file` vì một mã có thể nổ ra ở NHIỀU file trong cùng một lần bung — `entity
+ * .undeclared` dưới đây ra hai lần, một trong Include và một trong thân controller. Tìm theo
+ * mỗi `code` là bốc nhầm cái đầu tiên và vẫn PASS nếu hai bên tình cờ giống nhau.
+ */
+const dCut = (code, file) => {
+  const d = dEx.diagnostics.find((x) => x.code === code && (!file || nrm(x.range?.file) === nrm(file)));
+  if (!d || !d.range) return null;
+  return (dSrcByFile[nrm(d.range.file)] ?? '').slice(d.range.start, d.range.end);
+};
+
+eq('năm chẩn đoán, không thừa không thiếu', dEx.diagnostics.length, 5);
+ok('mọi chẩn đoán đều có code và mức', dEx.diagnostics.every((d) => d.code && d.severity));
+
+/*
+ * Ca đắt nhất của cả nhóm: `%ThamSoLa;` nằm trong INTERNAL SUBSET, và `collect` quét trên một
+ * LÁT (`text.slice(subsetStart, …)`) chứ không quét cả file. Quên cộng `base` thì dải lệch đúng
+ * bằng vị trí của `<!DOCTYPE` — vẫn ra một dải trông hợp lệ, chỉ là trỏ vào dòng khác.
+ */
+eq('%ThamSoLa; chưa khai — cắt đúng chữ, không lệch bằng vị trí <!DOCTYPE', dCut('entity.param_undeclared'), '%ThamSoLa;');
+
+// Và đây là chỗ tất cả đáng giá: `&ThieuHan;` viết trong file Include, quy về CHÍNH file đó.
+const inc = dEx.diagnostics.find((d) => d.code === 'entity.undeclared' && nrm(d.range.file).endsWith('/Include/R.ent'));
+ok('entity thiếu khai trong Include quy về chính file Include', inc !== undefined);
+eq('và cắt ra đúng tham chiếu', D_INC_TEXT.slice(inc.range.start, inc.range.end), '&ThieuHan;');
+eq('không khai thì control biến mất → ERROR', inc.severity, 'error');
+
+eq('đệ quy neo vào chính &Vong;', dCut('entity.recursive'), '&Vong;');
+eq('SYSTEM không đọc được neo vào chính &Mat;', dCut('entity.unread_system'), '&Mat;');
+eq('&ChuaKhai; trong thân controller, tách được khỏi cái trong Include', dCut('entity.undeclared', D_HOST), '&ChuaKhai;');

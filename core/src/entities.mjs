@@ -17,7 +17,7 @@
 // Thuần: không import fs. Người gọi truyền `readFile(absPath) -> string|null`.
 
 import { commentSkipper } from './xml-comment.mjs';
-import { msg } from './msg.mjs';
+import { anchored as warnAnchored } from './warn.mjs';
 
 
 const TOKEN_SOURCE = [
@@ -115,9 +115,48 @@ class Context {
     return text;
   }
 
-  warn(message) {
-    this.diagnostics.push({ severity: 'warn', message });
+  /**
+   * Ghi một chẩn đoán, cùng hình dạng với cảnh báo của `render`/`grid` (xem `warn.mjs`).
+   *
+   * Nhận `code` + `params` chứ KHÔNG nhận chuỗi đã format: `code` là thứ tầng vỏ dùng để lọc và
+   * tắt từng luật, và bắt nó suy ngược từ câu chữ tiếng Việt là mời một phép so chuỗi hỏng im
+   * lặng ở lần sửa câu chữ tiếp theo.
+   *
+   * `range` ở đây ĐÃ LÀ toạ độ file nguồn, không phải toạ độ trong `clearText` — khác hẳn cảnh
+   * báo của `render.mjs` vốn phải đi qua `sourceRange`. Lý do: `collect`/`expand` luôn cầm cặp
+   * (`file`, `base`) của chính đoạn đang xét, nên chỗ phát cảnh báo đã đứng sẵn trong hệ toạ độ
+   * đúng. Bung entity là việc SINH RA `clearText`; nó không thể đọc bản đồ mà nó chưa dựng xong.
+   *
+   * @param {string} code khoá `messages.json`
+   * @param {Record<string, unknown>} params
+   * @param {{file: string, start: number, end: number}|null} [range]
+   * @param {'error'|'warning'|'info'} [severity]
+   */
+  warn(code, params, range = null, severity = 'warning') {
+    this.diagnostics.push(warnAnchored(code, params, { severity, range }));
   }
+}
+
+/**
+ * Dải của CHÍNH khớp regex đang xét, quy về toạ độ trong `file`.
+ *
+ * `base` là offset của đoạn `text` đang quét bên trong `file` — bằng 0 khi quét cả file, khác 0
+ * khi quét lát internal subset hoặc giá trị inline của một parameter entity. Quên cộng nó là
+ * mọi chẩn đoán của internal subset lệch đúng bằng vị trí của `<!DOCTYPE`, cùng cái bẫy mà
+ * `valueStart` đã phải né ở `collect`.
+ */
+function matchRange(file, base, m) {
+  return { file, start: base + m.index, end: base + m.index + m[0].length };
+}
+
+/**
+ * Dải của CẢ ĐOẠN đang quét — dùng cho hai chốt độ sâu, thứ không nổ ra tại một khớp nào.
+ *
+ * Vượt 32 tầng lồng nhau không phải lỗi của một `&Name;` cụ thể mà của cả chuỗi kéo tới đó; chỉ
+ * vào một ký tự đơn lẻ là gán tội cho kẻ đứng cuối hàng.
+ */
+function chunkRange(file, base, text) {
+  return { file, start: base, end: base + text.length };
 }
 
 /** Giá trị của một parameter entity: nội dung file SYSTEM, hoặc giá trị inline. */
@@ -160,7 +199,7 @@ function markedStatus(ctx, raw, declaringFile) {
  * entity khai ở internal subset trỏ lệch đúng bằng vị trí của `<!DOCTYPE`.
  */
 function collect(ctx, text, file, depth, base = 0) {
-  if (depth > 32) { ctx.warn(msg('entity.nest_too_deep', { file })); return; }
+  if (depth > 32) { ctx.warn('entity.nest_too_deep', { file }, chunkRange(file, base, text)); return; }
 
   /*
    * Khai báo nằm trong `<!-- … -->` KHÔNG tồn tại.
@@ -182,7 +221,7 @@ function collect(ctx, text, file, depth, base = 0) {
     if (marked !== undefined) {
       const contentStart = m.index + m[0].length;
       const end = findMarkedEnd(text, contentStart);
-      if (end === -1) { ctx.warn(msg('entity.marked_unclosed', { file })); return; }
+      if (end === -1) { ctx.warn('entity.marked_unclosed', { file }, matchRange(file, base, m)); return; }
       if (markedStatus(ctx, marked, file) === 'IGNORE') re.lastIndex = end + 3;
       else re.lastIndex = contentStart; // INCLUDE hoặc không rõ: đi vào trong
       continue;
@@ -220,15 +259,15 @@ function collect(ctx, text, file, depth, base = 0) {
     if (ref === undefined) continue;
 
     const decl = ctx.params.get(ref);
-    if (!decl) { ctx.warn(msg('entity.param_undeclared', { ref, file })); continue; }
+    if (!decl) { ctx.warn('entity.param_undeclared', { ref, file }, matchRange(file, base, m)); continue; }
 
     // Giá trị inline của một parameter entity nằm ngay tại `decl.valueStart` trong file khai nó.
     if (decl.system === null) { collect(ctx, decl.value ?? '', decl.file ?? file, depth + 1, decl.valueStart); continue; }
 
     const abs = resolveSystemPath(decl.file ?? file, decl.system);
-    if (ctx.fileStack.has(abs)) { ctx.warn(msg('entity.include_cycle', { abs })); continue; }
+    if (ctx.fileStack.has(abs)) { ctx.warn('entity.include_cycle', { abs }, matchRange(file, base, m)); continue; }
     const body = ctx.read(abs);
-    if (body === null) { ctx.warn(msg('entity.include_unread', { abs, file })); continue; }
+    if (body === null) { ctx.warn('entity.include_unread', { abs, file }, matchRange(file, base, m)); continue; }
 
     ctx.fileStack.add(abs);
     collect(ctx, body, abs, depth + 1);
@@ -238,7 +277,7 @@ function collect(ctx, text, file, depth, base = 0) {
 
 /** Bung `&Name;` trong một đoạn văn bản, vừa nối chuỗi vừa ghi lại provenance từng đoạn. */
 function expand(ctx, text, file, baseOffset, out, segments, stack, depth) {
-  if (depth > 32) { ctx.warn(msg('entity.expand_too_deep', { file })); out.push(text); return; }
+  if (depth > 32) { ctx.warn('entity.expand_too_deep', { file }, chunkRange(file, baseOffset, text)); out.push(text); return; }
 
   /*
    * `&Name;` nằm trong `<!-- … -->` thì KHÔNG bung.
@@ -267,11 +306,13 @@ function expand(ctx, text, file, baseOffset, out, segments, stack, depth) {
     const decl = ctx.general.get(name);
     if (!decl) {
       // Không biết thì để nguyên. Bịa một giá trị rỗng là làm biến mất một hàng mà không ai hay.
-      ctx.diagnostics.push({ severity: 'error', message: msg('entity.undeclared', { name }) });
+      // Neo vào ĐÚNG `&Name;` — đây là chẩn đoán hay gặp nhất, và cũng là chỗ người đọc cần
+      // nhảy tới nhất: gõ sai một chữ trong tên entity thì mắt không bắt được, con trỏ thì có.
+      ctx.warn('entity.undeclared', { name }, matchRange(file, baseOffset, m), 'error');
       continue;
     }
     if (stack.has(name)) {
-      ctx.warn(msg('entity.recursive', { name }));
+      ctx.warn('entity.recursive', { name }, matchRange(file, baseOffset, m));
       continue;
     }
 
@@ -291,7 +332,7 @@ function expand(ctx, text, file, baseOffset, out, segments, stack, depth) {
       bodyFile = abs;
       bodyOffset = 0;
       if (body === null) {
-        ctx.diagnostics.push({ severity: 'error', message: msg('entity.unread_system', { name, abs }) });
+        ctx.warn('entity.unread_system', { name, abs }, matchRange(file, baseOffset, m), 'error');
         emit(out, segments, m[0], file, baseOffset + m.index);
         continue;
       }

@@ -4,6 +4,42 @@
 
 ## [Chưa phát hành]
 
+### Thêm — chẩn đoán entity mang mã và dải nguồn
+
+Nửa còn lại của bước nền. Chín chỗ `expandEntities` báo lỗi — entity chưa khai, entity đệ quy,
+file SYSTEM không đọc được, `%tham-số;` chưa khai, include vòng, marked section không đóng, hai
+chốt độ sâu — nay đi ra cùng hình dạng với cảnh báo của `render`/`grid`:
+`{code, message, severity, item, range}`.
+
+Trước bản này chúng là `{severity, message}` trần, không có lấy một con số. Chín chỗ ấy đều
+đang CẦM SẴN `file` trong tay, và tám chỗ cầm luôn cả khớp regex — tức là toạ độ vẫn ở đó, chỉ
+là bị vứt đi ngay tại chỗ phát. Nên đây gần như thuần cơ học, và cái giá đã trả từ trước.
+
+Khác cảnh báo của `render.mjs` ở một điểm đáng nhớ: ở đây KHÔNG có `sourceRange` nào cả.
+`collect`/`expand` luôn cầm cặp (`file`, `base`) của chính đoạn đang xét, nên chỗ phát chẩn đoán
+đã đứng sẵn trong hệ toạ độ file nguồn. Bung entity là việc SINH RA `clearText`; nó không thể
+tra một bản đồ mà chính nó chưa dựng xong.
+
+Chỗ dễ sai duy nhất là `base`. `collect` gần như không bao giờ quét cả file — nó quét một LÁT
+internal subset, hoặc quét giá trị inline của một parameter entity. Quên cộng `base` thì mọi
+chẩn đoán của internal subset lệch đúng bằng vị trí của `<!DOCTYPE`: vẫn ra một dải trông hợp
+lệ, chỉ là trỏ vào dòng khác — đúng cái bẫy mà `valueStart` đã phải né từ trước. Có một phép
+kiểm riêng cho ca ấy.
+
+Hai chốt độ sâu neo vào CẢ ĐOẠN đang quét, không vào một khớp: vượt 32 tầng lồng nhau không
+phải lỗi của một `&Name;` cụ thể mà của cả chuỗi kéo tới đó, và chỉ vào một ký tự đơn lẻ là gán
+tội cho kẻ đứng cuối hàng.
+
+`ctx.warn` nay nhận `code` + `params` thay vì chuỗi đã format, nên `msg` không còn được dùng
+trong [`core/src/entities.mjs`](core/src/entities.mjs) nữa — mọi câu chữ đi qua `warn.mjs`.
+Mức `'warn'` cũ đổi thành `'warning'` cho khớp phần còn lại; không chỗ nào rẽ nhánh theo giá
+trị đó, chỉ có ba dòng `output.appendLine` in nó ra.
+
+Test: 9 phép kiểm mới, mỗi phép CẮT văn bản thật tại dải trả về rồi so chữ — so `start`/`end`
+với một con số chép tay thì chỉ chứng minh code hôm nay khớp con số hôm nay. Đáng giá nhất vẫn
+là ca `&ThieuHan;` viết trong file Include: chẩn đoán quy về CHÍNH file Include, cắt ra đúng
+`&ThieuHan;`, chứ không quy về controller đang mở.
+
 ### Thêm — cảnh báo của core mang MÃ, MỨC và DẢI NGUỒN
 
 Bước nền cho chẩn đoán trong Problems panel. Chưa đổi gì người dùng nhìn thấy: webview vẫn đọc
