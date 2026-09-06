@@ -1543,8 +1543,14 @@ function drawMoveShadow(frag, stageBox) {
 
   if (moveDrag.isBlock && moveDrag.blockItems?.length > 1) {
     const n = moveDrag.blockItems.length;
-    const left = lay(box.left - stageBox.left);
-    const width = lay(box.width);
+    /*
+     * Khối nằm gọn trong một NỬA của `view@split` → bóng chỉ phủ nửa ấy.
+     * Phủ cả bề ngang vùng là hứa rằng nửa bên kia cũng đổi thứ tự, mà nó thì đứng yên.
+     */
+    const half = blockHalfOf(moveDrag);
+    const span = half ? table.getBoundingClientRect() : box;
+    const left = lay(span.left - stageBox.left);
+    const width = lay(span.width);
     const top = lay(cellBox.top - stageBox.top);
     const height = lay(cellBox.height) * n;
     const tone = moveDrag.blockItems.includes(drop.toItem) ? ' bp-move-bad' : '';
@@ -1555,11 +1561,14 @@ function drawMoveShadow(frag, stageBox) {
       height: px(Math.max(height, 2)),
     });
     const lab = el('span', 'bp-move-label');
-    lab.textContent = `${n} hàng · ${(moveDrag.members || []).map((m) => m.label).join(', ')}`;
+    lab.textContent = `${n} hàng${half ? ` · nửa ${half === 'left' ? 'trái' : 'phải'}` : ''}`
+      + ` · ${(moveDrag.members || []).map((m) => m.label).join(', ')}`;
     shadow.appendChild(lab);
     shadow.title = tone
       ? 'thả vào chính block đang kéo — không đổi'
-      : `chèn ${n} hàng trước hàng đích`;
+      : (half
+        ? `dời ${n} hàng của nửa ${half === 'left' ? 'trái' : 'phải'} — nửa kia đứng yên`
+        : `chèn ${n} hàng trước hàng đích`);
     frag.appendChild(shadow);
     return;
   }
@@ -1567,7 +1576,31 @@ function drawMoveShadow(frag, stageBox) {
   const { col, fromCol } = moveDrag;
   const members = moveDrag.members || [{ td: moveDrag.cell, token: moveDrag.cell.dataset.fboToken || '?' }];
   const verdict = moveVerdict(moveDrag, widths.length);
-  const tone = verdict.kind === 'bad' ? ' bp-move-bad' : (verdict.kind === 'swap' ? ' bp-move-swap' : '');
+  const tone = verdict.kind === 'bad'
+    ? ' bp-move-bad'
+    : (verdict.kind === 'swap' || verdict.kind === 'swapBlock' ? ' bp-move-swap' : '');
+
+  /*
+   * ĐỔI CHỖ DẢI: bóng phủ đúng DẢI CỘT sẽ nhận, không đắp theo footprint cột liên tiếp.
+   * Dải là thứ phép này thao tác, nên nó cũng phải là thứ người dùng thấy trước khi thả tay.
+   */
+  if (verdict.kind === 'swapBlock' && Number.isFinite(verdict.b?.col)) {
+    const left = lay(box.left - stageBox.left) + offsets[Math.min(verdict.b.col, offsets.length - 1)];
+    const right = lay(box.left - stageBox.left)
+      + offsets[Math.min(verdict.b.col + verdict.width, offsets.length - 1)];
+    const shadow = el('div', `bp-move${tone}`, {
+      left: px(left),
+      top: px(lay(cellBox.top - stageBox.top)),
+      width: px(Math.max(right - left, 2)),
+      height: px(lay(cellBox.height)),
+    });
+    const lab = el('span', 'bp-move-label');
+    lab.textContent = `${verdict.width} cột · ${members.map((m) => tokenDisplayName(m.td)).join(', ')}`;
+    shadow.appendChild(lab);
+    shadow.title = `đổi chỗ ${verdict.width} cột với ${(verdict.targets || []).map((td) => tokenDisplayName(td) || '?').join(', ')}`;
+    frag.appendChild(shadow);
+    return;
+  }
 
   if (col === fromCol && drop.toItem === moveDrag.fromItem && members.length === 1
     && drop.cell === moveDrag.cell) {
@@ -1604,6 +1637,7 @@ function drawMoveShadow(frag, stageBox) {
 const MOVE_HINT = {
   move: (col, span) => `dời tới cột ${col + 1}${span > 1 ? ` (trải ${span})` : ''}`,
   swap: (col, span) => `đổi chỗ · giữ trải ${span} cột tại cột ${col + 1}`,
+  swapBlock: (col) => `đổi chỗ cả dải, bắt đầu ở cột ${col + 1}`,
   bad: (col) => `cột ${col + 1} không nhận được — vượt hàng, hoặc đang có control khác bề rộng`,
 };
 
@@ -1653,6 +1687,22 @@ function moveVerdict(md, columnCount) {
     td: m.td,
   }));
 
+  /*
+   * Cụm nhiều ô thả TRÚNG một control → ĐỔI CHỖ CỤM, xét trước mọi phép kiểm footprint.
+   *
+   * Footprint "N cột liên tiếp tính từ chỗ thả" là hình của phép DỜI. Cụm thì đo bằng DẢI CỘT
+   * nó chiếm, và dải ấy có hình riêng — nên đo cụm bằng cái thước của phép dời là loại nó ra vì
+   * một lý do không dính gì tới nó, đúng cái đã xảy ra: mọi cú kéo cụm đều rơi xuống `bad` rồi
+   * vẫn gửi đi một phép dời, và host từ chối bằng «cột N đang có control».
+   *
+   * Trỏ vào ô TRỐNG thì vẫn là dời — luật phân đôi gọn: trỏ vào control là đổi chỗ, trỏ vào
+   * chỗ trống là đặt xuống.
+   */
+  if (members.length > 1 && drop.cell && !drop.cell.classList.contains('DwfEmptyCell')) {
+    const block = blockSwapTarget(md, drop);
+    if (block) return { kind: 'swapBlock', other: null, keepSpan: 1, toItem: drop.toItem, ...block };
+  }
+
   if (parts.some((p) => p.col < 0 || p.col + p.span > columnCount)) {
     return { kind: 'bad', other: null, keepSpan };
   }
@@ -1687,6 +1737,104 @@ function moveVerdict(md, columnCount) {
   }
   if (!verdict) verdict = { kind: 'bad', other: null, keepSpan };
   return verdict;
+}
+
+/**
+ * Hai DẢI CỘT sắp đổi chỗ — `{a, b, targets, width}`, hoặc `null` khi không dựng được dải.
+ *
+ * Đo bằng SỐ CỘT, không đếm control. Cụm `[ty_gia].Label, [ma_nt], [ty_gia]` là ba control
+ * nhưng 4 cột; `[ngay_ct].Label, [ngay_ct]` là hai control cũng 4 cột — hai cụm ấy vừa khít
+ * nhau, và ghép theo control thì đếm 3 với 2, không ghép nổi. Xem `buildSwapBlockPatches` ở
+ * core để biết vì sao cột mới là đại lượng đúng.
+ *
+ * Trả `null` (→ `bad`) khi: vùng chọn trải nhiều hàng · còn control khác chạm dải nguồn mà
+ * không được chọn · dải đích cắt đôi một control · dải đích vượt mép bảng · hai dải giẫm nhau.
+ */
+function blockSwapTarget(md, drop) {
+  const members = (md.members || []).filter((m) => m.td && !m.td.classList.contains('DwfEmptyCell'));
+  if (members.length < 2) return null;
+  if (!drop?.cell || drop.cell.classList.contains('DwfEmptyCell')) return null;
+
+  // Dải NGUỒN phải nằm gọn trong MỘT hàng — dải là một khoảng cột, và cột chỉ có nghĩa trong
+  // phạm vi một hàng. Quét nhiều hàng thì đó là phép dời khối, đường khác.
+  const items = new Set(members.map((m) => Number(m.td.closest('tr.FormRow')?.dataset.fboItem)));
+  if (items.size !== 1) return null;
+  const fromItem = [...items][0];
+  if (!Number.isFinite(fromItem)) return null;
+
+  const colOf = (td) => Number(td.dataset.fboCol) || 0;
+  const spanOf = (td) => Number(td.dataset.fboSpan) || 1;
+
+  const a0 = Math.min(...members.map((m) => colOf(m.td)));
+  const aEnd = Math.max(...members.map((m) => colOf(m.td) + spanOf(m.td)));
+  const width = aEnd - a0;
+
+  /*
+   * Control nào CHẠM dải nguồn mà không được chọn thì dải này không phải cái người dùng quét.
+   * Đổi chỗ nó đi cùng là chở theo một thứ họ không nhắm tới; bỏ nó lại thì dải không còn liền.
+   */
+  const srcSet = new Set(members.map((m) => m.td));
+  for (const td of controlsOfRow(members[0].td)) {
+    if (colOf(td) < aEnd && a0 < colOf(td) + spanOf(td) && !srcSet.has(td)) return null;
+  }
+
+  // Dải ĐÍCH: cùng SỐ CỘT, bắt đầu ở chỗ trỏ vào. Không control nào được cắt đôi.
+  const b0 = colOf(drop.cell);
+  if (b0 + width > colCountOf(drop.cell)) return null;
+  const targets = [];
+  for (const td of controlsOfRow(drop.cell)) {
+    const c = colOf(td);
+    const n = spanOf(td);
+    if (!(c < b0 + width && b0 < c + n)) continue;
+    if (c < b0 || c + n > b0 + width) return null;
+    targets.push(td);
+  }
+  if (targets.length === 0) return null;
+  if (fromItem === drop.toItem && a0 < b0 + width && b0 < a0 + width) return null;
+
+  return {
+    a: { item: fromItem, col: a0, span: width },
+    b: { item: drop.toItem, col: b0, span: width },
+    targets,
+    width,
+  };
+}
+
+/**
+ * Mọi control của HÀNG chứa `td`, xếp theo cột.
+ *
+ * Vùng có split thì một hàng là HAI `<tr>` cùng `data-fbo-item` — gom cả hai, vì cụm đích có
+ * thể nằm vắt qua vạch, và `data-fbo-col` là chỉ số tuyệt đối nên sort ra đúng thứ tự đọc.
+ */
+function controlsOfRow(td) {
+  const table = td.closest('table[data-fbo-col-widths]');
+  const root = regionRootOf(table) || table;
+  const item = td.closest('tr.FormRow')?.dataset.fboItem;
+  if (!root || item === undefined || item === '') return [];
+  const out = [];
+  for (const tr of root.querySelectorAll(`tr.FormRow[data-fbo-item="${item}"]`)) {
+    if (tr.classList.contains('DwfColRow')) continue;
+    for (const cell of tr.querySelectorAll('td[data-fbo-cell]:not(.DwfEmptyCell)')) out.push(cell);
+  }
+  return out.sort((a, b) => (Number(a.dataset.fboCol) || 0) - (Number(b.dataset.fboCol) || 0));
+}
+
+/**
+ * Khối đang kéo nằm gọn trong nửa nào của `view@split` — `'left'` / `'right'`, hay `null`.
+ *
+ * `null` nghĩa là "dời cả hàng" như cũ: vùng không khai split, hoặc khối vắt qua cả hai nửa.
+ * Mỗi nửa là một `<table>` riêng và `contiguousCellRange` không cho chọn vắt bảng, nên ca vắt
+ * chỉ tới được từ những lối chọn khác — vẫn phải trả `null` chứ không đoán một nửa.
+ */
+function blockHalfOf(md) {
+  const members = md?.members || [];
+  if (members.length === 0) return null;
+  const root = regionRootOf(members[0].td);
+  if (!root || !root.dataset.fboSplit) return null;
+  const sides = new Set(members.map((m) => m.td.closest('tr.FormRow')?.dataset.fboSplitSide || ''));
+  if (sides.size !== 1) return null;
+  const side = [...sides][0];
+  return side === 'left' || side === 'right' ? side : null;
 }
 
 /** Số cột trống liền nhau từ `col` trên hàng chứa `td` (DOM). */
@@ -1831,24 +1979,50 @@ function postEdit(msg) {
 function drawHandles(frag, stageBox) {
   if (!focused || !blueprintOn) return;
   if (!focused.matches('td[data-fbo-cell]')) return;
+
+  /*
+   * VÒNG CHỌN vẽ cho MỌI ô đang chọn, không riêng ô bấm cuối cùng.
+   *
+   * Multi-select là một thao tác: kéo cả cụm, đổi chỗ cả cụm, xoá cả cụm. Nếu chỉ ô cuối cùng
+   * mang vòng xanh thì bốn ô kia không có bằng chứng nào là chúng đang nằm trong thao tác ấy —
+   * người dùng đếm lại bằng mắt cũng không ra, và cú kéo tiếp theo là một cú kéo mù.
+   *
+   * Tỉ lệ `k` đo lại theo BẢNG CỦA TỪNG Ô: multi-select đi qua được hai nửa của một vùng
+   * split (hai `<table>` khác nhau), và đo một lần theo bảng của ô focus là mọi vòng ở nửa
+   * kia lệch.
+   */
+  const layerOf = (td) => {
+    const table = td.closest('table[data-fbo-col-widths]');
+    const total = table
+      ? (table.dataset.fboColWidths || '').split(',').reduce((a, b) => a + (Number(b) || 0), 0)
+      : 0;
+    const tb = table ? table.getBoundingClientRect() : null;
+    const k = total > 0 && tb && tb.width > 0 ? tb.width / total : 1;
+    return (v) => v / k;
+  };
+
+  const ringed = new Set([focused, ...multiSelected]);
+  for (const td of ringed) {
+    if (!td || !td.isConnected || !td.matches('td[data-fbo-cell]')) continue;
+    const b = td.getBoundingClientRect();
+    if (b.width === 0 && b.height === 0) continue;
+    const l = layerOf(td);
+    frag.appendChild(el('div', td === focused ? 'bp-focus' : 'bp-focus bp-focus-more', {
+      left: px(l(b.left - stageBox.left)),
+      top: px(l(b.top - stageBox.top)),
+      width: px(l(b.width)),
+      height: px(l(b.height)),
+    }));
+  }
+
   const box = focused.getBoundingClientRect();
   if (box.width === 0 && box.height === 0) return;
-
-  const table = focused.closest('table[data-fbo-col-widths]');
-  const total = table
-    ? (table.dataset.fboColWidths || '').split(',').reduce((a, b) => a + (Number(b) || 0), 0)
-    : 0;
-  const tb = table ? table.getBoundingClientRect() : null;
-  const k = total > 0 && tb && tb.width > 0 ? tb.width / total : 1;
-  const lay = (v) => v / k;
+  const lay = layerOf(focused);
 
   const left = lay(box.left - stageBox.left);
   const top = lay(box.top - stageBox.top);
   const w = lay(box.width);
   const h = lay(box.height);
-
-  const ring = el('div', 'bp-focus', { left: px(left), top: px(top), width: px(w), height: px(h) });
-  frag.appendChild(ring);
 
   const empty = focused.classList.contains('DwfEmptyCell');
 
@@ -2316,12 +2490,15 @@ function wireResize() {
         if (md.isBlock && Array.isArray(md.blockItems) && md.blockItems.length > 1) {
           const items = md.blockItems;
           if (Number.isFinite(md.toItem) && !items.includes(md.toItem)) {
-            postEdit({ op: 'moveBlock', items, toItem: md.toItem, side: 'before' });
+            // `half` khác null → chỉ nửa ấy xoay, nửa kia của mỗi dòng đứng yên.
+            postEdit({ op: 'moveBlock', items, toItem: md.toItem, side: 'before', half: blockHalfOf(md) });
           }
         } else if (md.col !== md.fromCol || md.toItem !== md.fromItem) {
           const v = moveVerdict(md, colCountOf(md.drop?.cell ?? md.cell));
           if (v.kind === 'swap' && (!md.members || md.members.length <= 1)) {
             postEdit({ op: 'swap', ...md.target, toItem: v.toItem, other: v.other });
+          } else if (v.kind === 'swapBlock' && v.a && v.b) {
+            postEdit({ op: 'swapBlock', a: v.a, b: v.b });
           } else {
             const targets = (md.members || []).map((m) => m.target).filter(Boolean);
             postEdit({

@@ -438,11 +438,20 @@ ok('hàng rộng thu ma_kh về span 1', /value="1---: \[ma_kh\]"/.test(afterWid
  * 7. Từ chối khi phép dời hất một hàng KHÁC sang vùng khác.
  * ══════════════════════════════════════════════════════════════════════════ */
 
-section('dời làm một hàng KHÁC đổi vùng → TỪ CHỐI, không hỏng im lặng');
+section('dời làm một hàng KHÁC sắp đổi vùng → GHIM lại, và NÓI RA, không hỏng im lặng');
 /*
- * `ma_nvbh` khai categoryIndex=1 và được dùng ở HAI hàng của tab. Dời một ô sang header buộc
- * phải ghi categoryIndex=0 cho nó — và cú ghi ấy sẽ kéo luôn hàng tab còn lại sang header.
- * Không ghim được (hàng kia chỉ có mỗi ma_nvbh), nên phải từ chối.
+ * `ma_nvbh` khai categoryIndex=1 và được dùng ở HAI hàng của tab. Dời ô Input lên header thì
+ * cú ghi "đúng nhất" — `ma_nvbh = 0` — lại kéo luôn hàng `.Label` (không ai đụng vào) sang
+ * header. Nên nó bị loại, và lối còn lại là GHIM hàng header bằng `ma_kh = 0`.
+ *
+ * Bản đầu của bài kiểm này chờ một lời TỪ CHỐI, và đó là chỗ nó sai. Cùng hình dạng ấy đã có
+ * một bài khác (`CLUSTER` ở mục 4: cũng `[ma_nvbh].Label` ở lại tab, cũng ghim `ma_kh`) chờ
+ * phép dời CHẠY ĐƯỢC — hai bài không thể cùng đúng. Và chạy được mới là câu trả lời đúng: mọi
+ * hàng vẫn về đúng vùng người dùng thấy trên form, không hàng nào bị kéo đi đâu cả.
+ *
+ * Cái đáng lo thật nằm ở chữ CUỐI của tiêu đề mục: designer vừa ghi một thuộc tính lên `ma_kh`,
+ * một field người dùng không hề chạm tới. Đó là thứ phải NÓI RA — `plan.wrote` mang câu ấy, và
+ * `applySplice` của tầng vỏ hiện nó lên.
  */
 const SHARED = [
   '<?xml version="1.0" encoding="utf-8"?>',
@@ -462,14 +471,90 @@ const SHARED = [
 ].join(NL);
 const sh = build(SHARED);
 const shTab = sh.rows.find((r) => r.row.tokens.some((t) => t.field === 'ma_nvbh' && t.kind === 'input'));
-const shRefuse = planMoveControl(sh,
+const shLabel = sh.rows.find((r) => r.row.tokens.some((t) => t.field === 'ma_nvbh' && t.kind === 'label'));
+eq('trước khi dời: hàng .Label đang ở tab 1', shLabel.categoryIndex, 1);
+
+const shMove = planMoveControl(sh,
   { item: shTab.index, cell: cellOf(shTab, 'ma_nvbh'), toItem: rowOf(sh, 'ma_kh').index, toCol: 2 },
   () => SHARED);
-ok('từ chối', !shRefuse.ok);
-ok('lý do đọc ra nghĩa', /cụm|vùng/.test(shRefuse.reason), shRefuse.reason);
+ok('dời được', shMove.ok, shMove.reason);
+eq('ghim đúng field giữ hàng header lại', shMove.pinned, ['ma_kh']);
+ok('KHÔNG đụng tới khai báo của ma_nvbh — hàng .Label còn cần nó ở tab 1',
+  !shMove.pinned.includes('ma_nvbh'), JSON.stringify(shMove.pinned));
+
+// Đây là phần "không hỏng im lặng": việc ghi lên một field ngoài thao tác phải có tiếng.
+ok('kế hoạch NÓI RA thuộc tính vừa ghi thêm',
+  (shMove.wrote ?? []).some((w) => /ma_kh\.categoryIndex = 0/.test(w)), JSON.stringify(shMove.wrote));
+
+const afterShared = applyFor(SHARED, shMove.edits);
+ok('ma_kh nhận categoryIndex="0" để giữ hàng header',
+  /<field categoryIndex="0" name="ma_kh">/.test(afterShared), afterShared);
+ok('ma_nvbh vẫn khai categoryIndex="1"',
+  /<field name="ma_nvbh" categoryIndex="1">/.test(afterShared), afterShared);
+
+// Đọc lại bản đã ghi — phép kiểm thật sự: KHÔNG hàng nào bị hất sang vùng khác.
+const shReread = build(afterShared);
+eq('hàng header vẫn ở header', rowOf(shReread, 'ma_kh').categoryIndex, 0);
+eq('hàng .Label VẪN ở tab 1', shReread.rows.find((r) => r.row.tokens.some((t) => t.kind === 'label')).categoryIndex, 1);
+eq('ma_nvbh nay nằm chung hàng với ma_kh', rowOf(shReread, 'ma_nvbh').index, rowOf(shReread, 'ma_kh').index);
 
 section('file nguồn đã đổi thì TỪ CHỐI — phép so nguyên văn không bao giờ được bỏ');
 const stale = planMoveControl(two, { item: r0.index, cell: cellOf(r0, 'ma_kh'), toItem: r1.index, toCol: 2 },
   () => TWO_ROWS.replace('[ten_kh]', '[ten_kh_x]'));
 ok('từ chối', !stale.ok);
 ok('nói rõ là file nguồn đã đổi', stale.reason.includes('file nguồn đã đổi'), stale.reason);
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 8. Token &ENTITY; đi sang FILE KHÁC — chốt chặn của phép giữ nguyên văn
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+section('chở token &ENTITY; vào một Include dùng chung → TỪ CHỐI');
+
+/*
+ * Giữ nguyên văn `&k;` là đúng khi token ở lại file của nó. Nhưng dời nó vào `Include/Kho.Rows`
+ * thì file ấy bỗng chứa `&k;`, và MỌI controller khác include nó phải khai `k` — cái nào không
+ * khai là hỏng ngay ở tầng parse XML, ở một màn hình không ai vừa sửa.
+ */
+const ENT_INC = 'C:/P/App_Data/Controllers/Include/Kho.Rows';
+const ENT_INC_TEXT = ['<item value="1---: [dia_chi]"/>'].join(NL);
+const ENT_HOST = [
+  '<?xml version="1.0" encoding="utf-8"?>',
+  '<!DOCTYPE dir [',
+  '  <!ENTITY k "ma_kh">',
+  '  <!ENTITY Kho.Rows SYSTEM "..\\Include\\Kho.Rows">',
+  ']>',
+  '<dir table="dmkho">',
+  '  <fields>',
+  '    <field name="ma_kh"><header v="Mã" e="Code"/></field>',
+  '    <field name="dia_chi"><header v="Địa chỉ" e="Addr"/></field>',
+  '  </fields>',
+  '  <view id="Dir">',
+  '    <item value="100, 100, 100, 100"/>',
+  '    <item value="1---: [&k;]"/>',
+  '    &Kho.Rows;',
+  '  </view>',
+  '</dir>',
+].join(NL);
+
+const ei = build(ENT_HOST, HOST, (f) => (String(f).replace(/\\/g, '/').endsWith('Include/Kho.Rows') ? ENT_INC_TEXT : null));
+ok('bung được Include (nếu không thì ca dưới vô nghĩa)', ei.rows.length === 2, `rows=${ei.rows.length}`);
+
+const eiFrom = rowOf(ei, 'ma_kh');
+const eiTo = rowOf(ei, 'dia_chi');
+const readBoth = (f) => ({ [HOST]: ENT_HOST, [ENT_INC]: ENT_INC_TEXT }[f] ?? null);
+
+const intoInclude = planMoveControl(ei,
+  { item: eiFrom.index, cell: cellOf(eiFrom, 'ma_kh'), toItem: eiTo.index, toCol: 2 }, readBoth);
+ok('từ chối', intoInclude.ok === false);
+ok('nói rõ vì sao: tham chiếu entity vào file dùng chung',
+  /entity/.test(intoInclude.reason || '') && /Kho\.Rows/.test(intoInclude.reason || ''),
+  intoInclude.reason);
+
+section('…nhưng dời NGƯỢC lại — từ Include vào controller đang mở — thì được');
+
+const outOfInclude = planMoveControl(ei,
+  { item: eiTo.index, cell: cellOf(eiTo, 'dia_chi'), toItem: eiFrom.index, toCol: 2 }, readBoth);
+ok('lập kế hoạch được', outOfInclude.ok, outOfInclude.reason);
+const outHost = applyFor(ENT_HOST, outOfInclude.edits);
+ok('token entity của hàng chủ vẫn nguyên văn &k;', outHost.includes('[&k;]'), outHost);
+ok('hàng chủ nhận thêm dia_chi', /value="1-1-: \[&k;\], \[dia_chi\]"/.test(outHost), outHost);

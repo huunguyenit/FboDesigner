@@ -296,3 +296,55 @@ const stale = planRegionColumns(base.model, { kind: 'splitColumn', region: 'head
   () => DOC.replace('<dir table="dmkho">', '<dir table="dmkho2">'));
 ok('không ghi gì', stale.ok === false);
 ok('nói rõ file nguồn đã đổi', /file nguồn đã đổi/.test(stale.reason), stale.reason);
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('dải ĐÁY khai anchor riêng — dời đúng con số CỦA NÓ, không đụng anchor của view');
+
+/*
+ * Hình dạng rất thường gặp trong FBISP24 (`Dir/zzSQTran.xml` là một ví dụ):
+ *
+ *   <view anchor="10" split="10">                 ← dải header
+ *   <category index="-1" columns="…" anchor="6">  ← dải đáy, list px RIÊNG, mỏ neo RIÊNG
+ *
+ * Bản trước luôn quy `anchor` của footer về thẻ `<view>`, nên tách một cột ở dải đáy tính ra
+ * `6 → 7` rồi đem ghi đè lên dải đang mang chữ `10`. Phép so nguyên văn bắt được (không file
+ * nào hỏng), nhưng người dùng chỉ thấy tách cột ở dải đáy đơn giản là không chạy.
+ */
+const FOOTER = [
+  '<?xml version="1.0" encoding="utf-8"?>',
+  '<dir table="dmkho">',
+  '  <fields>',
+  '    <field name="ma_kho"><header v="Mã kho" e="Code"/></field>',
+  '    <field name="t_tien" categoryIndex="-1"><header v="Tổng" e="Total"/></field>',
+  '  </fields>',
+  '  <view id="Dir" anchor="3" split="3">',
+  '    <item value="100, 60, 90, 150"/>',
+  '    <item value="11--: [ma_kho].Label, [ma_kho]"/>',
+  '    <item value="--11: [t_tien].Label, [t_tien]"/>',
+  '    <categories>',
+  '      <category index="-1" columns="80, 40, 40, 120" anchor="2"><header v="" e=""/></category>',
+  '    </categories>',
+  '  </view>',
+  '</dir>',
+].join(NL);
+
+const foot = build(FOOTER);
+const footRegion = foot.model.regions.find((r) => r.id === 'footer');
+eq('footer đọc anchor của chính nó', footRegion?.anchor, 2);
+eq('split thì vẫn thừa kế của view', footRegion?.split, 3);
+
+const footPlan = planRegionColumns(foot.model, { kind: 'splitColumn', region: 'footer', col: 0 },
+  (f) => (f === FILE ? FOOTER : null));
+ok('tách cột 1 của dải đáy — lập kế hoạch được', footPlan.ok, footPlan.reason);
+eq('sửa list px RIÊNG của tab đáy', footPlan.summary.owner, '<category index="-1" columns>');
+
+const afterFoot = applyAll({ [FILE]: FOOTER }, footPlan.edits)[FILE];
+ok('list px của footer chia đôi cột 1 (80 → 40 + 40)', afterFoot.includes('columns="40, 40, 40, 40, 120"'),
+  lineOf(afterFoot, 'columns='));
+ok('anchor="2" của footer dời thành 3', /<category index="-1"[^>]*anchor="3"/.test(afterFoot),
+  lineOf(afterFoot, '<category'));
+ok('anchor/split của view KHÔNG đụng tới — chúng đếm cột trên một list px khác;'
+  + ' split mà footer đang mượn của view cũng đứng yên vì lý do ấy',
+  /<view id="Dir" anchor="3" split="3">/.test(afterFoot), lineOf(afterFoot, '<view'));
+ok('hàng của dải header không bị dồn theo', afterFoot.includes('value="11--: [ma_kho]'),
+  lineOf(afterFoot, '[ma_kho]'));

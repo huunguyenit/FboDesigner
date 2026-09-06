@@ -333,10 +333,57 @@ function buildRegions(built, categories, view, regionWidths, duplicateCategories
     // (trước đây truyền `null` nên dải đáy không bao giờ hiện mỏ neo).
     const footerCat = categoryByIndex.get(REGION_FOOTER);
     const footerAttrs = { ...(view.attrs || {}), ...(footerCat?.attrs || {}) };
-    regions.push(region('footer', REGION_FOOTER, null, footer, footerAttrs));
+    regions.push({
+      ...region('footer', REGION_FOOTER, null, footer, footerAttrs),
+      writeback: footerWriteback(
+        spansOf(footerCat, 'category'),
+        spansOf(view, 'view'),
+        !(footerCat && footerCat.widths?.length > 0),
+      ),
+    });
   }
 
   return regions;
+}
+
+/**
+ * Chỗ GHI `anchor`/`split` của dải FOOTER — và nó không phải một thẻ, mà là hai.
+ *
+ * Giá trị footer đang dùng là `{...view.attrs, ...footerCat.attrs}`: thuộc tính nào
+ * `<category index="-1">` khai thì của nó thắng, thuộc tính nào không khai thì footer đang MƯỢN
+ * số của `<view>`. Dải để sửa phải bám đúng thẻ đã cấp con số ấy.
+ *
+ * Bản trước luôn trỏ về `<view>`, nên với hình dạng rất thường gặp
+ * `<view anchor="10"> + <category index="-1" columns="…" anchor="6">` thì phép tách/gộp cột ở
+ * dải đáy tính ra `6 → 7` rồi đem ghi đè lên dải đang mang chữ `10`. Phép so nguyên văn bắt
+ * được (nên không có file nào hỏng), nhưng người dùng chỉ thấy một lời từ chối không giải thích
+ * được — tách một cột ở dải đáy đơn giản là không chạy.
+ *
+ * Thẻ để CHÈN một thuộc tính còn THIẾU thì ngược lại: ưu tiên `<category index="-1">` khi nó
+ * tồn tại. Ghi thuộc tính mới vào `<view>` là đổi luôn mỏ neo của dải header, thứ không ai bấm.
+ */
+function footerWriteback(catSpans, viewSpans, sharesViewWidths) {
+  if (!catSpans) return viewSpans;
+  const borrow = (own, fromView) => (own
+    ? { range: own, inherited: false }
+    : { range: sharesViewWidths ? fromView ?? null : null, inherited: !sharesViewWidths });
+  const a = borrow(catSpans.anchorRange, viewSpans?.anchorRange);
+  const k = borrow(catSpans.splitRange, viewSpans?.splitRange);
+  return {
+    tagName: catSpans.tagName,
+    tagStart: catSpans.tagStart,
+    anchorRange: a.range,
+    splitRange: k.range,
+    /*
+     * Con số footer đang MƯỢN của `<view>` trong khi tab đáy khai `columns` riêng.
+     *
+     * Hai list px khác nhau nghĩa là hai không gian cột khác nhau: chữ `split="10"` trên
+     * `<view>` đếm trên list px của view, còn footer lại đọc nó trên list px của chính mình.
+     * Tách một cột ở dải đáy rồi dời con số ấy là dời mỏ neo/vạch chia CỦA DẢI HEADER — một
+     * vùng người dùng không hề bấm vào. Đánh dấu ở đây để `buildColumnPlan` bỏ qua nó.
+     */
+    inherited: { anchor: a.inherited, split: k.inherited },
+  };
 }
 
 /** Attribute số nguyên; thiếu hoặc không phải số → null, không đoán thành 0. */

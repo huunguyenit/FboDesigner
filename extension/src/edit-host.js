@@ -211,6 +211,19 @@ async function applySplice(plan, hostDocument, output, label = 'sửa form') {
     vscode.window.showWarningMessage(toast('extension.vscode_reject'));
     return false;
   }
+  /*
+   * THUỘC TÍNH KHÔNG AI YÊU CẦU — nói ra, đừng để nó lặng lẽ.
+   *
+   * `reconcileRegions` đôi khi phải ghi `categoryIndex` lên một field người dùng không hề đụng
+   * tới, để giữ đúng vùng của những hàng KHÁC. Đó là phép ghi đúng và không có cách nào tránh
+   * (xem `reconcileRegions` ở core) — nhưng nó sửa khai báo của một field ngoài tầm nhìn của
+   * thao tác vừa làm, nên im lặng ở đây chính là "hỏng im lặng". Một dòng thông báo là đủ:
+   * người dùng biết đã có gì đổi thêm, và Ctrl+Z vẫn lùi cả chùm cùng lúc.
+   */
+  if (Array.isArray(plan.wrote) && plan.wrote.length > 0) {
+    vscode.window.showInformationMessage(toast('extension.also_wrote', { list: plan.wrote.join(', ') }));
+  }
+
   for (const e of edits) {
     output.appendLine(`sửa ${e.file} [${e.start},${e.end}) → ${JSON.stringify(e.text)}`);
   }
@@ -390,9 +403,7 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
   // đang cầm. Đó là thứ duy nhất bắt được hàng viết bằng entity đã bung (`[&k;]` → `[ma_kho]`),
   // vì lúc ấy trong model không còn dấu `&` nào để nhận ra. File nguồn có thể là một Include
   // chưa mở, nên phải mở nó ra chứ không dùng văn bản của controller.
-  const rowKey = msg.op === 'moveBlock'
-    ? (Array.isArray(msg.items) ? msg.items[0] : undefined)
-    : msg.item;
+  const rowKey = rowKeyOf(msg, model);
   const row = model.rows.find((r) => r.index === rowKey);
   if (!row || !row.range) {
     vscode.window.showWarningMessage(toast('extension.row_unknown'));
@@ -423,7 +434,7 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
    * đúng lối hỏng mà tầng chiều cao đã mắc một lần.
    */
   let plan;
-  if (msg.op === 'move' || msg.op === 'swap' || msg.op === 'moveBlock') {
+  if (msg.op === 'move' || msg.op === 'swap' || msg.op === 'swapBlock' || msg.op === 'moveBlock') {
     // Dời/đổi chỗ TỰ DO có thể đụng nhiều hàng, nhiều vùng, và nhiều file cùng lúc.
     // Tầng core nói trước danh sách file phải mở (`moveControlFiles`), rồi mới đối chiếu từng
     // splice trên đúng file sở hữu nó (`planMoveControl` / `planSwapControl` / `planMoveRowBlock`).
@@ -433,7 +444,15 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
         items: Array.isArray(msg.items) ? msg.items.map(Number) : [],
         toItem: Number(msg.toItem),
         side: msg.side === 'after' ? 'after' : 'before',
+        // Khối nằm gọn trong một nửa của `view@split` → chỉ nửa ấy xoay, xem `planHalfBlock`.
+        half: msg.half === 'left' || msg.half === 'right' ? msg.half : null,
       }
+      : msg.op === 'swapBlock'
+        ? {
+          kind: 'swapBlock',
+          a: { item: Number(msg.a?.item), col: Number(msg.a?.col), span: Number(msg.a?.span) },
+          b: { item: Number(msg.b?.item), col: Number(msg.b?.col), span: Number(msg.b?.span) },
+        }
       : msg.op === 'move'
         ? {
           kind: 'move',
@@ -461,9 +480,11 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
 
     plan = msg.op === 'moveBlock'
       ? core.planMoveRowBlock(model, op, getText)
-      : msg.op === 'move'
-        ? core.planMoveControl(model, op, getText)
-        : core.planSwapControl(model, op, getText);
+      : msg.op === 'swapBlock'
+        ? core.planSwapBlock(model, op, getText)
+        : msg.op === 'move'
+          ? core.planMoveControl(model, op, getText)
+          : core.planSwapControl(model, op, getText);
   } else {
     const op = msg.op === 'resize'
       ? { kind: 'resize', item: msg.item, cell: msg.cell, span: msg.span, col: msg.col, side: msg.side }
@@ -622,7 +643,42 @@ const COMPANION_KINDS = new Set(['label', 'footer', 'description']);
  * thuộc tính trên thẻ chứ không sửa `<item value>`, nên «phân giải dòng &Name; ra tại chỗ»
  * không phải phép sửa đúng cho chúng.
  */
-const ENTITY_ROUTED_OPS = new Set(['resize', 'move', 'swap', 'moveBlock', 'insert', 'remove', 'addRow']);
+const ENTITY_ROUTED_OPS = new Set(['resize', 'move', 'swap', 'swapBlock', 'moveBlock', 'insert', 'remove', 'addRow']);
+
+/**
+ * Hàng NÀO đại diện cho một op — mốc để mở file nguồn và để hỏi «ghi vào đâu».
+ *
+ * Ba op mang nhiều hàng cùng lúc và không có `msg.item`: `moveBlock` cầm danh sách `items`,
+ * `swapBlock` cầm hai dải `a`/`b`. Lấy hàng ĐẦU của danh sách — cùng quy ước với bản một
+ * hàng, và với `&ENTITY;` thì hàng đầu là hàng đủ để nhận ra cả cụm đến từ file nào.
+ */
+function rowKeyOf(msg, model) {
+  const many = msg.op === 'moveBlock'
+    ? (Array.isArray(msg.items) ? msg.items.map(Number) : [])
+    : msg.op === 'swapBlock'
+      ? [Number(msg.a?.item), Number(msg.b?.item)]
+      : msg.op === 'swap'
+        ? [Number(msg.item), Number(msg.toItem)]
+        : null;
+  if (!many) return msg.item;
+
+  const list = [...new Set(many.filter((n) => Number.isFinite(n)))];
+  if (list.length === 0) return undefined;
+
+  /*
+   * Ưu tiên hàng ĐẾN TỪ `&ENTITY;` — nó là hàng DUY NHẤT có câu hỏi «ghi vào đâu» để mà hỏi.
+   *
+   * Lấy hàng đầu danh sách là bốc theo thứ tự người dùng bấm, không theo thứ tự nào có nghĩa:
+   * kéo cụm ở hàng thường lên một cụm nằm trong Include thì hàng cần hỏi là hàng THỨ HAI, và
+   * hỏi hụt nó là ghi thẳng vào file dùng chung mà không ai được hỏi.
+   */
+  const rows = model?.rows ?? [];
+  const entity = list.find((i) => {
+    const r = rows.find((x) => x.index === i);
+    return r && r.foreign && r.hostRef;
+  });
+  return entity !== undefined ? entity : list[0];
+}
 
 /**
  * Hàng đến từ `&ENTITY;`: ghi thẳng vào file gốc, hay phân giải vào chính file thiết kế?
@@ -649,9 +705,7 @@ async function routeEntityEdit(msg, core, built, hostDocument, output, depth) {
   if (depth > 0) return 'continue';
   if (!ENTITY_ROUTED_OPS.has(msg.op)) return 'continue';
 
-  const rowKey = msg.op === 'moveBlock'
-    ? (Array.isArray(msg.items) ? msg.items[0] : undefined)
-    : msg.item;
+  const rowKey = rowKeyOf(msg, built.model);
   const row = built.model.rows.find((r) => r.index === rowKey);
   // `hostRef` chỉ có khi chính controller ĐANG MỞ là nơi viết ra `&Name;`. Không có nó thì
   // không có dòng nào ở đây để mà comment, và câu hỏi trở thành vô nghĩa.

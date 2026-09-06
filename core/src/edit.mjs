@@ -1267,6 +1267,9 @@ function buildColumnPlan(model, op) {
     for (const attr of ['anchor', 'split']) {
       const from = r[attr];
       if (from === null || from === undefined) continue;
+      // Số MƯỢN của một thẻ đếm cột trên list px KHÁC (dải đáy khai `columns` riêng nhưng
+      // thừa kế `split` của `<view>`) — dời nó là dời marker của vùng khác. Xem `footerWriteback`.
+      if (r.writeback?.inherited?.[attr]) continue;
       const moved = shiftMarker(attr, from, op.kind, col);
       if (!moved.ok) return { ok: false, reason: msg('edit.region_reason', { id: r.id, reason: moved.reason }) };
       if (moved.value === Math.trunc(Number(from))) continue;
@@ -1765,19 +1768,19 @@ function rowWritePatch(model, row, nextRow, what) {
  * muốn so nguyên văn thì phải đọc file, mà biết đọc file nào thì phải tính xong patch. Tính
  * trước, rồi tầng vỏ mở đúng bấy nhiêu file — xem `moveControlFiles`.
  */
-function buildMovePatches(model, op) {
+function buildMovePatches(model, op, getText) {
   const { item, cell, toItem, toCol, targets } = op;
   const list = Array.isArray(targets) && targets.length > 0
     ? targets
     : [{ item, cell }];
-  return buildMoveManyPatches(model, list, toItem ?? item, toCol);
+  return buildMoveManyPatches(model, list, toItem ?? item, toCol, getText);
 }
 
 /**
  * Dời một hoặc nhiều ô tới hàng đích.
  * `targets`: [{ item, cell }] — thứ tự giữ nguyên; mỗi ô giữ span gốc (thu về chỗ trống còn lại).
  */
-function buildMoveManyPatches(model, targets, toItem, baseCol) {
+function buildMoveManyPatches(model, targets, toItem, baseCol, getText) {
   const to = model.rows.find((r) => r.index === toItem);
   if (!to) return { ok: false, reason: msg('edit.row_item_not_found', { item: toItem }) };
 
@@ -1848,18 +1851,55 @@ function buildMoveManyPatches(model, targets, toItem, baseCol) {
   const fixed = reconcileRegions(model, tokenMap);
   if (!fixed.ok) return fixed;
 
-  const patches = [];
+  /*
+   * TOKEN ĐI ĐÂU — truy bằng CHÍNH ĐỐI TƯỢNG token, không bằng chỉ số.
+   *
+   * `removeCell` lọc mảng, `placeCell` chèn vào mảng — cả hai chuyển nguyên tham chiếu chứ
+   * không dựng token mới. Nên sau khi gỡ và đặt xong, mỗi phần tử của mảng token mới vẫn CHÍNH
+   * LÀ một phần tử của mảng token cũ của một hàng nào đó, và đối chiếu bằng identity là cách
+   * duy nhất còn đúng khi chỉ số đã xáo trộn.
+   *
+   * Có bản đồ ấy thì `rowRewritePatches` chép được chữ NGUYÊN VĂN từ file: một token viết
+   * `[&k;]` đáp xuống hàng mới vẫn là `[&k;]`, không bung thành `[ma_kh]`. Bản trước dựng chuỗi
+   * từ token của model (đã bung) nên mỗi phép dời lặng lẽ cắt đứt một tham chiếu dùng chung.
+   */
+  const originOf = new Map();
+  for (const ri of rowState.keys()) {
+    const row = model.rows.find((r) => r.index === ri);
+    if (!row) continue;
+    row.row.tokens.forEach((t, i) => {
+      if (!originOf.has(t)) originOf.set(t, { row: ri, index: i });
+    });
+  }
+
+  const states = [];
   for (const [ri, parsed] of rowState) {
     const row = model.rows.find((r) => r.index === ri);
     if (!row) continue;
-    // Hàng đích luôn valuePatch; hàng nguồn khác có thể bỏ luôn thẻ <item> nếu hết token.
-    const patch = ri === to.index
-      ? valuePatch(model, row, parsed, `hàng ${ri + 1}`)
-      : rowWritePatch(model, row, parsed, `hàng ${ri + 1}`);
-    if (!patch.ok) {
-      if (patch.reason === msg('common.no_change')) continue;
-      return patch;
+    const origins = parsed.tokens.map((t) => originOf.get(t) ?? null);
+    if (origins.some((o) => o === null)) return { ok: false, reason: msg('edit.token_unmap') };
+    // Hàng ĐÍCH không bao giờ bị bỏ thẻ — nó vừa nhận thêm token. Hàng nguồn thì có thể.
+    states.push({ row, next: parsed, origins, allowDrop: ri !== to.index });
+  }
+
+  /*
+   * KHÔNG có văn bản = lời gọi dò FILE của `moveControlFiles` — cùng vòng luẩn quẩn với đổi
+   * chỗ: muốn ghi thì phải đọc, muốn biết đọc file nào thì phải tính xong. Tới đây đã đủ tên.
+   */
+  if (typeof getText !== 'function') {
+    const files = states.flatMap((st) => [st.row.range?.file, st.row.itemRange?.file]);
+    for (const [field, n] of fixed.overrides) {
+      const cp = categoryPatch(model, field, n);
+      if (cp.ok) files.push(cp.file);
     }
+    return { ok: true, patches: [], files: [...new Set(files.filter(Boolean))], pinned: fixed.pinned };
+  }
+
+  const written = rowRewritePatches(model, states, getText);
+  if (!written.ok) return written;
+
+  const patches = [];
+  for (const patch of written.patches) {
     if (!patches.some((x) => x.file === patch.file && x.splice?.start === patch.splice?.start)) {
       patches.push(patch);
     }
@@ -1886,64 +1926,467 @@ function buildMoveManyPatches(model, targets, toItem, baseCol) {
 }
 
 /**
- * Phần THUẦN của phép ĐỔI CHỖ — hai token hoán vị, có thể ở HAI HÀNG khác nhau.
+ * Phần THUẦN của phép ĐỔI CHỖ MỘT cặp — chỉ là ca N = 1 của `buildSwapGroupPatches`.
  *
- * Mỗi token giữ span gốc, chỉ thu về `min(span mình, span slot đích)` khi chỗ mới hẹp hơn.
+ * Gộp về một luật chứ không giữ hai bản: mọi thứ phân biệt hai bên trước đây (hoán token, thu
+ * span về `min`, chặn cụm Label khi qua vùng khác, ghi bằng chữ NGUYÊN VĂN của file nguồn) đều
+ * đúng cho cả N = 1 lẫn N > 1. Hai bản song song là hai chỗ để hai luật trôi khỏi nhau — và
+ * chúng đã trôi một lần: bản một cặp đếm chỉ số token bằng số ký tự `1`, bản nhiều cặp đếm
+ * bằng số ô không rỗng.
  */
-function buildSwapPatches(model, { item, cell, toItem, other }) {
-  const ra = model.rows.find((r) => r.index === item);
-  if (!ra) return { ok: false, reason: msg('edit.row_item_not_found', { item }) };
-  const rb = model.rows.find((r) => r.index === (toItem ?? item));
-  if (!rb) return { ok: false, reason: msg('edit.row_item_not_found', { item: toItem }) };
+function buildSwapPatches(model, { item, cell, toItem, other }, getText) {
+  return buildSwapGroupPatches(model, {
+    pairs: [{ item, cell, toItem: toItem ?? item, other }],
+  }, getText);
+}
 
-  const a = ra.cells?.[cell];
-  const b = rb.cells?.[other];
-  if (!a || a.empty || !a.token) return { ok: false, reason: msg('common.empty_swap') };
-  if (!b || b.empty || !b.token) return { ok: false, reason: msg('common.empty_swap') };
-  if (ra.index === rb.index && cell === other) return { ok: false, reason: msg('common.no_change') };
+/**
+ * ĐỔI CHỖ HAI DẢI CỘT — và đây là phép đo ĐÚNG cho việc "đổi chỗ hai cụm".
+ *
+ * Bản trước ghép CONTROL với CONTROL: cụm nguồn n ô đổi với n ô đầu tiên bên đích, cặp thứ i
+ * đổi với cặp thứ i. Nghe hợp lý, nhưng nó đo sai đại lượng. Người dùng nhìn form thấy CHỖ, mà
+ * chỗ thì đo bằng CỘT:
+ *
+ *   [ty_gia].Label, [ma_nt], [ty_gia]   ba control, nhưng 4 cột (1 + 2 + 1)
+ *   [ngay_ct].Label, [ngay_ct]          hai control, cũng 4 cột (1 + 3)
+ *
+ * Hai cụm ấy vừa khít nhau — đổi chỗ là chuyện hiển nhiên phải làm được. Luật ghép theo control
+ * thì đếm 3 với 2, không ghép nổi; mà có ghép được cũng sai, vì nó thu span về `min` từng cặp,
+ * cụm bốn cột trở về ba và để lại một cột trống không ai yêu cầu.
+ *
+ * Nên luật ở đây là: hai DẢI CỘT cùng bề rộng đổi chỗ cho nhau, NGUYÊN KHỐI. Mỗi control giữ
+ * đúng span của nó và đúng vị trí tương đối trong cụm, chỉ cả cụm dời sang chỗ kia. Không ô nào
+ * bị thu hẹp, không cột nào thừa ra — hai dải bằng nhau từng cột thì phép đổi luôn khít.
+ *
+ * Về mặt dữ liệu: hoán hai ĐOẠN pattern cùng độ dài, và hoán hai LÁT của danh sách token. Phần
+ * ngoài hai dải không bị chạm tới một ký tự nào.
+ *
+ * TỪ CHỐI ba ca, và cả ba đều không có câu trả lời đúng:
+ *   · hai dải khác bề rộng — phần dư biết đi đâu;
+ *   · một dải CẮT ĐÔI một control (control bắt đầu trước dải, hoặc trải ra ngoài dải);
+ *   · hai dải giẫm lên nhau trong cùng một hàng.
+ *
+ * @param op {a:{item,col,span}, b:{item,col,span}} — `col` đếm từ 0, `span` tính bằng SỐ CỘT
+ */
+function buildSwapBlockPatches(model, { a, b }, getText) {
+  const ra = model.rows.find((r) => r.index === Number(a?.item));
+  if (!ra) return { ok: false, reason: msg('edit.row_item_not_found', { item: a?.item }) };
+  const rb = model.rows.find((r) => r.index === Number(b?.item));
+  if (!rb) return { ok: false, reason: msg('edit.row_item_not_found', { item: b?.item }) };
 
-  // CÙNG HÀNG → `swapCells` lo trọn (hoán token + thu span về min khi khác bề rộng).
-  if (ra.index === rb.index) {
-    const done = swapCells(ra.row, ra.widths, cell, other, { allowEntity: true });
-    if (!done.ok) return done;
-    const patch = valuePatch(model, ra, done.row, `hàng ${ra.index + 1}`);
-    if (!patch.ok) return patch;
-    return { ok: true, patches: [patch], warning: ra.foreign ? ra.range?.file : null, pinned: [] };
+  const aCol = Math.trunc(Number(a.col));
+  const bCol = Math.trunc(Number(b.col));
+  const span = Math.trunc(Number(a.span));
+  const spanB = Math.trunc(Number(b.span));
+  if (!Number.isInteger(span) || span < 1 || !Number.isInteger(spanB) || spanB < 1 || span !== spanB) {
+    return { ok: false, reason: msg('edit.swap_block_width', { n: span, n2: spanB }) };
+  }
+
+  const partA = blockInRow(ra, aCol, span);
+  if (!partA.ok) return partA;
+  const partB = blockInRow(rb, bCol, span);
+  if (!partB.ok) return partB;
+  if (partA.cells.length === 0 && partB.cells.length === 0) {
+    return { ok: false, reason: msg('common.no_change') };
+  }
+
+  const charsA = Array.from(resolvePattern(ra.row.pattern, ra.widths.length).pattern);
+  const charsB = Array.from(resolvePattern(rb.row.pattern, rb.widths.length).pattern);
+  const sliceA = charsA.slice(aCol, aCol + span);
+  const sliceB = charsB.slice(bCol, bCol + span);
+
+  // Chỉ số token = số ký tự `1` đứng trước. Hai lát token đều LIỀN NHAU trong mảng — dải cột
+  // liền nhau và không control nào bị cắt đôi — nên hoán chúng chỉ là hai phép `splice`.
+  const iA = onesBefore(charsA, aCol);
+  const nA = sliceA.filter((ch) => ch === '1').length;
+  const iB = onesBefore(charsB, bCol);
+  const nB = sliceB.filter((ch) => ch === '1').length;
+  const tokA = ra.row.tokens.slice(iA, iA + nA);
+  const tokB = rb.row.tokens.slice(iB, iB + nB);
+  if (tokA.length !== nA || tokB.length !== nB) return { ok: false, reason: msg('edit.token_unmap') };
+
+  const sameRow = ra.index === rb.index;
+  if (sameRow && aCol < bCol + span && bCol < aCol + span) {
+    return { ok: false, reason: msg('edit.swap_block_overlap') };
   }
 
   /*
-   * HAI HÀNG: thay token TẠI CHỖ ở cả hai bên, rồi thu span về `min` nếu slot đích hẹp hơn
-   * span gốc của token tới (cùng luật với `swapCells` cùng hàng).
-   */
-  const swapIn = (row, cells, at, token) => {
-    const ti = tokenIndexOfCell(cells, at);
-    if (ti === -1 || !row.tokens[ti]) return null;
-    const tokens = [...row.tokens];
-    tokens[ti] = token;
-    return { ...row, tokens };
-  };
-  let nextA = swapIn(ra.row, ra.cells, a, b.token);
-  let nextB = swapIn(rb.row, rb.cells, b, a.token);
-  if (!nextA || !nextB) return { ok: false, reason: msg('edit.token_unmap') };
-
-  const keep = Math.min(a.span, b.span);
-  if (keep < a.span) {
-    const shrunk = setSpan(nextA, ra.widths, cell, keep, { allowEntity: true });
-    if (!shrunk.ok) return shrunk;
-    nextA = shrunk.row;
-  }
-  if (keep < b.span) {
-    const shrunk = setSpan(nextB, rb.widths, other, keep, { allowEntity: true });
-    if (!shrunk.ok) return shrunk;
-    nextB = shrunk.row;
-  }
-
-  /*
-   * Qua VÙNG khác thì cụm phải đi cùng — mà ĐỔI CHỖ không chở cụm đi được: chỗ bên kia đã có
-   * người, không còn slot nào cho `.Label` đáp xuống. Nói thẳng thay vì đổi nửa vời rồi để lại
-   * hai cái nhãn lạc ở hai vùng.
+   * Cụm Label/Footer/Description nằm NGOÀI hai dải thì đổi chỗ sẽ bỏ nó lại một mình, trỏ vào
+   * một control vừa đi sang vùng khác. Companion nằm TRONG dải thì không sao — nó đi cùng cụm,
+   * và đó chính là điều người dùng đang làm khi quét cả `[x].Label, [x]` vào vùng chọn.
    */
   if (ra.categoryIndex !== rb.categoryIndex) {
+    const moving = new Set([...tokA, ...tokB]);
+    for (const tok of moving) {
+      if (!tok.field || tok.kind !== 'input') continue;
+      for (const r of model.rows) {
+        const stray = companionCells(r, tok.field).filter((c) => !moving.has(c.token));
+        if (stray.length === 0) continue;
+        return {
+          ok: false,
+          reason: msg('edit.has_companion_cells', { field: tok.field, p1: r.index + 1 })
+            + ' đổi chỗ qua vùng khác không chở cụm đi cùng được (chỗ bên kia đã có người);'
+            + ' quét cả cụm vào vùng chọn, hoặc đổi chỗ trong cùng một vùng',
+        };
+      }
+    }
+  }
+
+  const states = [];
+  if (sameRow) {
+    const chars = [...charsA];
+    for (let i = 0; i < span; i++) {
+      chars[aCol + i] = sliceB[i];
+      chars[bCol + i] = sliceA[i];
+    }
+    // Lát ĐỨNG SAU phải splice trước: cắt lát trước là mọi chỉ số phía sau chạy đi một nấc.
+    const tokens = [...ra.row.tokens];
+    const left = aCol < bCol ? { i: iA, n: nA, t: tokB } : { i: iB, n: nB, t: tokA };
+    const right = aCol < bCol ? { i: iB, n: nB, t: tokA } : { i: iA, n: nA, t: tokB };
+    tokens.splice(right.i, right.n, ...right.t);
+    tokens.splice(left.i, left.n, ...left.t);
+    states.push({ row: ra, next: { ...ra.row, pattern: chars.join(''), tokens } });
+  } else {
+    const nextA = [...charsA];
+    const nextB = [...charsB];
+    for (let i = 0; i < span; i++) {
+      nextA[aCol + i] = sliceB[i];
+      nextB[bCol + i] = sliceA[i];
+    }
+    const tokensA = [...ra.row.tokens];
+    tokensA.splice(iA, nA, ...tokB);
+    const tokensB = [...rb.row.tokens];
+    tokensB.splice(iB, nB, ...tokA);
+    states.push({ row: ra, next: { ...ra.row, pattern: nextA.join(''), tokens: tokensA } });
+    states.push({ row: rb, next: { ...rb.row, pattern: nextB.join(''), tokens: tokensB } });
+  }
+
+  // Token đi bằng THAM CHIẾU qua mấy phép `slice`/`splice` trên, nên truy nguồn bằng identity —
+  // cùng cách với phép DỜI, và cùng lý do: để chép được chữ NGUYÊN VĂN (`&k;`) từ file.
+  const originOf = new Map();
+  for (const r of sameRow ? [ra] : [ra, rb]) {
+    r.row.tokens.forEach((t, i) => {
+      if (!originOf.has(t)) originOf.set(t, { row: r.index, index: i });
+    });
+  }
+  for (const st of states) {
+    st.origins = st.next.tokens.map((t) => originOf.get(t) ?? null);
+    if (st.origins.some((o) => o === null)) return { ok: false, reason: msg('edit.token_unmap') };
+  }
+
+  const fixed = reconcileRegions(model, new Map(states.map((st) => [st.row.index, st.next.tokens])));
+  if (!fixed.ok) return fixed;
+
+  const category = [];
+  for (const [field, n] of fixed.overrides) {
+    const cp = categoryPatch(model, field, n);
+    if (!cp.ok) return cp;
+    category.push(cp);
+  }
+
+  const foreignRow = states.map((st) => st.row).find((r) => r.foreign)?.range?.file ?? null;
+  if (typeof getText !== 'function') {
+    const files = states.map((st) => st.row.range?.file).filter(Boolean);
+    return {
+      ok: true,
+      patches: category,
+      files: [...new Set([...files, ...category.map((c) => c.file)])],
+      warning: foreignRow,
+      pinned: fixed.pinned,
+    };
+  }
+
+  const written = rowRewritePatches(model, states, getText);
+  if (!written.ok) return written;
+
+  const patches = [...written.patches, ...category];
+  if (patches.length === 0) return { ok: false, reason: msg('common.no_change') };
+
+  return {
+    ok: true,
+    patches,
+    warning: foreignRow
+      ?? patches.map((x) => x.file).find((f) => f && model.hostFile && f !== model.hostFile)
+      ?? null,
+    pinned: fixed.pinned,
+    moved: tokA.length + tokB.length,
+  };
+}
+
+/** Số ký tự `1` đứng trước cột `col`. */
+function onesBefore(chars, col) {
+  let n = 0;
+  for (let c = 0; c < col && c < chars.length; c++) if (chars[c] === '1') n++;
+  return n;
+}
+
+/**
+ * Control nào nằm trong dải `[col, col+span)` của một hàng — và TỪ CHỐI nếu dải cắt đôi cái nào.
+ *
+ * Cắt đôi không phải ca hiếm: thả vào giữa một control trải 3 cột thì dải đích bắt đầu ngay
+ * trong thân nó, và phép hoán pattern sau đó ghi ra một `0` chẳng có `1` nào mở đầu — form vẫn
+ * vẽ ra, chỉ mất một control mà không ai báo.
+ */
+function blockInRow(row, col, span) {
+  const columnCount = row.widths.length;
+  if (!Number.isInteger(col) || col < 0 || col + span > columnCount) {
+    return {
+      ok: false,
+      reason: msg('edit.swap_block_range', { p0: col + 1, n: span, columnCount, index: row.index + 1 }),
+    };
+  }
+  const { cells } = buildCells(row.row, row.widths);
+  const inside = [];
+  for (const c of cells) {
+    if (c.empty) continue;
+    const end = c.col + c.span;
+    if (!(c.col < col + span && col < end)) continue;
+    if (c.col < col || end > col + span) {
+      return {
+        ok: false,
+        reason: msg('edit.swap_block_cuts', { raw: c.token?.raw ?? '?', p0: c.col + 1, n: c.span }),
+      };
+    }
+    inside.push(c);
+  }
+  return { ok: true, cells: inside };
+}
+
+/**
+ * Ghi lại các hàng của một phép ĐỔI CHỖ — đọc token từ VĂN BẢN NGUỒN, không từ model.
+ *
+ * Đây là điểm khác duy nhất, và là cả lý do hàm này tồn tại tách khỏi `valuePatch`.
+ *
+ * `valuePatch` dựng chuỗi mới từ token của MODEL (đã bung entity) rồi nhờ `textPatch` quy về
+ * file nguồn. Với hàng như
+ *
+ *   <item value="110--------100100: [ma_kh].Label, [ma_kh], [&Revert.Field.1;].Label, [&Revert.Field.1;]"/>
+ *
+ * model chỉ còn thấy `[so_ct]`, nên đoạn chữ phải ghi lại vắt qua ranh giới giữa file chủ và
+ * file khai entity — `textPatch` từ chối, và người dùng nhận «chỗ cần sửa vắt qua ranh giới
+ * entity» cho một phép chẳng đổi giá trị nào cả.
+ *
+ * Mà đúng là chẳng đổi gì: ĐỔI CHỖ là hoán vị, `a ↔ b`. Chữ trong mỗi token đi nguyên vẹn,
+ * chỉ đổi chỗ đứng. Nên đọc token thô từ nguồn (`&Revert.Field.1;` vẫn là `&Revert.Field.1;`),
+ * hoán vị mấy chuỗi ấy, rồi ghi lại — không ô nào phải bung ra, không file entity nào bị đụng.
+ *
+ * PATTERN thì ngược lại, và đó là ranh giới:
+ *   · span hai bên BẰNG nhau → pattern không đổi → chỉ ghi lại DANH SÁCH TOKEN, phần pattern
+ *     giữ nguyên văn. Hàng có pattern ghép từ entity (`110&Split;-----101-`) cũng đổi chỗ được,
+ *     vì mấy ký tự ấy không hề bị chạm tới.
+ *   · span KHÁC nhau → phải viết lại pattern. Pattern viết bằng entity thì từ chối ở đây; tầng
+ *     vỏ đã có đường «phân giải entity theo `fboDesigner.entityEditTarget`» cho hàng đến từ
+ *     `&ENTITY;`, và đó là chỗ đúng để hỏi.
+ *
+ * @param states  Array<{row, next, assign:Map<slot, {row, index}>}> — `assign` nói slot nào
+ *                nhận token của (hàng nào, slot nào) TRƯỚC khi hoán vị.
+ */
+/** Tham chiếu `&Name;` nằm bên trong một token — `[&k;]`, `[&Revert.Field.1;].Label`. */
+const RE_ENTITY_IN_TOKEN = /&[A-Za-z_][\w.:-]*;/;
+
+function rowRewritePatches(model, states, getText) {
+  const src = new Map();
+  for (const st of states) {
+    const row = st.row;
+    if (!row.range) return { ok: false, reason: msg('edit.row_pos_unknown', { index: row.index }) };
+    const text = typeof getText === 'function' ? getText(row.range.file) : null;
+    if (typeof text !== 'string') return { ok: false, reason: msg('edit.file_unread', { file: row.range.file }) };
+    const value = text.slice(row.range.start, row.range.end);
+    const parsed = parseRow(value);
+    /*
+     * Hàng không có dấu `:` thì không cầm token nào — nhưng nó VẪN là đích hợp lệ của phép dời
+     * (hàng trống `--------` là chỗ người ta hay thả xuống nhất). Chỉ chặn khi hàng thật sự
+     * đang cầm token mà nguồn lại không có danh sách nào để đọc.
+     */
+    if (!parsed.hasColon && row.row.tokens.length > 0) {
+      return { ok: false, reason: msg('common.empty_swap') };
+    }
+    /*
+     * Một entity bung ra NHIỀU token thì chỉ số token của nguồn và của model không còn khớp
+     * nhau — và cả phép hoán vị này chạy bằng chỉ số. Từ chối chứ không ghi lệch một nấc.
+     */
+    if (parsed.tokens.length !== row.row.tokens.length) {
+      return {
+        ok: false,
+        reason: msg('edit.token_count_mismatch', {
+          length: parsed.tokens.length, length2: row.row.tokens.length,
+        }) + ' — có entity bung ra nhiều token, không map được chỉ số',
+      };
+    }
+    src.set(row.index, { value, parsed });
+  }
+
+  const patches = [];
+  for (const st of states) {
+    const me = src.get(st.row.index);
+
+    /*
+     * Hàng mất token CUỐI CÙNG → bỏ hẳn thẻ `<item>` thay vì để lại một hàng rỗng chiếm chỗ.
+     * Cùng luật với `rowWritePatch`; chỉ hàng NGUỒN của phép dời mới bật cờ này.
+     */
+    if (st.allowDrop && st.next.tokens.length === 0) {
+      const drop = rowWritePatch(model, st.row, st.next, `hàng ${st.row.index + 1}`);
+      if (!drop.ok) {
+        if (drop.reason === msg('common.no_change')) continue;
+        return drop;
+      }
+      if (drop.dropRow) {
+        patches.push(drop);
+        continue;
+      }
+    }
+
+    // Chữ NGUYÊN VĂN của từng token, đọc từ file mà nó ĐANG nằm — `&k;` vẫn là `&k;`.
+    const raws = [];
+    for (const from of st.origins) {
+      const donor = from ? src.get(from.row) : null;
+      const token = donor?.parsed.tokens[from.index];
+      if (!token) return { ok: false, reason: msg('edit.token_unmap') };
+
+      /*
+       * Chở một token viết bằng `&ENTITY;` sang FILE KHÁC — chốt chặn của cả tính năng này.
+       *
+       * Giữ nguyên văn `&k;` là đúng khi token ở lại chỗ cũ. Nhưng dời nó vào một Include thì
+       * Include ấy bỗng chứa `&k;`, và MỌI controller khác include file đó phải khai `k` —
+       * cái nào không khai là hỏng ngay ở tầng parse XML, ở một màn hình không ai vừa sửa.
+       *
+       * Hai đích an toàn: chính file nó đang nằm (tham chiếu vốn đã ở đó), và controller ĐANG
+       * MỞ (nó phải khai `k`, nếu không thì bản đã bung trong tay đây đã không có chữ nào).
+       */
+      if (from.row !== st.row.index && RE_ENTITY_IN_TOKEN.test(token.raw)) {
+        const donorRow = states.find((x) => x.row.index === from.row)?.row;
+        const toFile = st.row.range.file;
+        if (donorRow && toFile !== donorRow.range.file && toFile !== model.hostFile) {
+          return {
+            ok: false,
+            reason: msg('edit.entity_token_foreign_target', { raw: token.raw, file: toFile }),
+          };
+        }
+      }
+      raws.push(token.raw);
+    }
+
+    // Khoảng trắng sau dấu `:` lấy từ chính hàng đang sửa — hàng viết `:[a]` không tự dưng
+    // mọc thêm một dấu cách chỉ vì vừa bị sửa. Hàng chưa từng có `:` thì theo nếp của corpus.
+    const lead = me.parsed.hasColon ? /^\s*/.exec(me.parsed.tokensRaw)[0] : ' ';
+    const tokensText = `${lead}${raws.join(me.parsed.separator)}`;
+    const patternChanged = st.next.pattern !== st.row.row.pattern;
+
+    /*
+     * MỘT splice cho cả hàng — đường thường, và là đường của gần hết mọi hàng.
+     *
+     * Điều kiện: pattern trong FILE đọc ra đúng bằng pattern của model. Bằng nhau nghĩa là
+     * pattern nằm trọn trong file chủ, không ghép từ `&ENTITY;` nào — nên viết lại cả `value`
+     * là một dải liền, một chỗ, một dòng diff.
+     */
+    if (me.parsed.pattern === st.row.row.pattern) {
+      const patternRaw = patternChanged
+        ? reindentPattern(me.parsed.patternRaw, st.next.pattern)
+        : me.parsed.patternRaw;
+      const body = raws.length > 0 || me.parsed.hasColon ? `:${tokensText}` : '';
+      const nextValue = `${patternRaw}${body}`;
+      if (nextValue === me.value) continue;
+      patches.push({
+        file: st.row.range.file,
+        splice: { start: st.row.range.start, end: st.row.range.end, text: nextValue },
+        expect: me.value,
+      });
+      continue;
+    }
+
+    /*
+     * Pattern GHÉP TỪ ENTITY (`110&Split;-----101-`) — hai splice, mỗi phần về đúng nhà của nó.
+     *
+     * Danh sách token vẫn ghi ở `<item value>` của file chủ. Còn pattern thì vá ĐÚNG mấy ký tự
+     * đã đổi, ngay tại nơi chúng thật sự nằm — cùng đường với `patternPlan` của phép kéo giãn:
+     * ký tự đổi nằm gọn trong file chủ thì ghi ở file chủ, nằm trong khai báo `&Split;` thì
+     * splice rơi vào file khai entity và tầng vỏ hỏi trước khi ghi (`confirmForeign`, theo
+     * `fboDesigner.entityEditTarget`). Vắt qua ĐÚNG ranh giới giữa hai nguồn thì `textPatch` từ
+     * chối — ca ấy không có cách ghi nào đúng cho cả hai bên.
+     *
+     * Hai splice không bao giờ chồng nhau: pattern đứng trước dấu `:`, token đứng sau.
+     */
+    if (me.parsed.hasColon && tokensText !== me.parsed.tokensRaw) {
+      const colonAt = st.row.range.start + me.parsed.patternRaw.length + 1;
+      patches.push({
+        file: st.row.range.file,
+        splice: { start: colonAt, end: st.row.range.end, text: tokensText },
+        expect: me.parsed.tokensRaw,
+      });
+    } else if (!me.parsed.hasColon && raws.length > 0) {
+      patches.push({
+        file: st.row.range.file,
+        splice: { start: st.row.range.end, end: st.row.range.end, text: `:${tokensText}` },
+        expect: '',
+      });
+    }
+
+    if (patternChanged) {
+      if (!st.row.item?.valueSpan || !model.segments) {
+        return { ok: false, reason: msg('edit.item_pos_unknown', { index: st.row.index }) };
+      }
+      const before = st.row.row.patternRaw;
+      const after = reindentPattern(before, st.next.pattern);
+      const pp = textPatch(model.segments, st.row.item.valueSpan.start, before, after,
+        `pattern của item ${st.row.index}`);
+      if (!pp.ok) return pp;
+      patches.push(pp);
+    }
+  }
+
+  return { ok: true, patches };
+}
+
+/**
+ * ĐỔI CHỖ theo CẶP Ô — hoán token giữa từng cặp `(ô nguồn, ô đích)`.
+ *
+ * LUẬT: SLOT đứng yên, TOKEN đổi chỗ. Mỗi token giữ span gốc và chỉ thu về
+ * `min(span mình, span slot đích)` khi chỗ mới hẹp hơn — cùng luật với `swapCells`.
+ *
+ * Đây là engine của phép đổi chỗ MỘT cặp (`planSwapControl`), và chỉ của nó. Đổi chỗ cả cụm
+ * KHÔNG đi đường này nữa: ghép ô-với-ô đo sai đại lượng, vì cái người dùng đang đổi là hai DẢI
+ * CỘT chứ không phải hai danh sách control — xem `buildSwapBlockPatches`.
+ *
+ * @param op {pairs:Array<{item,cell,toItem,other}>}
+ */
+function buildSwapGroupPatches(model, { pairs }, getText) {
+  const list = (Array.isArray(pairs) ? pairs : []).map((p) => ({
+    item: Number(p.item),
+    cell: Number(p.cell),
+    toItem: Number.isFinite(Number(p.toItem)) ? Number(p.toItem) : Number(p.item),
+    other: Number(p.other),
+  }));
+  if (list.length === 0) return { ok: false, reason: msg('common.no_change') };
+
+  const resolved = [];
+  const seen = new Set();
+  for (const p of list) {
+    const ra = model.rows.find((r) => r.index === p.item);
+    if (!ra) return { ok: false, reason: msg('edit.row_item_not_found', { item: p.item }) };
+    const rb = model.rows.find((r) => r.index === p.toItem);
+    if (!rb) return { ok: false, reason: msg('edit.row_item_not_found', { item: p.toItem }) };
+
+    const a = ra.cells?.[p.cell];
+    const b = rb.cells?.[p.other];
+    if (!a || a.empty || !a.token) return { ok: false, reason: msg('common.empty_swap') };
+    if (!b || b.empty || !b.token) return { ok: false, reason: msg('common.empty_swap') };
+    if (ra.index === rb.index && a.col === b.col) return { ok: false, reason: msg('common.no_change') };
+
+    // Khoá theo (hàng, CỘT) chứ không theo chỉ số ô: cùng một ô đến từ hai cặp khác nhau vẫn
+    // là cùng một chỗ trên form, và đó chính là ca phải chặn.
+    for (const key of [`${ra.index}:${a.col}`, `${rb.index}:${b.col}`]) {
+      if (seen.has(key)) return { ok: false, reason: msg('edit.swap_group_overlap') };
+      seen.add(key);
+    }
+    resolved.push({ ra, rb, a, b });
+  }
+
+  /*
+   * Qua VÙNG khác thì cụm Label/Footer/Description phải đi cùng — mà đổi chỗ không chở cụm đi
+   * được. Cùng lời từ chối, cùng lý do với `buildSwapPatches`.
+   */
+  for (const { ra, rb, a, b } of resolved) {
+    if (ra.categoryIndex === rb.categoryIndex) continue;
     for (const tok of [a.token, b.token]) {
       if (!tok.field || tok.kind !== 'input') continue;
       for (const r of model.rows) {
@@ -1958,26 +2401,106 @@ function buildSwapPatches(model, { item, cell, toItem, other }) {
     }
   }
 
-  const fixed = reconcileRegions(model, new Map([[ra.index, nextA.tokens], [rb.index, nextB.tokens]]));
+  /*
+   * HOÁN TOKEN trước, THU SPAN sau — và thứ tự ấy là bắt buộc.
+   *
+   * Chỉ số token đọc từ mảng ô GỐC (`tokenIndexOfCell`), nên mọi phép hoán phải tính trên cùng
+   * một ảnh chụp: thu span của một ô sớm hơn là vẽ lại pattern, và mọi chỉ số tính sau đó
+   * thuộc về một hàng khác với hàng người dùng đang nhìn.
+   */
+  const work = new Map();
+  const rowOf = (r) => {
+    if (!work.has(r.index)) {
+      work.set(r.index, {
+        row: r,
+        next: { ...r.row, tokens: [...r.row.tokens] },
+        shrink: [],
+        // slot thứ i của hàng SAU khi sửa lấy token của (hàng nào, slot nào) TRƯỚC khi sửa —
+        // để `rowRewritePatches` chép ĐÚNG CHỮ trong file nguồn, kể cả khi chữ ấy là `&ENTITY;`.
+        origins: r.row.tokens.map((_, i) => ({ row: r.index, index: i })),
+      });
+    }
+    return work.get(r.index);
+  };
+  for (const { ra, rb, a, b } of resolved) {
+    const ai = tokenIndexOfCell(ra.cells, a);
+    const bi = tokenIndexOfCell(rb.cells, b);
+    const sa = rowOf(ra);
+    const sb = rowOf(rb);
+    if (ai === -1 || bi === -1 || !sa.next.tokens[ai] || !sb.next.tokens[bi]) {
+      return { ok: false, reason: msg('edit.token_unmap') };
+    }
+    const tokenA = ra.row.tokens[ai];
+    const tokenB = rb.row.tokens[bi];
+    sa.next.tokens[ai] = tokenB;
+    sb.next.tokens[bi] = tokenA;
+    sa.origins[ai] = { row: rb.index, index: bi };
+    sb.origins[bi] = { row: ra.index, index: ai };
+
+    const keep = Math.min(a.span, b.span);
+    if (keep < a.span) sa.shrink.push({ col: a.col, span: keep });
+    if (keep < b.span) sb.shrink.push({ col: b.col, span: keep });
+  }
+
+  /*
+   * Thu span theo cột GIẢM DẦN. Thu một ô là biến phần đuôi của nó thành `-`, tức đẻ thêm ô
+   * trống — mọi chỉ số ô BÊN PHẢI chạy đi một nấc, còn bên trái đứng yên. Đi từ phải sang trái
+   * là mỗi lần tra lại chỉ số theo cột đều tra trên phần chưa bị đụng tới.
+   */
+  for (const state of work.values()) {
+    for (const { col, span } of [...state.shrink].sort((x, y) => y.col - x.col)) {
+      const { cells } = buildCells(state.next, state.row.widths);
+      const idx = cells.findIndex((c) => !c.empty && c.col === col);
+      if (idx === -1) return { ok: false, reason: msg('edit.token_unmap') };
+      const shrunk = setSpan(state.next, state.row.widths, idx, span, { allowEntity: true });
+      if (!shrunk.ok) return shrunk;
+      state.next = shrunk.row;
+    }
+  }
+
+  const fixed = reconcileRegions(model, new Map([...work.values()].map((s) => [s.row.index, s.next.tokens])));
   if (!fixed.ok) return fixed;
 
-  const patches = [];
-  for (const [row, next] of [[ra, nextA], [rb, nextB]]) {
-    const patch = valuePatch(model, row, next, `hàng ${row.index + 1}`);
-    if (!patch.ok) return patch;
-    patches.push(patch);
-  }
+  const category = [];
   for (const [field, n] of fixed.overrides) {
     const cp = categoryPatch(model, field, n);
     if (!cp.ok) return cp;
-    patches.push(cp);
+    category.push(cp);
   }
+
+  const foreignRow = [...work.values()].map((s) => s.row).find((r) => r.foreign)?.range?.file ?? null;
+
+  /*
+   * KHÔNG có văn bản = lời gọi dò FILE của `moveControlFiles`.
+   *
+   * Vòng luẩn quẩn quen thuộc: muốn ghi thì phải đọc file, muốn biết đọc file nào thì phải
+   * tính xong. Mọi phần trên đây chạy được bằng model thuần, nên tới đây đã biết đủ tên file —
+   * trả danh sách rồi để tầng vỏ mở, xong nó gọi lại với `getText` thật.
+   */
+  if (typeof getText !== 'function') {
+    const files = [...work.values()].map((s) => s.row.range?.file).filter(Boolean);
+    return { ok: true, patches: category, files: [...new Set([...files, ...category.map((c) => c.file)])], warning: foreignRow, pinned: fixed.pinned };
+  }
+
+  const written = rowRewritePatches(model, [...work.values()], getText);
+  if (!written.ok) return written;
+
+  const patches = [...written.patches, ...category];
+  if (patches.length === 0) return { ok: false, reason: msg('common.no_change') };
 
   return {
     ok: true,
     patches,
-    warning: [ra, rb].find((r) => r.foreign)?.range?.file ?? null,
+    /*
+     * Hỏi trước khi ghi vào BẤT KỲ file nào không phải file đang mở — không riêng hàng đến từ
+     * Include. Phần pattern có thể rơi vào một khai báo `&ENTITY;`, và sửa ở đó là đổi cho mọi
+     * controller dùng chung nó; im lặng đúng ở chỗ ấy là loại hỏng đắt nhất của cả tính năng.
+     */
+    warning: foreignRow
+      ?? patches.map((x) => x.file).find((f) => f && model.hostFile && f !== model.hostFile)
+      ?? null,
     pinned: fixed.pinned,
+    moved: resolved.length,
   };
 }
 
@@ -2040,7 +2563,88 @@ function verifyPatches(built, getText) {
  * @param getText  (file) => string|null — tầng vỏ đọc sẵn, core không chạm đĩa
  */
 export function planMoveControl(model, op, getText) {
-  return verifyPatches(buildMovePatches(model, op), getText);
+  return verifyPatches(buildMovePatches(model, op, getText), getText);
+}
+
+/**
+ * Dời khối theo NỬA split — ghi lại giá trị của từng dòng trong dải bị ảnh hưởng.
+ *
+ * Đọc lại nửa từ VĂN BẢN NGUỒN chứ không từ model: token viết bằng entity (`[&Revert.Field.0;]`)
+ * chỉ còn nguyên văn ở đó. Lấy từ model là ghi ra bản đã bung, tức lặng lẽ cắt đứt một tham
+ * chiếu dùng chung mà không ai yêu cầu — cùng lý do `planSplitHalfCascade` cũng đọc từ nguồn.
+ */
+function planMoveRowBlockHalf(model, { items, toItem, side, half }, getText) {
+  const plan = planHalfBlock(model, { items, toItem, side, half });
+  if (!plan.ok) return plan;
+
+  const widths = plan.region.widths;
+  const other = half === 'left' ? 'right' : 'left';
+
+  const parsed = new Map();
+  const read = (row) => {
+    if (parsed.has(row.index)) return parsed.get(row.index);
+    if (!row.range) {
+      const bad = { ok: false, reason: msg('edit.row_pos_unknown', { index: row.index }) };
+      parsed.set(row.index, bad);
+      return bad;
+    }
+    const text = typeof getText === 'function' ? getText(row.range.file) : null;
+    const got = typeof text === 'string'
+      ? sourceRow(row, text, model)
+      : { ok: false, reason: msg('edit.file_unread', { file: row.range.file }) };
+    parsed.set(row.index, got);
+    return got;
+  };
+
+  const edits = [];
+  let warning = null;
+  for (const { row, fromRow } of plan.span) {
+    const here = read(row);
+    if (!here.ok) return here;
+    const there = read(fromRow);
+    if (!there.ok) return there;
+    if (row.foreign) warning = row.range.file;
+
+    const moved = takeRowHalf(there.parsed, widths, plan.split, half);
+    const stay = takeRowHalf(here.parsed, widths, plan.split, other);
+    const merged = joinRowHalves(
+      half === 'left' ? moved : stay,
+      half === 'left' ? stay : moved,
+      widths, plan.split, here.parsed,
+    );
+    const text = serializeRow({
+      ...merged,
+      pattern: reindentPattern(here.parsed.patternRaw, merged.pattern),
+    });
+    if (text === here.value) continue;
+    edits.push({
+      file: row.range.file,
+      start: row.range.start,
+      end: row.range.end,
+      text,
+      expect: here.value,
+    });
+  }
+
+  if (edits.length === 0) return { ok: false, reason: msg('common.no_change') };
+
+  // Đối chiếu nguyên văn trước khi ghi — cùng chốt với mọi phép sửa hàng khác.
+  for (const e of edits) {
+    const text = getText(e.file);
+    if (typeof text !== 'string') return { ok: false, reason: msg('edit.file_unread', { file: e.file }) };
+    const actual = text.slice(e.start, e.end);
+    if (actual !== e.expect) {
+      return { ok: false, reason: msg('edit.patch_expect_mismatch', { actual, expect: e.expect }) };
+    }
+  }
+
+  return {
+    ok: true,
+    edits: edits.map(({ file, start, end, text }) => ({ file, start, end, text })),
+    warning,
+    pinned: [],
+    moved: [...new Set((items ?? []).map(Number))].length,
+  };
 }
 
 /**
@@ -2051,7 +2655,81 @@ export function planMoveControl(model, op, getText) {
  *
  * @param op {items:number[], toItem:number, side?:'before'|'after'}
  */
-export function planMoveRowBlock(model, { items, toItem, side = 'before' }, getText) {
+/**
+ * Dời NỬA hàng khi vùng có `view@split` — phần tính được mà KHÔNG cần văn bản nguồn.
+ *
+ * Vì sao phải có phép riêng: một `<item>` của vùng split là HAI nửa nằm chung một dòng XML.
+ * Dời cả thẻ `<item>` (`planMoveRowBlock` thường) là kéo luôn nửa bên kia đi theo — người dùng
+ * chọn ba hàng ở cột trái, thả xuống, và ba hàng bên phải cũng đổi thứ tự dù không ai đụng
+ * vào chúng. Runtime vẽ hai nửa như hai bảng độc lập, nên designer cũng phải sửa được từng nửa.
+ *
+ * Phép này KHÔNG dời dòng nào cả: số hàng đứng yên, chỉ NỬA ĐANG CHỌN xoay vòng giữa các dòng
+ * trong dải bị ảnh hưởng — đúng như runtime nhìn thấy. Nửa kia của mỗi dòng ở nguyên chỗ cũ.
+ *
+ * @returns {{ok:true, region, split, span:Array<{row, fromRow}>}|{ok:false, reason:string}}
+ */
+function planHalfBlock(model, { items, toItem, side = 'before', half }) {
+  if (half !== 'left' && half !== 'right') {
+    return { ok: false, reason: msg('edit.block_half_mixed') };
+  }
+  const uniq = [...new Set((items ?? []).map(Number))]
+    .filter((n) => Number.isFinite(n))
+    .sort((a, b) => a - b);
+  if (uniq.length < 1) return { ok: false, reason: msg('edit.block_min_rows') };
+
+  const region = (model.regions ?? []).find((r) => r.rows.some((x) => x.index === uniq[0]));
+  if (!region) return { ok: false, reason: msg('edit.region_unknown') };
+
+  const split = Number(region.split);
+  if (!Number.isFinite(split) || split <= 0 || split >= region.widths.length) {
+    return { ok: false, reason: msg('edit.block_half_no_split') };
+  }
+
+  const rows = [...region.rows].sort((a, b) => a.index - b.index);
+  const posOf = (index) => rows.findIndex((r) => r.index === index);
+
+  const blockPos = uniq.map(posOf);
+  if (blockPos.some((i) => i < 0)) return { ok: false, reason: msg('edit.block_half_out_of_region') };
+  for (let i = 1; i < blockPos.length; i++) {
+    if (blockPos[i] !== blockPos[i - 1] + 1) return { ok: false, reason: msg('edit.block_not_contiguous') };
+  }
+
+  const destPos = posOf(Number(toItem));
+  if (destPos < 0) return { ok: false, reason: msg('edit.block_half_out_of_region') };
+  if (blockPos.includes(destPos)) return { ok: false, reason: msg('common.no_change') };
+
+  const lo = Math.min(blockPos[0], destPos);
+  const hi = Math.max(blockPos[blockPos.length - 1], destPos);
+
+  // Hàng nhúng lưới Detail cắt ngang cụm form — nửa của nó không phải một nửa hàng nhập, và
+  // xoay nó vào giữa cụm chứng từ là trộn hai thứ không cùng loại. Cùng chốt chặn với
+  // `planSplitHalfCascade`.
+  for (let i = lo; i <= hi; i++) {
+    if (rowHasEmbeddedGrid(rows[i], model)) return { ok: false, reason: msg('edit.block_half_grid') };
+  }
+
+  const seq = [];
+  for (let i = lo; i <= hi; i++) seq.push(i);
+  const inBlock = new Set(blockPos);
+  const rest = seq.filter((i) => !inBlock.has(i));
+  const at = rest.indexOf(destPos) + (side === 'after' ? 1 : 0);
+  const next = [...rest.slice(0, at), ...blockPos, ...rest.slice(at)];
+
+  const span = seq.map((slot, k) => ({ row: rows[slot], fromRow: rows[next[k]] }))
+    .filter((x) => x.row.index !== x.fromRow.index);
+  if (span.length === 0) return { ok: false, reason: msg('common.no_change') };
+
+  // Dải bị ảnh hưởng gồm cả hàng cho lẫn hàng nhận, để tầng vỏ mở đủ file trước khi ghi.
+  const touched = seq.map((slot) => rows[slot]);
+  return { ok: true, region, split, half, span, touched };
+}
+
+export function planMoveRowBlock(model, { items, toItem, side = 'before', half = null }, getText) {
+  // Vùng có `view@split` và người dùng chọn gọn trong MỘT nửa → chỉ nửa ấy xoay, xem
+  // `planHalfBlock`. Không có `half` thì vẫn là phép dời cả thẻ `<item>` như cũ.
+  if (half === 'left' || half === 'right') {
+    return planMoveRowBlockHalf(model, { items, toItem, side, half }, getText);
+  }
   const uniq = [...new Set((items ?? []).map(Number))]
     .filter((n) => Number.isFinite(n))
     .sort((a, b) => a - b);
@@ -2141,7 +2819,16 @@ function lineSpanOfItem(text, itemRange) {
 
 /** ĐỔI CHỖ hai control, cùng hàng hoặc khác hàng. @param op {item, cell, toItem, other} */
 export function planSwapControl(model, op, getText) {
-  return verifyPatches(buildSwapPatches(model, op), getText);
+  return verifyPatches(buildSwapPatches(model, op, getText), getText);
+}
+
+/**
+ * ĐỔI CHỖ HAI DẢI CỘT — cụm nào cũng được, miễn hai dải cùng SỐ CỘT. Xem
+ * `buildSwapBlockPatches` để biết vì sao đo bằng cột chứ không ghép control với control.
+ * @param op {a:{item,col,span}, b:{item,col,span}}
+ */
+export function planSwapBlock(model, op, getText) {
+  return verifyPatches(buildSwapBlockPatches(model, op, getText), getText);
 }
 
 /**
@@ -2152,13 +2839,24 @@ export function planSwapControl(model, op, getText) {
  */
 export function moveControlFiles(model, op) {
   if (op.kind === 'moveBlock') {
+    // Dời theo nửa split đụng CẢ DẢI giữa khối và hàng đích, không chỉ khối với đích: mỗi dòng
+    // trong dải nhận nửa của dòng kế bên. Mở thiếu một file là phép so nguyên văn từ chối.
+    if (op.half === 'left' || op.half === 'right') {
+      const plan = planHalfBlock(model, op);
+      if (!plan.ok) return [];
+      return [...new Set(plan.touched.map((r) => r.range?.file).filter(Boolean))];
+    }
     const rows = (op.items ?? []).map((i) => model.rows.find((r) => r.index === i)).filter(Boolean);
     const dest = model.rows.find((r) => r.index === op.toItem);
     const files = [...rows, dest].map((r) => r?.itemRange?.file ?? r?.range?.file).filter(Boolean);
     return [...new Set(files)];
   }
-  const built = op.kind === 'swap' ? buildSwapPatches(model, op) : buildMovePatches(model, op);
-  return built.ok ? [...new Set(built.patches.map((p) => p.file))] : [];
+  const built = op.kind === 'swapBlock'
+    ? buildSwapBlockPatches(model, op)
+    : op.kind === 'swap' ? buildSwapPatches(model, op) : buildMovePatches(model, op);
+  if (!built.ok) return [];
+  // Đổi chỗ trả sẵn `files` khi gọi mà chưa có văn bản — xem cuối `buildSwapGroupPatches`.
+  return [...new Set([...(built.files ?? []), ...built.patches.map((p) => p.file)])];
 }
 
 /**

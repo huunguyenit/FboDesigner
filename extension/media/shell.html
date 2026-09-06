@@ -8,6 +8,8 @@
     <label class="fbo-toggle" hidden title="{{webview.blueprint_title}}"><input type="checkbox" id="fbo-blueprint-toggle"> {{webview.blueprint}}</label>
     <label class="fbo-toggle" title="{{webview.zoom_title}}">{{webview.zoom}}
       <select id="fbo-zoom-select">
+        <option value="0.5">50%</option>
+        <option value="0.75">75%</option>
         <option value="1">100%</option>
         <option value="1.25">125%</option>
         <option value="1.5">150%</option>
@@ -47,7 +49,7 @@
      Số liệu chẩn đoán vẫn còn chỗ của nó: mã hoá/EOL/program ở thanh trên, cảnh báo XML đi vào
      kênh Output, còn stylesheet và ảnh nằm trong panel Debug ngay dưới đây. -->
 <footer class="fbo-status">
-  <div id="fbo-nav-hint" class="fbo-ok"><b>Click</b> = chọn ô · <b>Ctrl+click</b> hoặc <b>double click</b> = nhảy tới khai báo trong XML (thêm <b>Alt</b> để ở lại file đang mở) · kéo mép ô = gộp/tách · <b>Del</b> = xoá control / bỏ cột lưới khỏi view · <b>Shift+Del</b> = xoá cả nhãn/chú thích hoặc cả &lt;field&gt; của cột · kéo tiêu đề cột = sắp xếp · <b>Ctrl+Z</b> = hoàn tác · <b>Shift+Click</b> = chọn nhiều ô</div>
+  <div id="fbo-nav-hint" class="fbo-ok"><b>Click</b> = chọn ô · <b>Ctrl+click</b> hoặc <b>double click</b> = nhảy tới khai báo trong XML (thêm <b>Alt</b> để ở lại file đang mở) · kéo mép ô = gộp/tách · <b>Del</b> = xoá control / bỏ cột lưới khỏi view · <b>Shift+Del</b> = xoá cả nhãn/chú thích hoặc cả &lt;field&gt; của cột · kéo tiêu đề cột = sắp xếp · <b>Ctrl+Z</b> = hoàn tác · <b>Shift+Click</b> = chọn nhiều ô · kéo cụm đã chọn lên một cụm khác = đổi chỗ cả dải (hai dải phải cùng số cột) · kéo khối hàng nằm trong một nửa <code>split</code> = chỉ nửa đó đổi thứ tự</div>
   <section id="fbo-debug" hidden>
     <div class="fbo-debug-head">
       <strong>{{webview.debug}}</strong>

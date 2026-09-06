@@ -16,6 +16,7 @@ import './test-render.mjs';
 import './test-grid.mjs';
 import './test-edit.mjs';
 import './test-move-free.mjs';
+import './test-swap-split.mjs';
 import './test-columns.mjs';
 import './test-xml-comment.mjs';
 import './test-css-scope.mjs';

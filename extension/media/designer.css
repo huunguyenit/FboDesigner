@@ -487,6 +487,12 @@ body.bp-on .GridTabPanel td.HeaderCellDefault[data-fbo-width]::after {
   background: rgba(11, 107, 203, 0.06);
 }
 
+/* Ô CÙNG ĐƯỢC CHỌN (multi-select) — cùng một màu, cùng một bề dày với ô focus.
+   Khác đúng một chuyện: nền nhạt hơn một nấc, để vẫn đọc được ô nào là ô vừa bấm (ô mang tay
+   cầm kéo giãn và nút +). Vẽ chúng mảnh hơn hay mờ hơn là nói rằng chúng "kém được chọn hơn",
+   mà không phải: mọi thao tác cụm — kéo, đổi chỗ, xoá — ăn vào cả nhóm như nhau. */
+.bp-focus-more { background: rgba(11, 107, 203, 0.03); }
+
 /* MỘT thanh lệnh cho ô đang chọn, thay cho các nút rải quanh bốn cạnh.
    Luật hình học của nó: KHÔNG chạm vào cạnh ô. Nút đặt trên cạnh phải là nút đè lên dải bắt kéo
    gộp/tách, và đó đúng là chỗ hỏng của bản trước — chọn ô xong thì kéo không còn ăn.
