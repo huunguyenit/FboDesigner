@@ -101,7 +101,15 @@ eq('value mới', ins.splice.text, '111-: [ten_kho].Label, [ten_kho], [le_loi]')
 const reIns = build(applyAndCheck('insert', DOC, ins.splice));
 eq('đọc lại thấy 3 control', reIns.model.rows.find((r) => r.index === rowTen.index)
   .cells.filter((c) => !c.empty).length, 3);
-eq('không đẻ ra cảnh báo mới', reIns.warnings.length, base.warnings.length);
+/*
+ * Fixture khai `le_loi` mà không hàng nào dùng, nên `base` mang sẵn một cảnh báo «khai chết».
+ * Phép insert này ĐƯA `[le_loi]` vào một hàng — cảnh báo ấy phải tự biến mất, và đó là điều
+ * đáng khẳng định hơn hẳn "số cảnh báo không đổi".
+ */
+ok('không đẻ ra cảnh báo mới', reIns.warnings.length <= base.warnings.length);
+ok('và field vừa được dùng thì thôi bị kêu khai chết',
+  !reIns.warnings.some((w) => w.code === 'lint.field_unused' && w.message.includes('le_loi')));
+ok('trước đó thì có kêu', base.warnings.some((w) => w.code === 'lint.field_unused' && w.message.includes('le_loi')));
 
 section('addRow — chèn thẻ <item> mới, giữ thụt lề và xuống dòng của file');
 const below = planAddRow(base.model,
@@ -112,7 +120,10 @@ ok('thụt lề 4 dấu cách như thẻ cũ', below.splice.text.includes('\r\n 
 const afterAdd = applyAndCheck('addRow', DOC, below.splice);
 const reAdd = build(afterAdd);
 eq('nhiều hơn đúng một hàng', reAdd.model.rows.length, base.model.rows.length + 1);
-eq('không đẻ ra cảnh báo mới', reAdd.warnings.length, base.warnings.length);
+// Hàng mới cũng mang `[le_loi]` — xem ghi chú ở phép insert bên trên.
+ok('không đẻ ra cảnh báo mới', reAdd.warnings.length <= base.warnings.length);
+ok('hàng mới dùng le_loi nên hết kêu khai chết',
+  !reAdd.warnings.some((w) => w.code === 'lint.field_unused' && w.message.includes('le_loi')));
 
 const above = planAddRow(base.model,
   { kind: 'addRow', item: rowMa.index, side: 'above', token: '[le_loi]' }, DOC, rowMa.itemRange);

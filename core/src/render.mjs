@@ -31,6 +31,7 @@ import { sourceRange, hostRefAt } from './entities.mjs';
 import { renderGrid } from './grid.mjs';
 import { msg, VIEWS_CONFIG } from './msg.mjs';
 import * as warn from './warn.mjs';
+import { deadFieldWarnings, aliasWarnings, gridHeightWarnings } from './lint.mjs';
 
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
@@ -1215,10 +1216,48 @@ export function renderControllerHtml(text, opts = {}) {
       css,
       config: scanGridConfig(opts.gridConfig),
     });
-    return { ...built, mode: 'grid', root, css };
+    /*
+     * Luật lint chạy SAU khi model đã dựng xong, và đọc `built.model.columns` chứ không đọc
+     * `views[0].columns`: cấu hình ẩn của `Grid/Config` thêm cột vào lưới, và một cột chỉ tồn
+     * tại nhờ cấu hình vẫn phải được xét alias như mọi cột khác.
+     *
+     * `used` cho luật «khai chết» lấy từ cột ĐÃ MERGE, cùng lý do — field mà chỉ Config dùng
+     * tới thì không phải là field chết.
+     */
+    const gridColumns = built.model?.columns ?? [];
+    const warnings = [
+      ...(built.warnings ?? []),
+      ...aliasWarnings({ text, fields, shown: new Set(gridColumns.map((c) => c.name)), segments: opts.segments ?? null }),
+      ...deadFieldWarnings({
+        text,
+        fields,
+        used: new Set(gridColumns.map((c) => c.name)),
+        segments: opts.segments ?? null,
+        hostFile: opts.hostFile ?? '',
+      }),
+    ];
+    if (built.model) built.model.warnings = warnings;
+    return { ...built, warnings, mode: 'grid', root, css };
   }
 
   const model = buildViewModel(views[0], fields, { ...opts, title: scanTitle(text), pageCss: css });
+
+  /*
+   * Luật lint đứng SAU `buildViewModel` vì hai trong bốn luật cần model đã dựng xong: chiều cao
+   * lưới nhúng đọc `regions`, còn tập «field đã dùng» chỉ đầy đủ khi mọi hàng đã được phân giải.
+   *
+   * `used` gom từ TOKEN của mọi hàng — kể cả hàng nằm trong tab đang đóng và hàng đến từ
+   * Include. Lấy thiếu một nguồn nào là đẻ ra một cảnh báo «khai chết» hoàn toàn sai.
+   */
+  const used = new Set();
+  for (const r of model.rows) for (const t of r.row.tokens) if (t.field) used.add(t.field);
+  model.warnings.push(
+    ...deadFieldWarnings({
+      text, fields, used, segments: opts.segments ?? null, hostFile: opts.hostFile ?? '',
+    }),
+    ...gridHeightWarnings(model),
+  );
+
   model.foreignRows = model.rows.filter((r) => r.foreign).length;
   model.productRows = model.rows.filter((r) => r.product).length;
   model.root = root;

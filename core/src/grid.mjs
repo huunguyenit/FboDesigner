@@ -18,6 +18,7 @@ import { renderGridControl, isDisabled, resolveLocaleName, alignOf } from './con
 import { sourceRange, hostRefAt } from './entities.mjs';
 import { msg, VIEWS_CONFIG } from './msg.mjs';
 import * as warn from './warn.mjs';
+import { gridBlockPx } from './lint.mjs';
 
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
@@ -743,9 +744,10 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null } = 
   const scrollPx = bodyHeight !== null && bodyHeight > headerPx
     ? bodyHeight - headerPx
     : null;
-  const blockPx = bodyHeight === null
-    ? null
-    : TOOLBAR_PX + bodyHeight + SPLIT_PX + FOOTER_PX;
+  // Qua `gridBlockPx` chứ không cộng tại chỗ: luật `lint.grid_overflows_view` so đúng con số
+  // này với `view@height`, và hai bản sao của một phép cộng geometry là hai bản sẽ lệch nhau ở
+  // lần đo lại tiếp theo.
+  const blockPx = gridBlockPx(bodyHeight);
   /*
    * Theo HTML runtime chuẩn của tab lưới:
    *   divGrid  -> cuộn dọc; overflow-x:hidden để nhận scrollLeft đồng bộ từ footer

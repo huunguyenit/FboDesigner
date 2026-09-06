@@ -4,6 +4,62 @@
 
 ## [Chưa phát hành]
 
+### Thêm — BỐN LUẬT CHẨN ĐOÁN MỚI: field khai chết, alias hỏng, lưới tràn vùng
+
+Ba bước trước dựng đường ống; bước này đổ luật vào. Khác với ~30 luật đã có — vốn là những gì
+`render`/`grid` VẤP PHẢI trên đường vẽ («tôi không vẽ được cái này») — bốn luật mới đi TÌM: bản
+khai vẽ ra bình thường, nhưng có chỗ sai chỉ lộ lúc chạy thật, hoặc không lộ ra bao giờ.
+
+    lint.field_unused          <field> khai mà không chỗ nào dùng
+    lint.alias_not_joined      aliasName không có trong <query event="Finding">
+    lint.alias_local_temp      aliasName trỏ tới bảng tạm CỤC BỘ (#x)
+    lint.grid_overflows_view   <field rows> làm lưới cao hơn view@height
+
+Cả bốn đều `warning`, không cái nào `error`: không cái nào làm control biến mất khỏi màn hình —
+đúng ranh giới đã chốt ở bước đầu.
+
+Nhà mới: [`core/src/lint.mjs`](core/src/lint.mjs), và luật chung của nó là **KHÔNG BIẾT THÌ IM**.
+Một luật kêu oan chỉ cần vài lần là người dùng thôi đọc cả bảng Problems, và khi ấy nó kéo theo
+mọi luật đúng xuống cùng. Nên mỗi rule có ít nhất bằng ấy phép kiểm cho ca «biết im» như cho ca
+«bắt đúng».
+
+«Field khai chết» là luật dễ kêu oan nhất, và nó có HAI lớp chặn chồng lên nhau. Lớp một: chỉ
+xét field khai trong CHÍNH file controller đang mở — một Include dùng chung khai năm chục field
+cho hai chục controller, mỗi controller dùng dăm cái, nên không có lớp này thì mở một file ra là
+bốn mươi lăm cảnh báo sai. Lớp hai: tên field phải xuất hiện ĐÚNG MỘT LẦN trong cả tài liệu,
+chính chỗ khai ra nó. Field có thể được dùng ở chỗ bộ quét không đọc — `<query>`, `arrangement`,
+một hàm trong `Include\Javascript`, một view thứ hai mà `renderGrid` không dựng tới. Thấy dấu
+vết lần thứ hai ở bất cứ đâu là đủ để im.
+
+Lớp hai ấy cũng chính là thứ cứu ca LƯỚI NHIỀU VIEW: `renderGrid` chỉ dựng một view, nên cột chỉ
+dùng ở view in ấn không nằm trong tập «đang hiện» — và lưới nhiều view là chuyện thường.
+
+Hai luật alias đọc `aliasName` bằng CHÍNH `readAliasName` mà bản sinh SQL dùng, không tự tách
+lấy: thuộc tính ấy mang hai nghĩa (alias trần, hoặc biểu thức SQL), và một bản đọc thứ hai chỉ
+chờ ngày lệch khỏi bản thứ nhất. `readAliasName` và phép thử bảng tạm cục bộ vì thế được mở ra
+khỏi `filter-declare.mjs`; phép thử `#x` khác `##x` nay là hàm `isLocalTempTable` có tên, thay
+vì một regex trần nằm giữa một khối comment dài.
+
+Bảng tạm cục bộ là ca thật đã tốn công một lần: `Grid\SVTran.xml` của HOATP join
+`#invoiceTypeTmp` — bảng tự tạo lại mỗi lần chạy Finding, nhưng lọc nhanh gọi
+`FastBusiness$System$GetDynamicFilter` ở một lời gọi HOÀN TOÀN RIÊNG nên không thấy nó. Nay lỗi
+ấy hiện ngay lúc mở file, không phải sau khi khách gõ vào ô lọc.
+
+`lint.grid_overflows_view` so đúng con số mà `renderGridHtml` đã tính, qua `gridBlockPx` dùng
+chung — hai bản sao của một phép cộng geometry là hai bản sẽ lệch nhau ở lần đo lại tiếp theo.
+Mốc lấy nguyên từ runtime: `<view height="302">` đi với `<field rows="242">` là VỪA KHÍT
+(30 + 242 + 8 + 22), nên phép so là chặt — lớn hơn mới kêu.
+
+Luật thứ năm dự kiến («tổng span vượt số cột») KHÔNG thêm: `item.pattern_too_long` ở bước đầu đã
+phủ đúng ca gây hại, tức pattern dài hơn view và CẮT MẤT control. Phần dư còn lại — pattern dài
+hơn nhưng chỉ thừa ô trống — không mất gì trên màn hình, và thêm một cảnh báo cho nó là thêm
+tiếng ồn chứ không thêm thông tin.
+
+Test: 32 phép kiểm mới ([`core/test/test-lint.mjs`](core/test/test-lint.mjs)). Fixture của
+`test-edit.mjs` hoá ra khai sẵn một field `e="Unused"` — luật mới bắt đúng nó, nên hai phép kiểm
+«không đẻ ra cảnh báo mới» ở đó được viết lại cho đúng ý: chúng đưa `[le_loi]` vào một hàng, nên
+cảnh báo phải BIẾN MẤT, và đó là điều đáng khẳng định hơn hẳn "số cảnh báo không đổi".
+
 ### Thêm — CHẨN ĐOÁN trong Problems panel
 
 Chỗ hai bước nền trước hiện ra ngoài. Mở một file trong `Dir` / `Filter` / `Grid` là lỗi vào

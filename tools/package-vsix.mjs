@@ -76,6 +76,7 @@ const CONTENT = [
   ['core/src/field-template.mjs', 'extension/core/field-template.mjs'],
   ['core/src/msg.mjs', 'extension/core/msg.mjs'],
   ['core/src/warn.mjs', 'extension/core/warn.mjs'],
+  ['core/src/lint.mjs', 'extension/core/lint.mjs'],
   ['core/src/control.mjs', 'extension/core/control.mjs'],
   ['core/config/fields.json', 'extension/core/config/fields.json'],
   ['core/config/views.json', 'extension/core/config/views.json'],

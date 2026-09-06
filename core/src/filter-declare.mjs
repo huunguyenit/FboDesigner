@@ -177,6 +177,21 @@ export function scanFindingJoin(text) {
 }
 
 /**
+ * Bảng TẠM CỤC BỘ (`#x`) — không phải bảng tạm TOÀN CỤC (`##x`), và khác biệt ấy là tất cả.
+ *
+ * `#x` chỉ sống trong đúng phiên đã `create table` ra nó. Câu `<query event="Finding">` tự tạo
+ * lại nó mỗi lần chạy, nhưng lọc nhanh gọi thẳng `FastBusiness$System$GetDynamicFilter` ở một
+ * lời gọi HOÀN TOÀN RIÊNG — không đi qua đoạn `create table` ấy. `##x` thì sống hết phiên kết
+ * nối nên đi đường "joined" bình thường.
+ *
+ * Tách thành hàm có tên vì nay có hai chỗ hỏi cùng câu hỏi này: bản sinh SQL (bên dưới) và luật
+ * chẩn đoán `lint.alias_local_temp`. Hai bản sao của cùng một regex là hai bản sẽ lệch nhau.
+ */
+export function isLocalTempTable(table) {
+  return /^#(?!#)/.test(String(table ?? '').trim());
+}
+
+/**
  * Tên controller — khoá join của `sysfilterdeclares`.
  *
  * Runtime truyền `&Controller;` vào câu lọc, và trong corpus entity ấy hầu như luôn được khai
@@ -310,7 +325,7 @@ function normalizeJoinClause(on, leftAlias, rightAlias) {
  *
  * Cả hai đều có thật trong `Grid/ARTran.xml` của FBISP24, cùng một file.
  */
-function readAliasName(raw, base) {
+export function readAliasName(raw, base) {
   const value = String(raw ?? '').trim();
   if (value === '') return { alias: base, expression: null, column: null };
   if (/^\w+$/.test(value)) return { alias: value, expression: null, column: null };
@@ -495,7 +510,7 @@ export function buildFilterDeclarations(text, {
      * luật của cả file này (xem đầu file). Bản trước coi mọi bảng tra được từ câu Finding là
      * `xtable` hợp lệ như nhau, không phân biệt bảng tạm.
      */
-    const localTemp = join !== null && /^#(?!#)/.test(String(join.table ?? '').trim());
+    const localTemp = join !== null && isLocalTempTable(join.table);
     const usableJoin = join !== null && !localTemp;
 
     /*

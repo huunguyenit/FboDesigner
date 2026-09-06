@@ -85,6 +85,8 @@ Mở một file trong `Dir` / `Filter` / `Grid` là extension quét ngay và đ�
 
 - Token trỏ vào field chưa khai, `<field>` khai mà lưới không có, pattern lệch số cột, list px
   hỏng, tab khai trùng, entity chưa khai / đệ quy / file `SYSTEM` không đọc được
+- `<field>` khai mà không chỗ nào dùng tới, `aliasName` không có trong `<query event="Finding">`
+  hoặc trỏ tới bảng tạm cục bộ (lọc nhanh sẽ không thấy), lưới nhúng khai `rows` tràn khỏi vùng
 - **Lỗi hiện ở đúng file phải sửa**: hàng viết trong `Include` thì gạch đỏ nằm trong chính file
   Include ấy, không nằm ở controller đang mở
 - Gạch vào đúng khúc chữ hỏng — đúng token, đúng phần tử trong list px — chứ không bôi cả hàng
