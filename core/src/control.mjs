@@ -274,17 +274,29 @@ export function renderControl(field, { vi = true, cellWidth = null } = {}) {
  * Cũng không có `<select>` và `<textarea>`: lưới runtime dựng MỌI cột bằng `<input>`, kể cả cột
  * khai `DropDownList`. Dựng `<select>` ở đây là bịa thêm một thứ runtime không có.
  */
-export function renderGridControl(field, { vi = true, cellWidth = null } = {}) {
+/**
+ * @param {object} field
+ * @param {{vi?: boolean, cellWidth?: number|null, value?: string|null, withId?: boolean}} opts
+ *   `value`  giá trị ĐÈ lên giá trị mặc định của field. `null` = dùng mặc định như trước; chuỗi
+ *            rỗng là một giá trị THẬT (ô trống), không phải "không truyền". Xem xem-trước dữ
+ *            liệu thật ở `grid-sample.mjs`: `NULL` của SQL đã được quy về chuỗi rỗng TRƯỚC khi
+ *            tới đây, nên hai khái niệm không lẫn vào nhau.
+ *   `withId` bỏ `id=` đi. Bắt buộc khi vẽ NHIỀU hàng dữ liệu: `id` suy từ tên field nên mười
+ *            hàng là mười phần tử trùng id, và `document.getElementById` của webview vớ phải
+ *            hàng đầu tiên cho mọi hàng.
+ */
+export function renderGridControl(field, { vi = true, cellWidth = null, value: override = null, withId = true } = {}) {
   void cellWidth; // giữ cùng chữ ký với `renderControl` — lưới không dùng tới
   const a = field.attrs ?? {};
   const id = `fbo-field-${safeId(field.name, vi)}`;
+  const idAttr = withId ? ` id="${id}"` : '';
   const common = ` data-field-name="${esc(resolveLocaleName(field.name, vi))}" title="${esc(fieldHint(field, vi))}"`;
   const disabled = isDisabled(field);
-  const value = defaultValue(field);
+  const value = override === null ? defaultValue(field) : override;
 
   if (isBoolean(field)) {
     const checked = value === '1' ? ' checked' : '';
-    return `<input type="checkbox" id="${id}" class="CellInput CheckInput"${common}${disabled ? ' disabled' : ''}${checked}>`;
+    return `<input type="checkbox"${idAttr} class="CellInput CheckInput"${common}${disabled ? ' disabled' : ''}${checked}>`;
   }
 
   const inline = [];
@@ -300,7 +312,7 @@ export function renderGridControl(field, { vi = true, cellWidth = null } = {}) {
   const styleAttr = inline.length ? ` style="${inline.join('')}"` : '';
   const valueAttr = value !== null ? ` value="${esc(value)}"` : '';
   const extra = disabled ? ' readonly tabindex="-1"' : '';
-  return `<input type="text" id="${id}" class="CellInput TextInput"${styleAttr}${common}${maxAttr}${extra}${valueAttr}>`;
+  return `<input type="text"${idAttr} class="CellInput TextInput"${styleAttr}${common}${maxAttr}${extra}${valueAttr}>`;
 }
 
 /** Tên lớp container `<div>` bọc control — runtime đổi theo loại control, CSS bám vào đó. */

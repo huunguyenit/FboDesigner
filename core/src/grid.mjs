@@ -581,7 +581,7 @@ function anchorAttrs(col) {
  *   `embedded` — lưới nằm TRONG một tab của form, không phải màn hình lưới đứng riêng.
  *   `bodyHeight` — `<field rows="N">` của ô chứa lưới: chiều cao phần thân, px.
  */
-export function renderGridHtml(model, { embedded = false, bodyHeight = null } = {}) {
+export function renderGridHtml(model, { embedded = false, bodyHeight = null, sampleRows = null } = {}) {
   const fitWidth = !embedded && isViewportGrid(model.type);
 
   /*
@@ -683,10 +683,10 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null } = 
    * KHÔNG nghe `text-align` — nó là một hộp cỡ cố định, chỉ dịch khi thứ bọc nó canh nó. Thiếu
    * vế container là cột `type="Boolean"` vĩnh viễn dính lề trái. Xem `alignOf`.
    */
-  const dataCell = (c, inner) => {
+  const dataCell = (c, inner, extraAttrs = '') => {
     const align = alignOf(c.field);
     return `<td nowrap class="CellDefault${c.frozen ? ' GridFrozen' : ''}"`
-      + ` style="${cellStyle(c)}"${colAttrs(c)}${anchorAttrs(c)}>`
+      + ` style="${cellStyle(c)}"${colAttrs(c)}${anchorAttrs(c)}${extraAttrs}>`
       + `<div class="RowCellContainer" style="height:14px;width:${c.hidden ? 0 : c.width}px;`
       + `vertical-align:middle;${align ? `text-align:${align};` : ''}">`
       + `${inner}</div></td>`;
@@ -703,9 +703,58 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null } = 
   const indexCell = (cls, n) => `<td class="${cls}" style="width:${INDEX_COL_PX}px;">`
     + `<div style="width:${INDEX_COL_PX}px;height:17px;">${n}</div></td>`;
 
-  const body = [`<tr class="GridDataRow">${indexCell('IndexCellBody', 1)}${firstRow}</tr>`];
-  for (let i = 2; i <= SAMPLE_ROWS; i++) {
-    body.push(`<tr class="GridDataRow">${indexCell('IndexCellBody', i)}${blankRow}</tr>`);
+  /*
+   * THÂN LƯỚI có hai lối, và lối cũ phải giữ nguyên TỪNG BYTE.
+   *
+   * Không có dữ liệu thật (`sampleRows === null`) là trạng thái mặc định của designer — mọi
+   * ảnh chụp, mọi phép đo đối chiếu với runtime, mọi test HTML hiện có đều dựa trên nó. Thêm
+   * một tính năng mà làm xê dịch bản vẽ mặc định là đổi thứ người ta đang tin.
+   */
+  const body = sampleRows === null ? placeholderBody() : dataBody(sampleRows);
+
+  /** Lối cũ: hàng 1 mang control thật để thấy LOẠI ô, các hàng sau để trống. */
+  function placeholderBody() {
+    const out = [`<tr class="GridDataRow">${indexCell('IndexCellBody', 1)}${firstRow}</tr>`];
+    for (let i = 2; i <= SAMPLE_ROWS; i++) {
+      out.push(`<tr class="GridDataRow">${indexCell('IndexCellBody', i)}${blankRow}</tr>`);
+    }
+    return out;
+  }
+
+  /**
+   * Lối dữ liệu thật: mỗi dòng trả về từ database là một hàng, giá trị nằm TRONG control y như
+   * runtime — cùng `<input>`, cùng bề rộng container, cùng `overflow:hidden` của ô.
+   *
+   * Vẽ bằng control chứ không bằng chữ trần là có chủ ý: cả file này đo theo HTML runtime thật,
+   * và chữ trần cắt ở một chỗ khác với chữ trong một `<input>` cùng bề rộng. Xem trước để biết
+   * cột 60px có cắt mất tên khách hay không thì phải cắt ở ĐÚNG chỗ runtime cắt.
+   *
+   * `withId: false` là bắt buộc: `id` suy từ tên field, nên mười hàng là mười phần tử trùng id.
+   *
+   * Cột KHÔNG CÓ KHOÁ trong dòng dữ liệu khác hẳn cột có khoá mà giá trị rỗng — cột ấy đã bị
+   * `buildSampleSelect` bỏ ra khỏi câu lệnh (bảng tạm cục bộ, biểu thức không bóc được…). Đánh
+   * dấu `data-fbo-nodata` để tầng vỏ nói được «chỗ này không lấy được dữ liệu», thay vì để
+   * người dùng đọc một ô trống thành «dữ liệu rỗng».
+   */
+  function dataBody(rows) {
+    return rows.map((row, i) => {
+      const cells = model.columns.map((c) => {
+        if (!Object.prototype.hasOwnProperty.call(row, c.name)) {
+          return dataCell(c, '', ' data-fbo-nodata="1"');
+        }
+        if (c.hidden) return dataCell(c, '');
+        const raw = row[c.name];
+        return dataCell(c, renderGridControl(c.field, {
+          vi: model.vi,
+          cellWidth: c.width,
+          // `NULL` của SQL về chuỗi rỗng: `null` ở tham số `value` mang nghĩa «dùng giá trị mặc
+          // định của field», và một ô NULL thì không được hiện ra giá trị mặc định của ai cả.
+          value: raw === null || raw === undefined ? '' : String(raw),
+          withId: false,
+        }));
+      }).join('');
+      return `<tr class="GridDataRow">${indexCell('IndexCellBody', i + 1)}${cells}</tr>`;
+    });
   }
 
   const caption = pick(model.title, model.vi) ?? '';
@@ -1141,7 +1190,7 @@ export function renderGrid(views, fields, opts = {}) {
   }
   const embedded = opts.embedded === true;
   return {
-    html: renderGridHtml(model, { embedded, bodyHeight: opts.bodyHeight ?? null }),
+    html: renderGridHtml(model, { embedded, bodyHeight: opts.bodyHeight ?? null, sampleRows: opts.sampleRows ?? null }),
     model,
     // Tầng vỏ cần biết để nới `#fbo-stage` ra hết bề ngang — `width:100%` trong một hộp
     // `inline-block` co theo nội dung thì không nới được gì. Xem `panelStyle`.

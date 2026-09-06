@@ -4,6 +4,51 @@
 
 ## [Chưa phát hành]
 
+### Thêm — thân lưới vẽ được DỮ LIỆU THẬT
+
+Nửa sau của phần thuần: bước trước dựng câu lệnh, bước này vẽ kết quả. `renderGridHtml` nhận
+thêm `sampleRows` — mỗi dòng trả về từ database là một hàng.
+
+**Lối cũ giữ nguyên TỪNG BYTE.** Bản vẽ mặc định của designer là thứ mọi phép đo đối chiếu với
+runtime đang dựa vào: thước cột, chiều cao khối, ảnh chụp trong tài liệu. Thêm một tính năng mà
+làm xê dịch nó là âm thầm đổi thứ người ta đang tin, và không ai nhận ra cho tới lần đối chiếu
+tiếp theo. Nên `sampleRows === null` đi đúng đường cũ, và có một ẢNH CHỤP nguyên văn trong test
+giữ điều đó — dài, khó đọc, và cố ý như vậy: đổi một dấu cách trong `dataCell` là nó phải gãy.
+
+Giá trị nằm TRONG control, không phải chữ trần. Cả `grid.mjs` đo theo HTML runtime thật, và chữ
+trần cắt ở một chỗ khác với chữ trong một `<input>` cùng bề rộng — mà xem trước để biết cột 60px
+có cắt mất tên khách hay không thì phải cắt ở ĐÚNG chỗ runtime cắt.
+
+`renderGridControl` vì thế nhận thêm hai tuỳ chọn: `value` (đè lên giá trị mặc định của field)
+và `withId` (bỏ `id=` đi). `withId` là bắt buộc chứ không phải cho đẹp: `id` suy từ tên field,
+nên mười hàng là mười phần tử trùng id và `getElementById` của webview vớ phải hàng đầu cho mọi
+hàng. Cả hai tuỳ chọn có giá trị mặc định trùng hành vi cũ.
+
+BA trạng thái của một ô, và trộn chúng vào nhau là để người dùng kết luận sai:
+
+    value=""                giá trị THẬT, rỗng — ô trống trong database
+    NULL của SQL            cũng ra ô trống, và KHÔNG rơi về giá trị mặc định của field
+    data-fbo-nodata="1"     cột đã bị `buildSampleSelect` BỎ khỏi câu lệnh
+
+Vế thứ ba là vế đáng giữ nhất. Cột bị bỏ (bảng tạm cục bộ, biểu thức không bóc được…) mà hiện ra
+một ô trống trơn thì người đọc kết luận «dữ liệu rỗng» từ một chỗ ta biết rõ là KHÔNG LẤY ĐƯỢC.
+Dấu riêng để tầng vỏ nói ra được điều đó.
+
+Cột ẩn vẫn dựng đủ ô, chỉ là không có gì bên trong — bỏ hẳn ô đi là hàng hụt một `<td>` và mọi
+cột sau lệch; runtime cũng dựng đủ rồi mới ẩn. Trả về 0 dòng thì thân RỖNG chứ không rơi về hàng
+giữ chỗ: 0 dòng là một câu trả lời thật, và giả vờ chưa lấy dữ liệu là nói dối.
+
+Test: 28 phép kiểm ([`core/test/test-grid-body.mjs`](core/test/test-grid-body.mjs)). Đáng kể
+nhất, ngoài ảnh chụp, là phép kiểm MỐI NỐI: nhãn cột của `buildSampleSelect` phải trùng
+`model.columns[].name`. Hai bên lệch nhau thì mọi ô đều `data-fbo-nodata` — lưới trông như không
+có dữ liệu, trong khi câu lệnh đã chạy xong và trả về đủ dòng. Đó là kiểu hỏng thầm lặng nhất
+của cả tính năng, và nó nằm đúng ở chỗ hai file không nhìn thấy nhau.
+
+Cộng một phép kiểm nhỏ mà thiếu thì hỏng chỉ lộ ra lúc bấm nút thật: `renderControllerHtml` có
+truyền `sampleRows` xuống `renderGrid` hay không. Và một phép kiểm thoát HTML — dữ liệu đến từ
+database của khách, một dấu nháy kép chưa thoát là thoát ra khỏi thuộc tính `value` và cả bản vẽ
+hỏng từ đó trở đi.
+
 ### Thêm — dựng câu SELECT lấy dữ liệu thật cho lưới (phần thuần)
 
 Bước đầu của «xem trước bằng dữ liệu thật». Chỉnh bề rộng cột trên blueprint hiện là làm bằng
