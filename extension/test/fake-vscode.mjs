@@ -73,6 +73,10 @@ class FakeCollection {
 
 export const languages = {
   lastCollection: null,
+  /** Trả một disposable như thật — test đếm số đăng ký để bắt ca đăng ký hai lần. */
+  registerDocumentSymbolProvider() {
+    return { dispose() {} };
+  },
   createDiagnosticCollection(name) {
     const c = new FakeCollection();
     c.name = name;
@@ -100,6 +104,28 @@ export const window = {
   showErrorMessage() {},
 };
 
+/**
+ * Đủ dùng cho outline. `Null` phải là một giá trị THẬT chứ không phải `undefined`: cả điểm của
+ * `kindOf` là một loại lạ rơi vào một icon nhìn ra được, và test khẳng định điều đó.
+ */
+export const SymbolKind = {
+  File: 0, Module: 1, Namespace: 2, Package: 3, Class: 4, Method: 5, Property: 6, Field: 7,
+  Constructor: 8, Enum: 9, Interface: 10, Function: 11, Variable: 12, Constant: 13, String: 14,
+  Number: 15, Boolean: 16, Array: 17, Object: 18, Key: 19, Null: 20, EnumMember: 21, Struct: 22,
+  Event: 23, Operator: 24, TypeParameter: 25,
+};
+
+export class DocumentSymbol {
+  constructor(name, detail, kind, range, selectionRange) {
+    this.name = name;
+    this.detail = detail;
+    this.kind = kind;
+    this.range = range;
+    this.selectionRange = selectionRange;
+    this.children = [];
+  }
+}
+
 export const ViewColumn = { One: 1, Beside: -2 };
 
 /** `buildPayload` đọc `document.eol` để báo CRLF/LF trong payload. */
@@ -107,5 +133,5 @@ export const EndOfLine = { LF: 1, CRLF: 2 };
 
 export default {
   DiagnosticSeverity, Position, Range, Diagnostic, Uri, languages, workspace, window, ViewColumn,
-  EndOfLine,
+  EndOfLine, SymbolKind, DocumentSymbol,
 };

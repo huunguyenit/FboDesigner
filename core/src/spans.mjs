@@ -216,8 +216,13 @@ export function scanFields(text) {
     let items = null;
     let query = null;
     let options = [];
+    // Biên CẢ PHẦN TỬ. Thẻ tự đóng thì hết ở thẻ mở; có ruột thì hết ở `</field>`. Không tìm
+    // thấy thẻ đóng (file cắt dở) thì lấy thẻ mở — thà một dải ngắn còn hơn một dải chạy tới
+    // hết file.
+    let end = start + f[0].length;
     if (!f[2]) {
       const bodyEnd = text.toLowerCase().indexOf('</field>', f.index);
+      if (bodyEnd !== -1) end = bodyEnd + '</field>'.length;
       const body = text.slice(f.index + f[0].length, bodyEnd === -1 ? undefined : bodyEnd);
 
       const h = /<header\b([^>]*)/i.exec(body);
@@ -255,7 +260,7 @@ export function scanFields(text) {
         options.push({ value: parseAttrs(op[1], 0).attrs.value ?? '', v: t.v ?? '', e: t.e ?? '' });
       }
     }
-    fields.push({ name: attrs.name, start, attrs, attrSpans: spans, header, footer, items, query, options });
+    fields.push({ name: attrs.name, start, end, attrs, attrSpans: spans, header, footer, items, query, options });
   }
   return fields;
 }
@@ -340,7 +345,7 @@ export function scanToolbar(text) {
     const title = t ? parseAttrs(t[1], 0).attrs : {};
     // Ruột nút bắt đầu ngay sau thẻ mở; `m[0]` của nút có ruột luôn kết thúc bằng `</button>`.
     const bodyStart = body ? start + m[0].length - body.length - '</button>'.length : start;
-    buttons.push({ command, v: title.v ?? '', e: title.e ?? '', menu: scanMenuItems(body, bodyStart, skip) });
+    buttons.push({ command, start, end: start + m[0].length, v: title.v ?? '', e: title.e ?? '', menu: scanMenuItems(body, bodyStart, skip) });
   }
   return buttons;
 }

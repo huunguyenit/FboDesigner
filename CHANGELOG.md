@@ -4,6 +4,63 @@
 
 ## [Chưa phát hành]
 
+### Thêm — MỤC LỤC FILE (`Ctrl+Shift+O` và panel Outline)
+
+Controller thật dài vài nghìn dòng, và tới giờ cách duy nhất để tìm một khai báo trong đó là
+cuộn. Nay có cây cấu trúc: `fields`, từng `view` với hàng/cột/tab của nó, `toolbar` — bấm một
+mục là con trỏ nhảy tới đúng chỗ khai.
+
+**Quét VĂN BẢN THÔ, không bung entity** — và đây là chỗ đi NGƯỢC lại thói quen vừa hình thành
+qua bốn bước chẩn đoán, nên nó được viết thành một khối riêng ở đầu
+[`core/src/outline.mjs`](core/src/outline.mjs):
+
+    Chẩn đoán   hỏi «bản khai này SAI ở đâu» → phải bung, vì lỗi nằm ở hàng file này kéo vào
+    Outline     hỏi «FILE NÀY khai những gì» → tuyệt đối không bung
+
+Liệt kê hai chục field đến từ một Include dùng chung là dựng mục lục cho một tài liệu không tồn
+tại, và bấm vào thì nhảy sang file khác. Hệ quả cố ý: một view mà mọi hàng đến từ `&Rows;` hiện
+ra đúng một nút `&Rows;` — vừa là câu trả lời thành thật, vừa nói luôn muốn sửa hàng thì phải
+sang file kia.
+
+Không có nút GỐC: VS Code đã hiện tên file ngay trên cây, thêm một nút `<grid table="…">` bọc
+ngoài là một tầng phải bung ra mỗi lần mở đổi lấy thông tin đã có ở nhãn tab.
+
+Hàng hiện DANH SÁCH TOKEN chứ không phải cả chuỗi `value`, pattern xuống dòng mô tả: người mở
+mục lục đi tìm «hàng nào có `ma_kh`», không đi tìm «hàng nào pattern `110-`». Cột lưới hiện
+`aliasName` tra từ khối `<fields>` — không phải từ thẻ cột của view, vốn chỉ liệt kê tên. Đọc
+nhầm chỗ ấy thì detail rỗng trơn trên mọi file thật và mục lục im lặng bỏ mất đúng thông tin
+đáng thấy nhất ở một lưới: cột này lấy dữ liệu từ bảng nào. (Cùng cái bẫy đã sập một lần ở bước
+thêm luật chẩn đoán; lần này test bắt được ngay.)
+
+PHẠM VI RỘNG HƠN designer, có chủ ý. Designer chỉ vẽ `Dir`/`Filter`/`Grid` vì chỉ ba thư mục ấy
+ra được một màn hình. Mục lục thì không cần vẽ gì — một `Include\*.ent` khai bốn chục `<field>`
+vẫn có mục lục hữu ích, và đó lại đúng là loại file dài nhất, khó cuộn nhất. Bộ chọn bắt theo
+ĐƯỜNG DẪN chứ không theo `language`: VS Code không biết `.f` là ngôn ngữ gì, nên chọn theo
+language là bỏ qua đúng nửa số file của dự án.
+
+Không tìm thấy gì thì trả `undefined`, KHÔNG phải `[]`: `[]` là câu trả lời «tôi phụ trách file
+này và nó rỗng» — nó chiếm chỗ và đuổi mất outline của provider khác. Core ném thì cũng nhường,
+chỉ ghi Output: gõ dở một thẻ là chuyện thường của file đang sửa, và một hộp lỗi mỗi lần gõ tệ
+hơn hẳn việc outline lặng lẽ giữ bản cũ.
+
+Không gate license, cùng lý do với chẩn đoán: đây là thứ editor tự hỏi khi người dùng bấm
+`Ctrl+Shift+O`, không phải một lệnh người ta chủ động chạy.
+
+Hai bộ quét được bổ sung offset để có dải mà neo: `scanFields` nay trả `end` (biên cả phần tử,
+tới `</field>`), và nút của `scanToolbar` trả `start`/`end`. Cả hai đều là thứ bước sau
+(DefinitionProvider) cũng sẽ cần.
+
+Logic cây ở core, thuần và test được headless (`kind` là CHUỖI); tầng vỏ
+[`extension/src/symbol-host.js`](extension/src/symbol-host.js) chỉ đổi chuỗi thành
+`vscode.SymbolKind` và offset thành `Range`. Bảng ánh xạ ấy là chỗ duy nhất biết về `vscode`
+trong cả tính năng.
+
+Test: 44 phép kiểm ở core + 34 ở tầng vỏ. Hai bất biến gánh phần lớn giá trị — mọi dải CẮT RA
+ĐÚNG thứ nó nói (mục lục sai dải thì tệ hơn không có mục lục, vì người ta tin nó), và dải CHỌN
+luôn nằm TRONG dải phần tử (VS Code NÉM nếu không, và ném lúc dựng outline thì mất cả cây chứ
+không mất riêng một mục). Cộng một phép kiểm bắt ca «core thêm loại nút mới mà quên bảng ánh
+xạ» — ca không ném, chỉ hiện sai icon.
+
 ### Thêm — XEM DỮ LIỆU THẬT trên lưới (`Ctrl+Alt+D`)
 
 Hai bước trước dựng câu lệnh và dựng chỗ vẽ; bước này nối chúng vào một lệnh. Mở một lưới, bấm

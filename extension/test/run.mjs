@@ -13,6 +13,7 @@
 import './test-diagnostic-host.mjs';
 import './test-sample-store.mjs';
 import './test-sample-render.mjs';
+import './test-symbol-host.mjs';
 import { summary } from '../../core/test/harness.mjs';
 
 summary();

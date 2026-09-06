@@ -53,6 +53,7 @@ export { msg, t, MESSAGES, FIELDS_CONFIG, VIEWS_CONFIG, SQL_CONFIG } from './msg
 export { local as warnLocal, anchored as warnAnchored, attach as warnAttach, absoluteSpan as warnAbsoluteSpan } from './warn.mjs';
 export { deadFieldWarnings, aliasWarnings, gridHeightWarnings, gridBlockPx } from './lint.mjs';
 export { splitPatternAt, mergePatternAt, splitWidthsAt, mergeWidthsAt } from './columns.mjs';
+export { buildOutline } from './outline.mjs';
 export { scopeCss, FORM_SCOPE } from './css-scope.mjs';
 export { commentRanges, inComment, commentSkipper } from './xml-comment.mjs';
 export {

@@ -127,6 +127,34 @@ Cần `sqlcmd` trên máy (khai đường dẫn ở `fboDesigner.sqlcmdPath` n�
 của program đọc được.
 
 
+### 5. Mục lục file (`Ctrl+Shift+O`)
+
+Controller thật dài vài nghìn dòng. `Ctrl+Shift+O` (hoặc panel **Outline**) cho cây cấu trúc và
+nhảy thẳng tới chỗ khai:
+
+```
+fields (24)
+  ma_kh          Mã khách hàng · 80px
+  ten_kh%l       Tên khách · 150px
+view "Dir"       height="302"
+  cột: 100, 60, 90, 120
+  [ma_kh].Label, [ma_kh]          110-
+  &BI.Rows.Customer;              hàng đến từ file khác
+  categories (3)
+    tab 1 — Thông tin chung
+toolbar (7)
+  New            Thêm
+```
+
+- Chạy trên **mọi** file dưới `App_Data\Controllers`, kể cả `Include\` — không cần license
+- Hàng hiện **danh sách token** (thứ người ta đi tìm), pattern xuống dòng mô tả
+- Cột lưới hiện `aliasName` — nhìn là biết cột lấy dữ liệu từ bảng nào
+- Đọc **văn bản thô, không bung entity**: mục lục là của *file đang mở*. Một view mà mọi hàng
+  đến từ `&Rows;` hiện đúng một nút `&Rows;` — vừa thành thật, vừa nói luôn phải sang file nào
+  để sửa
+- Thứ đã comment thì không có trong mục lục, cùng luật với designer
+
+
 ## Kích hoạt License
 
 Mọi tính năng Designer chỉ chạy khi đã có **License Key** hợp lệ trên máy của bạn.

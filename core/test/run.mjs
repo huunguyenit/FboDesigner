@@ -26,6 +26,7 @@ import './test-sql-config.mjs';
 import './test-lint.mjs';
 import './test-grid-sample.mjs';
 import './test-grid-body.mjs';
+import './test-outline.mjs';
 import { summary } from './harness.mjs';
 
 summary();

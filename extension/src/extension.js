@@ -20,6 +20,7 @@ const { postToActiveDesigner } = require('./designer-webview');
 const { toast } = require('./locale');
 const { initLicenseSettings, withLicense, ensureLicense } = require('./license');
 const { registerDiagnostics } = require('./diagnostic-host');
+const { registerSymbols } = require('./symbol-host');
 
 /**
  * Core nằm ở hai chỗ khác nhau tuỳ cách chạy, và đó là chuyện cố ý:
@@ -67,6 +68,16 @@ async function activate(context) {
    * cách tự nhiên nhất để người ta thấy extension này làm được gì.
    */
   registerDiagnostics(context, core, output);
+
+  /*
+   * Mục lục cũng KHÔNG gate license, cùng lý do với chẩn đoán: nó là thứ editor tự hỏi khi
+   * người dùng bấm `Ctrl+Shift+O`, không phải một lệnh người ta chủ động chạy. Khoá lại thì
+   * outline trống trơn mà không có chỗ nào nói vì sao.
+   *
+   * Phạm vi rộng hơn designer — mọi file dưới `App_Data\Controllers`, kể cả `Include\` — vì
+   * mục lục không cần vẽ được màn hình mới hữu ích. Xem `symbol-host.js`.
+   */
+  registerSymbols(context, core, output);
 
   // Mọi lệnh nghiệp vụ đều qua withLicense — Settings (machineId / dán key) vẫn dùng được.
   context.subscriptions.push(
