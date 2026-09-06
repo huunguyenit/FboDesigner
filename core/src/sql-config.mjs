@@ -21,7 +21,14 @@ import { SQL_CONFIG } from './msg.mjs';
 
 const IDENT = new RegExp(SQL_CONFIG.identPattern);
 
-function assertIdent(name, what) {
+/**
+ * Chặn mọi thứ không phải một định danh SQL trần trước khi nó được ghép vào câu lệnh.
+ *
+ * Xuất ra vì `grid-sample.mjs` dựng câu SELECT chạy trên database của khách và có luật «không
+ * một mẩu SQL nào của file khách đi thẳng vào câu lệnh» — luật ấy chỉ có nghĩa khi hai bên dùng
+ * CHUNG một phép chặn. Một bản kiểm thứ hai là một bản sẽ lỏng hơn bản thứ nhất.
+ */
+export function assertIdent(name, what) {
   const s = String(name ?? '');
   if (!IDENT.test(s)) throw new Error(`${what} không hợp lệ để đưa vào SQL: "${s}"`);
   return s;

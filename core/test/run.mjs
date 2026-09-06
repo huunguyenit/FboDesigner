@@ -24,6 +24,7 @@ import './test-filter-declare.mjs';
 import './test-add-column.mjs';
 import './test-sql-config.mjs';
 import './test-lint.mjs';
+import './test-grid-sample.mjs';
 import { summary } from './harness.mjs';
 
 summary();

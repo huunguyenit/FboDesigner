@@ -4,6 +4,66 @@
 
 ## [Chưa phát hành]
 
+### Thêm — dựng câu SELECT lấy dữ liệu thật cho lưới (phần thuần)
+
+Bước đầu của «xem trước bằng dữ liệu thật». Chỉnh bề rộng cột trên blueprint hiện là làm bằng
+cảm tính: không ai biết cột 60px có cắt mất tên khách hay không cho tới khi màn hình chạy trên
+máy khách. Bước này dựng câu lệnh; bước sau mới chạy nó và đổ vào lưới.
+
+[`core/src/grid-sample.mjs`](core/src/grid-sample.mjs) là file DUY NHẤT trong core sinh ra một
+câu lệnh sẽ chạy trên DATABASE CỦA KHÁCH, nên nó có một luật riêng, viết ngay đầu file:
+
+**KHÔNG MỘT MẨU SQL NÀO CỦA FILE KHÁCH ĐI THẲNG VÀO CÂU LỆNH.**
+
+Mọi thứ ghép vào đều là ĐỊNH DANH đã qua `assertIdent` — tên bảng, alias, tên cột. Không chép
+nguyên mệnh đề `ON`, không chép nguyên biểu thức `aliasName`, không chép nguyên `<query>`. Một
+controller hỏng (hoặc bị sửa ác ý) không được biến thành một câu lệnh làm chuyện khác.
+
+Cái giá của luật ấy được nói thẳng chứ không giấu: phép join DỰNG LẠI từ cặp khoá chính mà
+`scanFindingJoin` tách được, không phải mệnh đề `ON` đầy đủ — join nhiều điều kiện vì thế có thể
+trả về thừa dòng. Với một phép xem trước để ĐO BỀ RỘNG CỘT thì thừa dòng không sao, và `notes`
+luôn nói ra điều đó thay vì để người đọc tự phát hiện.
+
+Ba ca TỪ CHỐI cả câu, mỗi ca một mã đọc được: không có `root@table`; bảng là TIỀN TỐ chia kỳ
+chưa có kỳ (`m64$` — `assertIdent` không bắt được vì `$` hợp lệ trong định danh SQL Server, nên
+phải hỏi riêng, và lời từ chối kèm luôn bảng master để tầng vỏ có cái mà gợi ý); và không cột
+nào lấy được.
+
+Sáu ca BỎ RIÊNG CỘT, giữ phần còn lại: không có `<field>`; `aliasName` là biểu thức không bóc
+được thành `alias.cột`; alias không có trong câu Finding; alias trỏ bảng tạm CỤC BỘ; bảng join
+là tiền tố chia kỳ hoặc tên không phải định danh trần; không tách được cặp khoá.
+
+**Lệch khỏi kế hoạch, có lý do.** Kế hoạch định TỪ CHỐI cả câu khi có cột join tới bảng tạm cục
+bộ. Làm thật thì bỏ riêng cột ấy tốt hơn ở cả hai mặt: mối nguy của bảng tạm là nó lọt VÀO câu
+lệnh (không tồn tại → lỗi, hoặc tệ hơn: trúng một `#x` khác cùng tên của phiên khác), mà bỏ cột
+thì nó không lọt vào nữa — nguy cơ biến mất y như từ chối, còn mười chín cột lành thì vẫn xem
+được.
+
+Câu Finding không đọc được (`<Encrypted>`, hoặc không có) cũng KHÔNG từ chối: cột của bảng chính
+không cần nó, và với đa số lưới đó là phần lớn cột. Chỉ ghi một dòng `notes` nói vì sao mấy cột
+kia vắng mặt.
+
+Hai chi tiết nhỏ mà sai thì hỏng thầm lặng. Nhãn cột giữ NGUYÊN VĂN tên FBO (`AS [ten_kh%l]`)
+trong khi vế `SELECT` phân giải hậu tố ngôn ngữ (`b.ten_kh`): tầng vỏ đối chiếu tên cột trả về
+với cột trên lưới để đổ đúng chỗ, và phân giải ở nhãn là `ten_kh%l` với `ten_kh` cùng ra một
+nhãn rồi đổ chồng lên nhau. Và `buildSampleSelect` KHÔNG BAO GIỜ ném: `assertIdent` ném là đúng
+việc của nó, nhưng một lệnh người dùng bấm thì không được chết vì một tên cột lạ trong file
+khách — bắt lại, trả về `sample.bad_identifier` kèm nguyên lý do.
+
+Câu lệnh luôn mở bằng `SET NOCOUNT ON` và `SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED`:
+xem trước không được khoá dòng của ai đang làm việc thật trên database của khách. `TOP` có sàn 1,
+trần 100, mặc định 10 — đây là phép xem trước để đo cột, không phải công cụ trích dữ liệu.
+
+`assertIdent` được mở ra khỏi `sql-config.mjs` để hai bên dùng chung một phép chặn; bảng tạm
+TOÀN CỤC (`##x`) vẫn join được nên tên bảng đi qua một bảng chữ cái nới đúng một ký tự (`#`),
+nới có lý do và ghi rõ lý do.
+
+Test: 53 phép kiểm ([`core/test/test-grid-sample.mjs`](core/test/test-grid-sample.mjs)), xếp
+theo thứ tự quan trọng — AN TOÀN trước, rồi TỪ CHỐI/BỎ CỘT, rồi mới tới dựng đúng. Nhóm đầu
+khẳng định những thứ KHÔNG có trong câu lệnh: không có `DROP` khi `aliasName` mang một câu lệnh
+huỷ bảng, không có điều kiện thứ hai của mệnh đề `ON`, không có tên bảng tạm cục bộ, và không
+lối nào ném ra tầng vỏ kể cả với văn bản rỗng hay không phải XML.
+
 ### Thêm — BỐN LUẬT CHẨN ĐOÁN MỚI: field khai chết, alias hỏng, lưới tràn vùng
 
 Ba bước trước dựng đường ống; bước này đổ luật vào. Khác với ~30 luật đã có — vốn là những gì

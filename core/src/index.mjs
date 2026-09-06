@@ -75,7 +75,9 @@ export {
   renderAddColumnSql,
   DEFAULT_PARTITION_TEMPLATE,
 } from './add-column.mjs';
+export { buildSampleSelect, SAMPLE_TOP_DEFAULT, SAMPLE_TOP_MAX } from './grid-sample.mjs';
 export {
+  assertIdent,
   ENTITY_APP_DATABASE_SQL,
   parseConnectionString,
   resolvePlaceholders,
