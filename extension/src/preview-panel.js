@@ -22,6 +22,7 @@ const {
   revealSource,
   samePath,
 } = require('./render-host');
+const sampleStore = require('./sample-store');
 const { handleEdit } = require('./edit-host');
 const { history } = require('./edit-history');
 const { OverlayDialogs } = require('./dialog/dialog-overlay');
@@ -50,6 +51,7 @@ class PreviewPanel {
     this.sourceFiles = null;   // file đã góp nội dung vào bản vẽ hiện tại (controller + Include)
     this.bust = 0;             // tăng khi người dùng đòi nạp lại tài nguyên (debug mode)
     this.vi = true;            // nhãn form: true = tiếng Việt (<header v>), false = English
+    this.unwatchSample = null; // gỡ đăng ký kho dữ liệu mẫu — xem `watchSample`
     this.localEdit = null;     // { item, cell } khi lần render tới chỉ cần vá MỘT hàng
     this.renderTimer = null;   // gộp các nhịp đổi văn bản dồn dập — xem `renderSoon`
     this.editing = false;      // đang chạy một phép sửa: hoãn mọi lượt vẽ tới khi nó ngã ngũ
@@ -149,6 +151,7 @@ class PreviewPanel {
 
     this.document = document;
     this.panel.title = `Designer · ${path.basename(document.uri.fsPath)}`;
+    this.watchSample(document.uri.fsPath);
     this.render();
   }
 
@@ -443,7 +446,21 @@ class PreviewPanel {
     if (msg.type === 'log') this.output.appendLine(String(msg.text));
   }
 
+  /**
+   * Nghe kho dữ liệu mẫu của ĐÚNG file đang vẽ.
+   *
+   * Panel bám theo file đang active nên đăng ký phải đi theo: đổi file mà giữ đăng ký cũ thì bấm
+   * «xem dữ liệu» ở lưới mới không làm panel vẽ lại, còn lưới cũ thì vẽ lại một bản không ai
+   * nhìn. Gỡ đăng ký cũ TRƯỚC khi đặt cái mới, và gỡ luôn lúc dispose — closure của một panel đã
+   * đóng còn nằm trong kho là một lần gọi vào webview đã chết cho mỗi lần đổi dữ liệu.
+   */
+  watchSample(fsPath) {
+    if (this.unwatchSample) { this.unwatchSample(); this.unwatchSample = null; }
+    this.unwatchSample = sampleStore.onRefresh(fsPath, () => this.render());
+  }
+
   dispose() {
+    if (this.unwatchSample) { this.unwatchSample(); this.unwatchSample = null; }
     if (this.renderTimer) { clearTimeout(this.renderTimer); this.renderTimer = null; }
     // Còn hộp thoại đang chờ mà panel chết: thả hết, không thì `await` treo và cờ `editing` kẹt.
     this.dialogs.dispose();

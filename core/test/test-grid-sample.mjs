@@ -13,7 +13,7 @@
 //   3. Dựng đúng — cột, alias, join, `TOP`.
 
 import { ok, eq, section } from './harness.mjs';
-import { buildSampleSelect, SAMPLE_TOP_DEFAULT, SAMPLE_TOP_MAX } from '../src/grid-sample.mjs';
+import { buildSampleSelect, maskSampleValue, maskSampleRows, SAMPLE_TOP_DEFAULT, SAMPLE_TOP_MAX } from '../src/grid-sample.mjs';
 
 const NL = '\r\n';
 
@@ -214,3 +214,54 @@ ok('và không kéo theo cột của view', !selectLine.includes('a.ma_kh'));
 eq('giữ đúng thứ tự truyền vào',
   buildSampleSelect(grid(), { columns: ['ten_kh%l', 'ma_kh'] }).columns.map((c) => c.name),
   ['ten_kh%l', 'ma_kh']);
+
+section('grid-sample — che dữ liệu, GIỮ NGUYÊN độ dài');
+/*
+ * Độ dài là thứ duy nhất bắt buộc phải giữ: nó là cái quyết định một cột có bị cắt hay không,
+ * tức là cả lý do người ta mở phép xem trước này. Nội dung thì ngược lại — giữ nó là đưa dữ
+ * liệu khách vào một ảnh chụp màn hình.
+ */
+for (const v of [
+  'Công ty TNHH Thương mại Dịch vụ Toàn Cầu',
+  'KH-0012',
+  '12/03/2026',
+  '1234.56',
+  'a',
+  '',
+]) {
+  eq(`giữ đúng độ dài: ${JSON.stringify(v)}`, maskSampleValue(v).length, v.length);
+}
+
+// Dấu phân cách GIỮ NGUYÊN: chúng là phần lớn hình dạng của chuỗi mà không nói gì về danh tính.
+eq('ngày tháng giữ nguyên dấu gạch chéo', maskSampleValue('12/03/2026'), '00/00/0000');
+eq('mã giữ nguyên gạch nối', maskSampleValue('KH-0012'), 'XX-0000');
+eq('số thập phân giữ nguyên dấu chấm', maskSampleValue('1234.56'), '0000.00');
+// Chữ có dấu vẫn là chữ — không được rơi ra ngoài phép che chỉ vì nó ngoài bảng ASCII.
+eq('chữ tiếng Việt vẫn bị che', maskSampleValue('Cầu'), 'Xxx');
+eq('khoảng trắng giữ nguyên', maskSampleValue('a b'), 'x x');
+
+// `null`/`undefined` đi qua nguyên vẹn: chúng là «không có giá trị», không phải một giá trị cần che.
+eq('null đi qua nguyên vẹn', maskSampleValue(null), null);
+eq('undefined đi qua nguyên vẹn', maskSampleValue(undefined), undefined);
+
+section('grid-sample — che cả bảng, nhưng KHÔNG che tên cột');
+const masked = maskSampleRows([
+  { ma_kh: 'KH001', 'ten_kh%l': 'Nguyễn Văn A' },
+  { ma_kh: 'KH002', 'ten_kh%l': null },
+]);
+eq('giữ nguyên số dòng', masked.length, 2);
+// Tên cột là BẢN KHAI, không phải dữ liệu — che nó là làm hỏng mối nối với `model.columns`.
+eq('khoá không bị che', Object.keys(masked[0]).sort(), ['ma_kh', 'ten_kh%l']);
+eq('giá trị bị che', masked[0].ma_kh, 'XX000');
+eq('giữ đúng độ dài tên có dấu', masked[0]['ten_kh%l'].length, 'Nguyễn Văn A'.length);
+eq('null trong bảng vẫn là null', masked[1]['ten_kh%l'], null);
+ok('bảng rỗng không làm gì cả', maskSampleRows([]).length === 0 && maskSampleRows(null).length === 0);
+
+section('grid-sample — dữ liệu đã che vẫn cắt cột đúng chỗ');
+/*
+ * Phép kiểm nối cả tính năng lại: chuỗi đã che phải dài BẰNG chuỗi gốc, nên câu hỏi «cột 60px
+ * có cắt tên khách này không» có cùng câu trả lời trên cả hai. Đây là điều biện minh cho việc
+ * bật che theo mặc định — nếu không giữ được thì công tắc ấy phải mặc định TẮT.
+ */
+const dai = 'Công ty TNHH Thương mại Dịch vụ Toàn Cầu';
+eq('che rồi vẫn dài y hệt', maskSampleValue(dai).length, dai.length);

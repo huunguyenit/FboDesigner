@@ -4,6 +4,66 @@
 
 ## [Chưa phát hành]
 
+### Thêm — XEM DỮ LIỆU THẬT trên lưới (`Ctrl+Alt+D`)
+
+Hai bước trước dựng câu lệnh và dựng chỗ vẽ; bước này nối chúng vào một lệnh. Mở một lưới, bấm
+`Ctrl+Alt+D`, vài dòng thật đổ vào chính bản vẽ đang xem — đúng bề rộng cột, đúng chỗ runtime
+cắt chữ. Bấm lại để bỏ đi (một phím tắt bật/tắt dễ nhớ hơn hai lệnh, và «tắt đi» là việc người
+ta muốn làm ngay sau khi đo xong cột).
+
+Đây là lệnh DUY NHẤT của extension đọc DỮ LIỆU NGHIỆP VỤ của khách — mọi lệnh khác chỉ đọc lược
+đồ (`sys.columns`, `sys.types`) hoặc sinh script cho người khác chạy. Nên nó có bốn luật riêng,
+viết ngay đầu [`extension/src/sample-host.js`](extension/src/sample-host.js):
+
+1. **KHÔNG BAO GIỜ TỰ CHẠY.** Không nhánh nào gọi nó khi mở file, khi gõ phím, hay khi vẽ lại.
+2. **CHE MẶC ĐỊNH BẬT.** Chữ thành `x`/`X`, số thành `0`, giữ NGUYÊN ĐỘ DÀI.
+3. **CHỈ ĐỌC, CÓ TRẦN, CÓ HẠN GIỜ.** `TOP` trần 100, `READ UNCOMMITTED`, `sqlcmd` hạn 10 giây.
+4. **KHÔNG GIỮ LẠI.** Trong bộ nhớ phiên, không ghi đĩa, `deactivate` là quên sạch.
+
+Che mà vẫn đo được cột là nhờ một điều: thứ làm một cột bị cắt là ĐỘ DÀI, không phải nội dung.
+Dấu phân cách giữ nguyên (`12/03/2026` → `00/00/0000`, `KH-0012` → `XX-0000`) vì chúng vừa là
+phần lớn hình dạng chuỗi vừa không nói gì về danh tính ai. Phần KHÔNG giữ được cũng nói thẳng:
+bề rộng từng chữ cái khác nhau trong font tỉ lệ, nên chuỗi đã che rộng XẤP XỈ chứ không bằng
+đúng chuỗi gốc — ai cần đo tới từng pixel thì tắt công tắc trong một lát. Đó là lý do nó là một
+công tắc chứ không phải một luật cứng.
+
+Trạng thái sống trong một KHO riêng ([`sample-store.js`](extension/src/sample-store.js)) khoá
+theo đường dẫn file, không phải một trường trên panel. Designer có HAI bề mặt — `PreviewPanel`
+bám theo file đang active, custom editor gắn cứng vào một document — khác nhau ở vòng đời và
+cách giữ trạng thái, nhưng cùng gọi `buildPayload`. Đặt dữ liệu ở chỗ `buildPayload` đọc được
+thì cả hai cùng thấy, lệnh không phải biết người dùng đang mở bề mặt nào, và dữ liệu SỐNG QUA
+mọi lần vẽ lại — gõ tay vào XML, kéo một control, đổi ngôn ngữ nhãn — thay vì biến mất sau nhịp
+render đầu tiên.
+
+Payload gửi sang webview mang TÓM TẮT (số dòng, đã che hay chưa, lý do từng cột bị bỏ) chứ
+KHÔNG mang lại chính dữ liệu: giá trị thật đã nằm trong `html` rồi, gửi thêm một bản nữa là chép
+dữ liệu của khách qua ranh giới lần thứ hai mà không ai đọc bản thứ hai ấy. Cùng lý do, câu lệnh
+đã chạy chỉ ghi ra Output Channel chứ không vào thông báo lỗi — thông báo thì hay bị chụp lại
+gửi đi, mà câu lệnh thì mang tên bảng và tên cột của khách.
+
+Cột không lấy được hiện GẠCH CHÉO XÁM, không phải đỏ: đây không phải lỗi của bản khai, chỉ là
+chỗ phép xem trước không với tới. Đỏ ở đây là gọi một chuyện bình thường thành một chuyện phải
+sửa.
+
+Lệnh này ĐI QUA `withLicense`, khác chẩn đoán ở bước trước. Chẩn đoán là gạch đỏ chạy nền, khoá
+lại thì người chưa kích hoạt không hiểu vì sao im lặng. Lệnh này thì ngược hẳn — nó đọc dữ liệu
+nghiệp vụ qua một kết nối database thật, đúng loại việc mà license nói ai được phép làm.
+
+`resolveTargetConnection` (giải `%Database` qua `sys.entity.cdata`) dọn từ `add-column-host.js`
+lên [`sql-host.js`](extension/src/sql-host.js) cho hai lệnh dùng chung. Chép sang bản thứ hai là
+hai bản sẽ lệch nhau đúng vào ngày một khách nào đó khai `%Database` theo kiểu chưa gặp — và bản
+lệch thì nối vào SAI DATABASE mà vẫn chạy trơn.
+
+`NULL` của SQL về CHUỖI RỖNG: `sqlcmd` in ô null ra bốn chữ `NULL`, để nguyên thì lưới hiện một
+ô rộng bốn ký tự ở chỗ runtime hiện ô trống — sai đúng cái người ta đang đo. Đổi lại, một ô chứa
+đúng văn bản "NULL" cũng thành rỗng; đánh đổi ấy nghiêng hẳn về phía đo đúng bề rộng.
+
+Test: 20 phép kiểm cho phép che ở core, 15 cho kho, và 15 cho MỐI NỐI giữa kho và phép vẽ
+([`extension/test/test-sample-render.mjs`](extension/test/test-sample-render.mjs)) — đoạn mà
+core đã kiểm một đầu, kho đã kiểm đầu kia, còn khúc giữa thì thiếu một dòng là mọi test vẫn xanh
+mà bấm phím tắt không thấy gì đổi. Trong đó có phép kiểm rằng bỏ dữ liệu đi thì HTML TRÙNG KHÍT
+bản trước khi có dữ liệu, và phép kiểm rằng tóm tắt không kèm một giá trị thật nào.
+
 ### Thêm — thân lưới vẽ được DỮ LIỆU THẬT
 
 Nửa sau của phần thuần: bước trước dựng câu lệnh, bước này vẽ kết quả. `renderGridHtml` nhận

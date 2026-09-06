@@ -148,4 +148,75 @@ function readConnection(core, programRoot, name, output) {
   }
 }
 
-module.exports = { runSqlcmd, resolveAppDatabase, existingColumns, stringColumnLength, readConnection, resolveSqlcmdPath };
+/**
+ * Connection string của bảng ĐÍCH: `sysConnectionString` khi `root@database="Sys"`, ngược lại
+ * `appConnectionString` — giải `%Database` qua `sys.entity.cdata` nếu còn placeholder.
+ *
+ * Dọn từ `add-column-host.js` lên đây khi lệnh «xem dữ liệu thật» cần đúng phép giải ấy. Chép
+ * sang một bản thứ hai là hai bản sẽ lệch nhau đúng vào ngày một khách nào đó khai `%Database`
+ * theo kiểu chưa gặp — và bản lệch thì nối vào SAI DATABASE mà vẫn chạy trơn.
+ *
+ * KHÔNG BAO GIỜ throw: mọi nhánh lỗi trả `{ok:false, reason}` để chỗ gọi tự quyết rơi về đâu.
+ */
+async function resolveTargetConnection(core, programRoot, database, output, label = 'sql') {
+  const sysConn = readConnection(core, programRoot, 'sysConnectionString', output);
+  if (String(database).trim().toLowerCase() === 'sys') {
+    return sysConn ? { ok: true, conn: sysConn } : { ok: false, reason: 'không đọc được sysConnectionString từ Web.config' };
+  }
+
+  const appConn = readConnection(core, programRoot, 'appConnectionString', output);
+  if (!appConn) return { ok: false, reason: 'không đọc được appConnectionString từ Web.config' };
+  if (!appConn.database || !/%Database/i.test(appConn.database)) {
+    return { ok: true, conn: appConn };
+  }
+  if (!sysConn) {
+    return { ok: false, reason: 'appConnectionString còn %Database nhưng không đọc được sysConnectionString để giải' };
+  }
+  const resolved = await resolveAppDatabase(core, sysConn);
+  if (!resolved.ok) return resolved;
+  output?.appendLine(
+    `${label}: %Database → "${resolved.database}" (bảng entity trên sys, dòng đầu theo code`
+    + `${resolved.all.length > 1 ? `; còn ${resolved.all.length - 1} app database khác, xem sys.entity nếu cần đổi` : ''})`,
+  );
+  return { ok: true, conn: { ...appConn, database: resolved.database } };
+}
+
+/**
+ * Chạy câu SELECT xem trước, trả về mảng ĐỐI TƯỢNG khoá theo nhãn cột.
+ *
+ * Ghép theo VỊ TRÍ, không theo tên cột trả về: `sqlcmd` chạy với `-h -1` nên KHÔNG in dòng tiêu
+ * đề, mà thứ tự cột thì đúng bằng thứ tự trong câu `SELECT` do `buildSampleSelect` dựng — đó là
+ * nguồn tin cậy hơn hẳn một dòng tiêu đề phải đi phân tích lại.
+ *
+ * `NULL` của SQL về CHUỖI RỖNG. `sqlcmd` in ô null ra bốn chữ `NULL`, và để nguyên thì lưới xem
+ * trước hiện một ô rộng bốn ký tự ở chỗ runtime hiện ô trống — sai đúng cái người ta đang đo.
+ * Đổi lại, một ô chứa đúng văn bản "NULL" cũng thành rỗng; đánh đổi ấy nghiêng hẳn về phía đo
+ * đúng bề rộng, và đó là việc của lệnh này.
+ *
+ * @param {string[]} labels nhãn cột theo đúng thứ tự trong câu SELECT
+ * @returns {Promise<{ok:true, rows:Array<Record<string,string>>} | {ok:false, reason:string}>}
+ */
+async function runSampleQuery(conn, sql, labels, { sqlcmdPath = null, timeoutMs = 10000 } = {}) {
+  const result = await runSqlcmd(conn, sql, { sqlcmdPath, timeoutMs });
+  if (!result.ok) return result;
+  const rows = result.rows.map((cells) => {
+    const row = {};
+    labels.forEach((label, i) => {
+      const raw = cells[i];
+      row[label] = raw === undefined || raw === 'NULL' ? '' : raw;
+    });
+    return row;
+  });
+  return { ok: true, rows };
+}
+
+module.exports = {
+  runSqlcmd,
+  runSampleQuery,
+  resolveAppDatabase,
+  resolveTargetConnection,
+  existingColumns,
+  stringColumnLength,
+  readConnection,
+  resolveSqlcmdPath,
+};

@@ -42,6 +42,8 @@ const CONTENT = [
   ['extension/src/preview-panel.js', 'extension/src/preview-panel.js'],
   ['extension/src/render-host.js', 'extension/src/render-host.js'],
   ['extension/src/diagnostic-host.js', 'extension/src/diagnostic-host.js'],
+  ['extension/src/sample-host.js', 'extension/src/sample-host.js'],
+  ['extension/src/sample-store.js', 'extension/src/sample-store.js'],
   ['extension/src/edit-host.js', 'extension/src/edit-host.js'],
   ['extension/src/edit-history.js', 'extension/src/edit-history.js'],
   ['extension/src/dialog/dialog-service.js', 'extension/src/dialog/dialog-service.js'],

@@ -25,6 +25,7 @@ const { history } = require('./edit-history');
 const { OverlayDialogs } = require('./dialog/dialog-overlay');
 const { runWithDialogs } = require('./dialog/dialog-service');
 const { trackDesignerWebview } = require('./designer-webview');
+const sampleStore = require('./sample-store');
 const { ensureLicense, lockedWebviewHtml } = require('./license');
 const { t } = require('./locale');
 
@@ -147,9 +148,19 @@ class FboDesignerProvider {
     const changeSub = vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.uri.toString() === document.uri.toString()) renderSoon();
     });
+    /*
+     * Custom editor gắn cứng vào MỘT document, nên đăng ký một lần là đủ — khác `PreviewPanel`
+     * vốn phải đổi đăng ký mỗi lần người dùng nhảy file.
+     *
+     * Vẽ lại toàn bộ chứ không vá cục bộ: dữ liệu thật đổi là MỌI hàng của thân lưới đổi, và
+     * `patchRow` chỉ biết vá một hàng của form.
+     */
+    const unwatchSample = sampleStore.onRefresh(document.uri.fsPath, () => render());
+
     panel.onDidDispose(() => {
       if (renderTimer) clearTimeout(renderTimer);
       changeSub.dispose();
+      unwatchSample();
     });
 
     // Hộp thoại của panel NÀY vẽ vào chính webview này. Xem `dialog-overlay.js`.

@@ -102,6 +102,10 @@ export const window = {
 
 export const ViewColumn = { One: 1, Beside: -2 };
 
+/** `buildPayload` đọc `document.eol` để báo CRLF/LF trong payload. */
+export const EndOfLine = { LF: 1, CRLF: 2 };
+
 export default {
   DiagnosticSeverity, Position, Range, Diagnostic, Uri, languages, workspace, window, ViewColumn,
+  EndOfLine,
 };

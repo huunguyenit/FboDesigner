@@ -11,6 +11,8 @@
 // Dùng chung `core/test/harness.mjs` để output đọc giống hệt nhau.
 
 import './test-diagnostic-host.mjs';
+import './test-sample-store.mjs';
+import './test-sample-render.mjs';
 import { summary } from '../../core/test/harness.mjs';
 
 summary();

@@ -44,35 +44,6 @@ function isStringField(field) {
 }
 
 /**
- * Connection string của bảng ĐÍCH (`sysConnectionString` nếu `root@database="Sys"`, ngược lại
- * `appConnectionString` — giải `%Database` qua `sys.entity.cdata` nếu còn placeholder).
- *
- * KHÔNG BAO GIỜ throw — mọi nhánh lỗi trả `{ok:false, reason}` để chỗ gọi rơi về hỏi tay.
- */
-async function resolveTargetConnection(core, programRoot, database, output) {
-  const sysConn = sqlHost.readConnection(core, programRoot, 'sysConnectionString', output);
-  if (String(database).trim().toLowerCase() === 'sys') {
-    return sysConn ? { ok: true, conn: sysConn } : { ok: false, reason: 'không đọc được sysConnectionString từ Web.config' };
-  }
-
-  const appConn = sqlHost.readConnection(core, programRoot, 'appConnectionString', output);
-  if (!appConn) return { ok: false, reason: 'không đọc được appConnectionString từ Web.config' };
-  if (!appConn.database || !/%Database/i.test(appConn.database)) {
-    return { ok: true, conn: appConn };
-  }
-  if (!sysConn) {
-    return { ok: false, reason: 'appConnectionString còn %Database nhưng không đọc được sysConnectionString để giải' };
-  }
-  const resolved = await sqlHost.resolveAppDatabase(core, sysConn);
-  if (!resolved.ok) return resolved;
-  output.appendLine(
-    `thêm cột: %Database → "${resolved.database}" (bảng entity trên sys, dòng đầu theo code`
-    + `${resolved.all.length > 1 ? `; còn ${resolved.all.length - 1} app database khác, xem sys.entity nếu cần đổi` : ''})`,
-  );
-  return { ok: true, conn: { ...appConn, database: resolved.database } };
-}
-
-/**
  * @param {object} core   module `core/src/index.mjs` đã nạp
  * @param {vscode.OutputChannel} output
  */
@@ -110,7 +81,7 @@ async function addColumns(core, output) {
   }
 
   const paths = core.resolveProgramPaths(document.uri.fsPath);
-  const target = await resolveTargetConnection(core, paths?.programRoot, plan.database, output);
+  const target = await sqlHost.resolveTargetConnection(core, paths?.programRoot, plan.database, output, 'thêm cột');
   if (!target.ok) output.appendLine(`thêm cột: chưa nối được database — ${target.reason}. Hiện toàn bộ field bảng chính, tự chọn tay.`);
 
   // Bậc 1: dò field CHƯA có cột trên bảng đích — dò không ra thì hiện HẾT field bảng chính,

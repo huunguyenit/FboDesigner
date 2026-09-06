@@ -21,5 +21,9 @@
   "fboDesigner.entityEditTarget.source": "Luôn ghi thẳng vào file khai ra hàng đó (Include) — mọi controller dùng chung cùng đổi theo.",
   "fboDesigner.entityEditTarget.inline": "Luôn phân giải vào file thiết kế: comment dòng &Name; rồi chèn bản đã bung ngay dưới, và chỉ controller này đổi.",
   "fboDesigner.licenseKey.desc": "License Key (`FBO1....`). Dán key vào đây để kích hoạt; xoá hết để huỷ kích hoạt. Sau khi kích hoạt, key vẫn hiện để copy.",
-  "fboDesigner.machineId.desc": "Machine ID của máy này (tự điền, chỉ xem/copy gửi admin khi xin license). Sửa tay sẽ bị ghi đè lại khi mở extension."
+  "fboDesigner.machineId.desc": "Machine ID của máy này (tự điền, chỉ xem/copy gửi admin khi xin license). Sửa tay sẽ bị ghi đè lại khi mở extension.",
+  "fboDesigner.previewData.title": "Xem dữ liệu thật trên lưới",
+  "fboDesigner.maskSampleData.desc": "Che dữ liệu thật khi xem trước (giữ nguyên độ dài, chữ thành x/X, số thành 0). Bật mặc định: đo bề rộng cột vẫn đúng, mà ảnh chụp màn hình không kèm dữ liệu khách. Tắt khi cần đo chính xác tới từng pixel.",
+  "fboDesigner.sampleRowCount.desc": "Số dòng lấy về khi xem dữ liệu thật (1–100).",
+  "fboDesigner.sqlcmdPath.desc": "Đường dẫn tới SQLCMD.EXE. Bỏ trống thì tự dò hai đường cài mặc định rồi tới PATH."
 }

@@ -9,6 +9,7 @@ const vscode = require('vscode');
 const fs = require('node:fs');
 const path = require('node:path');
 const { t, webviewMessages } = require('./locale');
+const sampleStore = require('./sample-store');
 
 /**
  * Chỉ ba thư mục này vẽ ra được màn hình: `Dir` và `Filter` ra Form, `Grid` ra lưới.
@@ -359,6 +360,23 @@ function rewriteControllerCssUrls(css, webview, paths, bust, output) {
 }
 
 /** Bung entity rồi gọi core. Ném ra ngoài để người gọi quyết hiện lỗi thế nào. */
+/**
+ * TÓM TẮT về dữ liệu mẫu để gửi sang webview — KHÔNG kèm chính dữ liệu.
+ *
+ * Giá trị thật đã nằm trong HTML rồi; gửi thêm một bản nữa qua `postMessage` là chép dữ liệu của
+ * khách qua ranh giới lần thứ hai mà không ai đọc bản thứ hai ấy.
+ */
+function sampleSummary(sample) {
+  if (!sample) return null;
+  return {
+    rows: sample.rows.length,
+    masked: sample.masked === true,
+    skipped: (sample.skipped ?? []).map((s) => s.message),
+    notes: sample.notes ?? [],
+    table: sample.table,
+  };
+}
+
 function buildPayload(core, document, { cfg, paths, output, webview = null, bust = 0, skipHtml = false, vi = true }) {
   const readFile = cachedReadFile(core);
 
@@ -370,6 +388,15 @@ function buildPayload(core, document, { cfg, paths, output, webview = null, bust
   });
   const detailCache = new Map();
   const configCache = new Map();
+  /*
+   * Dữ liệu thật (nếu người dùng đã bấm «Xem dữ liệu thật») đọc từ KHO, không phải từ tham số.
+   *
+   * Vì sao qua kho: designer có hai bề mặt và cả hai đều gọi hàm này, nhưng chúng giữ trạng thái
+   * theo hai cách khác nhau. Đọc ở đây thì dữ liệu SỐNG QUA mọi lần vẽ lại — gõ tay vào XML,
+   * kéo một control, đổi ngôn ngữ nhãn — thay vì biến mất sau nhịp render đầu tiên.
+   */
+  const sample = sampleStore.getSample(document.uri.fsPath);
+
   const result = core.renderControllerHtml(expanded.clearText, {
     vi: vi !== false,
     // Icon nút toolbar quyết định theo CSS QUY TẮC CHUNG, không theo một danh sách lệnh chép
@@ -381,6 +408,7 @@ function buildPayload(core, document, { cfg, paths, output, webview = null, bust
     loadDetail: (name) => loadDetail(core, document.uri.fsPath, name, readFile, detailCache),
     // Cấu hình ẩn của `Grid/Config` — hai file không được controller nhắc tên nhưng vẫn thêm cột.
     gridConfig: loadGridConfig(core, document.uri.fsPath, readFile, configCache),
+    sampleRows: sample ? sample.rows : null,
     skipHtml,
   });
 
@@ -407,6 +435,7 @@ function buildPayload(core, document, { cfg, paths, output, webview = null, bust
       mode: result.mode,
       fitWidth: result.fitWidth === true,
       sourceFiles,
+      sample: sampleSummary(sample),
       warnings: result.warnings || [],
       // Nhánh đầy đủ bên dưới trả `diagnostics`; nhánh này phải trả y hệt. Hai hình dạng lệch
       // nhau là cái bẫy chờ người gọi tiếp theo — `diagnostic-host.js` cần đúng khoá này, và
@@ -457,6 +486,7 @@ function buildPayload(core, document, { cfg, paths, output, webview = null, bust
       core.FORM_SCOPE,
     ),
     sourceFiles,
+    sample: sampleSummary(sample),
     // Lớp blueprint kẻ vạch theo ĐÚNG list px này, không đo lại từ DOM — xem designer.js.
     columns: result.model?.widths ?? [],
     warnings: result.warnings,

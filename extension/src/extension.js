@@ -14,6 +14,7 @@ const { PreviewPanel } = require('./preview-panel');
 const { isControllerDocument, config, panelColumn } = require('./render-host');
 const { declareFilter } = require('./filter-host');
 const { addColumns } = require('./add-column-host');
+const { previewData } = require('./sample-host');
 const { initDialogs } = require('./dialog/dialog-service');
 const { postToActiveDesigner } = require('./designer-webview');
 const { toast } = require('./locale');
@@ -109,6 +110,20 @@ async function activate(context) {
     ),
   );
 
+  /*
+   * ĐI QUA `withLicense`, khác chẩn đoán.
+   *
+   * Chẩn đoán là gạch đỏ chạy nền, khoá lại thì người chưa kích hoạt không hiểu vì sao im lặng.
+   * Lệnh này thì ngược hẳn: nó ĐỌC DỮ LIỆU NGHIỆP VỤ của khách qua một kết nối database thật.
+   * Đó đúng là loại việc mà license nói ai được phép làm.
+   */
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'fboDesigner.previewData',
+      withLicense(context, () => previewData(core, output)),
+    ),
+  );
+
   context.subscriptions.push(
     vscode.commands.registerCommand(
       'fboDesigner.showDialogDemo',
@@ -130,6 +145,9 @@ async function activate(context) {
   );
 }
 
-function deactivate() {}
+function deactivate() {
+  // Dữ liệu thật của khách không sống lâu hơn phiên đã lấy nó về. Xem `sample-store.js`.
+  require('./sample-store').clearAll();
+}
 
 module.exports = { activate, deactivate };

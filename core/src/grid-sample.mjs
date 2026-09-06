@@ -91,6 +91,39 @@ function assertTableName(name, what) {
 }
 
 /**
+ * Che một giá trị, GIỮ NGUYÊN ĐỘ DÀI.
+ *
+ * Vì sao che mà vẫn đo được cột: thứ làm một cột bị cắt là ĐỘ DÀI chuỗi, không phải nội dung.
+ * Giữ đúng số ký tự thì «tên khách này có tràn cột 60px không» vẫn trả lời được, mà ảnh chụp
+ * màn hình gửi đi không kèm tên khách hàng thật.
+ *
+ * Nói thẳng phần KHÔNG giữ được: bề rộng từng chữ cái khác nhau trong font tỉ lệ, nên chuỗi đã
+ * che rộng xấp xỉ chứ không bằng đúng chuỗi gốc. Ai cần đo chính xác tới từng pixel thì tắt
+ * `fboDesigner.maskSampleData` trong một lát — đó là lý do nó là một công tắc chứ không phải
+ * một luật cứng.
+ *
+ * Cách che chọn để NHÌN LÀ BIẾT đã che: chữ hoa thành `X`, chữ thường thành `x`, chữ số thành
+ * `0`. Mọi thứ còn lại — khoảng trắng, dấu chấm, gạch nối, dấu phẩy — giữ NGUYÊN, vì chúng vừa
+ * là phần lớn hình dạng của chuỗi (`12/03/2026`, `KH-001`) vừa không nói gì về danh tính ai.
+ */
+export function maskSampleValue(value) {
+  if (value === null || value === undefined) return value;
+  return String(value).replace(/\p{Lu}|\p{Lt}|\p{Ll}|\p{N}/gu, (ch) => {
+    if (/\p{N}/u.test(ch)) return '0';
+    return ch === ch.toLowerCase() ? 'x' : 'X';
+  });
+}
+
+/** Che mọi ô của mọi dòng. Khoá (tên cột) KHÔNG che — nó là bản khai, không phải dữ liệu. */
+export function maskSampleRows(rows) {
+  return (rows ?? []).map((row) => {
+    const out = {};
+    for (const [k, v] of Object.entries(row)) out[k] = maskSampleValue(v);
+    return out;
+  });
+}
+
+/**
  * Văn bản controller lưới → câu SELECT lấy `top` dòng đầu.
  *
  * @param {string} text  văn bản ĐÃ BUNG entity

@@ -99,6 +99,34 @@ Include đang sửa **chưa lưu** thì chẩn đoán vẫn tính trên bản đ
 đọc file, nên hai bên luôn nói cùng một chuyện.
 
 
+### 4. Xem dữ liệu thật trên lưới
+
+Chỉnh bề rộng cột mà không biết dữ liệu thật dài bao nhiêu là đoán. Mở một file trong
+`App_Data\Controllers\Grid` → `Ctrl+Alt+D`: extension lấy vài dòng thật về và đổ vào chính lưới
+đang vẽ, đúng bề rộng cột, đúng chỗ runtime cắt chữ. Bấm lại phím tắt để bỏ đi.
+
+| | |
+| --- | --- |
+| **Che mặc định BẬT** | chữ thành `x`/`X`, số thành `0`, **giữ nguyên độ dài** — vẫn đo được cột mà ảnh chụp không kèm dữ liệu khách. Tắt ở `fboDesigner.maskSampleData` khi cần đo tới từng pixel |
+| **Chỉ đọc, có trần** | `SELECT TOP 10` (đổi ở `fboDesigner.sampleRowCount`, trần 100), `READ UNCOMMITTED` để không khoá ai đang làm việc thật, hạn 10 giây |
+| **Không tự chạy** | chỉ chạy khi bạn bấm lệnh. Không có nhánh nào tự lấy dữ liệu lúc mở file hay lúc gõ phím |
+| **Không giữ lại** | dữ liệu nằm trong bộ nhớ của phiên, không ghi đĩa, mất khi đóng cửa sổ |
+
+Câu lệnh dựng từ `<query event="Finding">` của chính file, và **không một mẩu SQL nào của file
+đi thẳng vào câu lệnh** — chỉ tên bảng, tên alias, tên cột đã qua kiểm định danh. Cột nào không
+dựng được thì **bỏ riêng cột đó** và nói lý do ở Output, chứ không bỏ cả phép xem trước:
+
+- `aliasName` là biểu thức không bóc được thành `alias.cột`
+- alias không có trong câu Finding, hoặc trỏ tới **bảng tạm cục bộ** (`#x` — không sống ngoài
+  phiên đã tạo ra nó)
+- bảng join là tiền tố chia kỳ chưa có kỳ
+
+Ô của những cột ấy hiện **gạch chéo xám** — để phân biệt với ô có dữ liệu mà giá trị rỗng.
+
+Cần `sqlcmd` trên máy (khai đường dẫn ở `fboDesigner.sqlcmdPath` nếu cài chỗ lạ) và `Web.config`
+của program đọc được.
+
+
 ## Kích hoạt License
 
 Mọi tính năng Designer chỉ chạy khi đã có **License Key** hợp lệ trên máy của bạn.

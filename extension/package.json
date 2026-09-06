@@ -49,6 +49,10 @@
         {
           "command": "fboDesigner.addColumns",
           "group": "navigation@30"
+        },
+        {
+          "command": "fboDesigner.previewData",
+          "group": "navigation@40"
         }
       ],
       "commandPalette": [
@@ -83,6 +87,11 @@
         "command": "fboDesigner.deleteSelection",
         "category": "FBO Designer",
         "title": "%fboDesigner.deleteSelection.title%"
+      },
+      {
+        "command": "fboDesigner.previewData",
+        "category": "FBO Designer",
+        "title": "%fboDesigner.previewData.title%"
       }
     ],
     "keybindings": [
@@ -109,8 +118,15 @@
       {
         "command": "fboDesigner.deleteSelection",
         "key": "shift+delete",
-        "args": { "shift": true },
+        "args": {
+          "shift": true
+        },
         "when": "activeWebviewPanelId == 'fboDesigner.preview' || activeCustomEditorId == 'fboDesigner.form'"
+      },
+      {
+        "command": "fboDesigner.previewData",
+        "key": "ctrl+alt+d",
+        "mac": "cmd+alt+d"
       }
     ],
     "customEditors": [
@@ -184,6 +200,26 @@
           "default": "all",
           "category": "FBO Designer",
           "description": "%fboDesigner.revealRelatedFiles.desc%"
+        },
+        "fboDesigner.maskSampleData": {
+          "type": "boolean",
+          "default": true,
+          "category": "FBO Designer",
+          "description": "%fboDesigner.maskSampleData.desc%"
+        },
+        "fboDesigner.sampleRowCount": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 100,
+          "category": "FBO Designer",
+          "description": "%fboDesigner.sampleRowCount.desc%"
+        },
+        "fboDesigner.sqlcmdPath": {
+          "type": "string",
+          "default": "",
+          "category": "FBO Designer",
+          "description": "%fboDesigner.sqlcmdPath.desc%"
         },
         "fboDesigner.entityEditTarget": {
           "type": "string",
