@@ -77,6 +77,9 @@ export const languages = {
   registerDocumentSymbolProvider() {
     return { dispose() {} };
   },
+  registerDefinitionProvider() {
+    return { dispose() {} };
+  },
   createDiagnosticCollection(name) {
     const c = new FakeCollection();
     c.name = name;
@@ -115,6 +118,14 @@ export const SymbolKind = {
   Event: 23, Operator: 24, TypeParameter: 25,
 };
 
+/** Đích của một cú nhảy: file + dải. */
+export class Location {
+  constructor(uri, range) {
+    this.uri = uri;
+    this.range = range;
+  }
+}
+
 export class DocumentSymbol {
   constructor(name, detail, kind, range, selectionRange) {
     this.name = name;
@@ -133,5 +144,5 @@ export const EndOfLine = { LF: 1, CRLF: 2 };
 
 export default {
   DiagnosticSeverity, Position, Range, Diagnostic, Uri, languages, workspace, window, ViewColumn,
-  EndOfLine, SymbolKind, DocumentSymbol,
+  EndOfLine, SymbolKind, DocumentSymbol, Location,
 };

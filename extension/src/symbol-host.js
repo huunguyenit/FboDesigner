@@ -13,6 +13,7 @@
 // là «không phải việc của tôi» và nhường lại.
 
 const vscode = require('vscode');
+const { CONTROLLER_SELECTOR } = require('./render-host');
 
 /**
  * Tên loại của core → `SymbolKind`. Bảng này là chỗ DUY NHẤT biết về `vscode` trong cả tính
@@ -46,16 +47,8 @@ function toSymbol(document, n) {
   return symbol;
 }
 
-/**
- * Mọi file dưới `App_Data\Controllers`, cả `.xml` lẫn `.f`.
- *
- * Chọn theo ĐƯỜNG DẪN chứ không theo `language`: VS Code không biết `.f` là ngôn ngữ gì, nên một
- * bộ chọn theo language sẽ bỏ qua đúng nửa số file của dự án (`Dir/X.f` là bản chuẩn sản phẩm).
- */
-const SELECTOR = [
-  { scheme: 'file', pattern: '**/App_Data/Controllers/**/*.xml' },
-  { scheme: 'file', pattern: '**/App_Data/Controllers/**/*.f' },
-];
+/** Mọi file dưới `App_Data\Controllers` — bộ chọn dùng chung, xem `render-host.js`. */
+const SELECTOR = CONTROLLER_SELECTOR;
 
 function registerSymbols(context, core, output) {
   const provider = {

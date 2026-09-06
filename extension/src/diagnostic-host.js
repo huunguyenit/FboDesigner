@@ -44,6 +44,7 @@
 
 const vscode = require('vscode');
 const { buildPayload, config, isControllerDocument, cachedReadFile } = require('./render-host');
+const { entryOf, positionAt: offsetToPos } = require('./text-position');
 
 /**
  * Gõ một phím là một lượt bung entity cộng quét lại toàn bộ Include. Chờ cho người ta gõ xong
@@ -64,32 +65,10 @@ const SEVERITY = {
   warning: vscode.DiagnosticSeverity.Warning,
 };
 
-/**
- * Bảng đầu dòng, dựng MỘT LẦN cho mỗi file mỗi lượt chạy.
- *
- * Không dựng bảng thì mỗi cảnh báo phải đếm lại số xuống dòng từ đầu file — một controller thật
- * vài chục KB với vài chục cảnh báo là vài triệu lượt so ký tự cho một việc đáng lẽ tra bảng.
- *
- * Đếm theo LF chứ không theo CRLF: VS Code tính số dòng đúng như vậy, và với file CRLF thì ký
- * tự CR nằm ở CUỐI dòng trước nên không ảnh hưởng chỉ số cột của dòng sau.
- */
-function lineStarts(text) {
-  const starts = [0];
-  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) starts.push(i + 1);
-  return starts;
-}
-
-/** Offset → `vscode.Position`, tra nhị phân trên bảng đầu dòng. */
+/** Offset → `vscode.Position`. Phép quy ở `text-position.js`, dùng chung với «đi tới định nghĩa». */
 function positionAt(entry, offset) {
-  const at = Math.max(0, Math.min(offset, entry.text.length));
-  const starts = entry.starts;
-  let lo = 0;
-  let hi = starts.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (starts[mid] <= at) lo = mid; else hi = mid - 1;
-  }
-  return new vscode.Position(lo, at - starts[lo]);
+  const p = offsetToPos(entry, offset);
+  return new vscode.Position(p.line, p.character);
 }
 
 /**
@@ -171,7 +150,7 @@ class DiagnosticHost {
       const k = keyOf(target);
       if (texts.has(k)) return texts.get(k);
       const raw = k === keyOf(file) ? document.getText() : readFile(target);
-      const entry = typeof raw === 'string' ? { text: raw, starts: lineStarts(raw) } : null;
+      const entry = typeof raw === 'string' ? entryOf(raw) : null;
       texts.set(k, entry);
       return entry;
     };
@@ -352,7 +331,7 @@ function registerDiagnostics(context, core, output) {
 }
 
 /*
- * `lineStarts`/`positionAt`/`wholeFirstLine` xuất ra CHO TEST.
+ * `positionAt`/`wholeFirstLine` xuất ra CHO TEST.
  *
  * Chúng là phần thuần của file này — không đụng vscode ngoài hai lớp `Position`/`Range`, nên
  * kiểm được mà không cần một cửa sổ editor nào. Phép quy offset → dòng/cột mà sai thì mọi gạch
@@ -362,7 +341,6 @@ module.exports = {
   registerDiagnostics,
   DiagnosticHost,
   SEVERITY,
-  lineStarts,
   positionAt,
   wholeFirstLine,
   keyOf,

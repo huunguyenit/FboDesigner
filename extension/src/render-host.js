@@ -27,6 +27,21 @@ const CONTROLLER_PATH = /[\\/]App_Data[\\/]Controllers[\\/](Dir|Filter|Grid)[\\/
 /** Tên thư mục quyết định file có được vẽ không — dùng chung cho thông báo lỗi. */
 const RENDERABLE_FOLDERS = ['Dir', 'Filter', 'Grid'];
 
+/**
+ * Bộ chọn cho các provider ngôn ngữ (mục lục, đi tới định nghĩa) — RỘNG HƠN `CONTROLLER_PATH`.
+ *
+ * `CONTROLLER_PATH` trả lời «file này VẼ RA được một màn hình không», nên nó chỉ nhận ba thư
+ * mục. Provider ngôn ngữ thì không cần vẽ gì: một `Include\*.ent` khai bốn chục `<field>` vẫn
+ * có mục lục hữu ích và vẫn nhảy F12 được — mà đó lại đúng là loại file dài nhất.
+ *
+ * Chọn theo ĐƯỜNG DẪN chứ không theo `language`: VS Code không biết `.f` là ngôn ngữ gì, nên bộ
+ * chọn theo language bỏ qua đúng nửa số file của dự án (`Dir/X.f` là bản chuẩn sản phẩm).
+ */
+const CONTROLLER_SELECTOR = [
+  { scheme: 'file', pattern: '**/App_Data/Controllers/**/*.xml' },
+  { scheme: 'file', pattern: '**/App_Data/Controllers/**/*.f' },
+];
+
 function config() {
   const c = vscode.workspace.getConfiguration('fboDesigner');
   return {
@@ -791,6 +806,7 @@ async function revealSource(msg, hostDocument, output) {
 
 module.exports = {
   config,
+  CONTROLLER_SELECTOR,
   panelColumn,
   loadDetail,
   // Xuất ra cho `diagnostic-host.js`: nó phải quy offset về dòng/cột trên ĐÚNG chuỗi mà

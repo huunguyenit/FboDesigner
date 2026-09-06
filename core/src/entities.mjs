@@ -361,6 +361,34 @@ function emit(out, segments, chunk, file, sourceStart) {
 }
 
 /**
+ * Mọi `&Name;` NẰM TRONG một khoảng văn bản — tham chiếu, không phải khai báo.
+ *
+ * Mở ra khỏi file này vì có hai chỗ cần cùng câu trả lời: mục lục (`outline.mjs`) liệt kê «hàng
+ * đến từ file khác», và «đi tới định nghĩa» (`definition.mjs`) hỏi con trỏ đang đứng trên tham
+ * chiếu nào. Hai bản quét cho cùng một câu hỏi là hai bản sẽ lệch nhau — và lệch ở đây nghĩa là
+ * mục lục thấy một tham chiếu mà F12 không thấy, hoặc ngược lại.
+ *
+ * Bỏ qua thực thể dựng sẵn của XML và mọi tham chiếu nằm trong comment, cùng luật với `expand`.
+ *
+ * @returns {Array<{name: string, start: number, end: number}>}
+ */
+export function scanEntityRefs(text, from = 0, to = Infinity) {
+  const src = String(text ?? '');
+  const skip = commentSkipper(src);
+  const re = generalRefRegex();
+  re.lastIndex = Math.max(0, from);
+  const out = [];
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    if (m.index >= to) break;
+    if (BUILTIN.has(m[1].toLowerCase())) continue;
+    if (skip(m.index)) continue;
+    out.push({ name: m[1], start: m.index, end: m.index + m[0].length });
+  }
+  return out;
+}
+
+/**
  * @param {string} text      nội dung controller đã decode
  * @param {{filePath: string, readFile: (abs: string) => string|null}} options
  * @returns {{clearText, segments, declarations, diagnostics, hostFile}}

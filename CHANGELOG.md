@@ -4,6 +4,57 @@
 
 ## [Chưa phát hành]
 
+### Thêm — ĐI TỚI ĐỊNH NGHĨA (`F12` / `Ctrl+click`) trong editor văn bản
+
+Ba thứ nhảy được ngay trong file XML: tham chiếu `&Name;`, đường dẫn `SYSTEM "…"` trong khai
+báo, và tên field (`[ma_kh]` trong `item value`, hoặc `<field name>` liệt kê cột của lưới).
+
+**Hai lối nhảy tồn tại song song, và chúng KHÔNG trùng nhau.** Ctrl+click trên designer đi qua
+`revealSource`: đích tính từ MODEL đã dựng (`origin`/`range`/`hostRef` mà `buildViewModel` gắn
+lên từng hàng), và tầng vỏ còn quyết mở ở cột nào, có mở kèm file liên quan không. F12 trong
+editor thì nhận một OFFSET thô và chỉ trả một `Location` — VS Code lo phần mở file.
+
+Đầu vào khác nhau nên KHÔNG có bộ phân giải nào để tách ra dùng chung, ngược với dự đoán lúc
+lập kế hoạch. Thứ thật sự dùng chung là `expandEntities`/`sourceRange` của core, và cả hai lối
+đều đã đi qua đó từ trước. Chép lại một trong hai mới là chỗ chúng bắt đầu chỉ vào hai nơi khác
+nhau — nên phần mới được cắt theo một đường khác:
+
+    core/src/definition.mjs        THUẦN — nhìn văn bản thô tại một offset, trả lời «đây là cái
+                                   gì». Không đọc đĩa, không bung entity.
+    extension/src/definition-host  VỎ — cầm câu trả lời ấy đi TÌM đích: bung entity, tra bảng
+                                   khai báo, quy dải về file nguồn.
+
+Cắt ở đó vì «con trỏ đứng trên cái gì» chỉ cần chuỗi đang mở, nên nó test được headless với hàng
+chục ca biên — đứng giữa token, đúng dấu ngoặc, trong comment, trên chính khai báo. Còn «cái đó
+khai ở đâu» thì cần cả cây Include.
+
+Entity trỏ FILE nhảy tới NỘI DUNG, không tới dòng khai báo: «đi tới định nghĩa» của `&Rows;` là
+đi tới thứ nó bung ra, còn dừng ở `<!ENTITY Rows SYSTEM …>` là dừng ở tấm biển chỉ đường và bắt
+người dùng bấm thêm lần nữa — đúng cái F12 sinh ra để khỏi phải làm. Entity khai INLINE thì
+ngược lại: nội dung CHÍNH LÀ giá trị trong nháy, nên nhảy tới đó.
+
+Đứng trên chính khai báo thì trả `null` — nhảy từ một định nghĩa tới chính nó là một cú nhảy
+không đi đâu cả. Cùng vậy với list px, với pattern của hàng, và với mọi thứ đã comment.
+
+Token nhận ra được nhờ `at`/`len` mà `parseRow` ghi lên từng token từ bước gắn toạ độ cho cảnh
+báo. Không có chúng thì ở đây phải dò lại dấu ngoặc bằng tay, và bản dò thứ hai sẽ đọc
+`[a].Label, [a]` khác bản thứ nhất ở đúng những ca lắt léo — có test khẳng định token THỨ HAI
+của một hàng ra chính nó chứ không ra token đầu.
+
+Hai chỗ được dọn thành của dùng chung trong lúc làm. `lineStarts`/`positionAt` gỡ khỏi
+`diagnostic-host.js` thành [`text-position.js`](extension/src/text-position.js): cả gạch đỏ lẫn
+cú nhảy đều đặt một dấu vào file bằng offset của core, và hai bản quy khác nhau nghĩa là chúng
+chỉ vào hai chỗ khác nhau của cùng một khai báo. Bộ chọn file về `render-host.js` cạnh
+`isControllerDocument` — nơi câu hỏi «file nào là của mình» vốn đã ở đó. Và bộ quét `&Name;` mở
+ra khỏi `entities.mjs` thành `scanEntityRefs`, dùng chung với mục lục: hai bản quét cho cùng một
+câu hỏi thì mục lục sẽ thấy một tham chiếu mà F12 không thấy, hoặc ngược lại.
+
+Test: 41 phép kiểm ở core (phần lớn là ca biên và ca «KHÔNG được nhảy») + 18 ở tầng vỏ. Đáng giá
+nhất là ca field khai ở INCLUDE — ca duy nhất mà một bản làm ẩu vẫn «chạy»: quên đi qua
+`sourceRange` thì dải tính trên văn bản đã bung được áp thẳng lên file đang mở, ra một vị trí
+hợp lệ trỏ vào một chỗ tình cờ, và không có lỗi nào để lần ra. Phép kiểm cắt văn bản THẬT của
+file Include tại dải trả về và so chữ.
+
 ### Thêm — MỤC LỤC FILE (`Ctrl+Shift+O` và panel Outline)
 
 Controller thật dài vài nghìn dòng, và tới giờ cách duy nhất để tìm một khai báo trong đó là

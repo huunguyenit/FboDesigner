@@ -21,6 +21,7 @@ const { toast } = require('./locale');
 const { initLicenseSettings, withLicense, ensureLicense } = require('./license');
 const { registerDiagnostics } = require('./diagnostic-host');
 const { registerSymbols } = require('./symbol-host');
+const { registerDefinitions } = require('./definition-host');
 
 /**
  * Core nằm ở hai chỗ khác nhau tuỳ cách chạy, và đó là chuyện cố ý:
@@ -78,6 +79,13 @@ async function activate(context) {
    * mục lục không cần vẽ được màn hình mới hữu ích. Xem `symbol-host.js`.
    */
   registerSymbols(context, core, output);
+
+  /*
+   * F12 / Ctrl+click TRONG EDITOR VĂN BẢN — khác Ctrl+click trên designer, vốn đi qua
+   * `revealSource` và còn quyết mở ở cột nào. Ở đây provider chỉ trả một `Location`, VS Code lo
+   * phần còn lại. Không gate license, cùng lý do với mục lục và chẩn đoán.
+   */
+  registerDefinitions(context, core, output);
 
   // Mọi lệnh nghiệp vụ đều qua withLicense — Settings (machineId / dán key) vẫn dùng được.
   context.subscriptions.push(

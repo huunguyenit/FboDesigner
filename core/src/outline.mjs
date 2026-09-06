@@ -20,13 +20,7 @@
 
 import { scanViews, scanFields, scanToolbar } from './spans.mjs';
 import { classifyItem, parseRow } from './item-value.mjs';
-import { commentSkipper } from './xml-comment.mjs';
-
-/** `&Name;` — cùng hình dạng với bộ quét của `entities.mjs`, giới hạn ở tham chiếu general. */
-const RE_REF = /&([A-Za-z_][\w.:-]*);/g;
-
-/** Thực thể dựng sẵn của XML không phải tham chiếu tới nội dung nào. */
-const BUILTIN = new Set(['amp', 'lt', 'gt', 'quot', 'apos']);
+import { scanEntityRefs } from './entities.mjs';
 
 function node(name, detail, kind, start, end, selStart, selEnd, children = []) {
   return {
@@ -59,17 +53,8 @@ function brief(s, max = 60) {
  * XML. Không đi tìm xem `&Name;` bung ra cái gì: đó là việc của designer, không phải của mục lục.
  */
 function entityRefs(text, from, to) {
-  const skip = commentSkipper(text);
-  const out = [];
-  RE_REF.lastIndex = from;
-  let m;
-  while ((m = RE_REF.exec(text)) !== null) {
-    if (m.index >= to) break;
-    if (BUILTIN.has(m[1].toLowerCase())) continue;
-    if (skip(m.index)) continue;
-    out.push(node(m[0], 'hàng đến từ file khác', 'reference', m.index, m.index + m[0].length));
-  }
-  return out;
+  return scanEntityRefs(text, from, to)
+    .map((r) => node(`&${r.name};`, 'hàng đến từ file khác', 'reference', r.start, r.end));
 }
 
 /** Một `<item value>` của form: list px ở item đầu, còn lại là hàng control. */

@@ -32,8 +32,9 @@ Module._load = function load(request, ...rest) {
 };
 
 const {
-  DiagnosticHost, SEVERITY, lineStarts, positionAt, wholeFirstLine,
+  DiagnosticHost, SEVERITY, positionAt, wholeFirstLine,
 } = require_('../src/diagnostic-host.js');
+const { lineStarts } = require_('../src/text-position.js');
 
 const core = await import('../../core/src/index.mjs');
 

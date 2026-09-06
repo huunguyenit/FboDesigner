@@ -7,7 +7,7 @@
 export { readSource, decodeSource, encodeWindows1258, stripAccents } from './encoding.mjs';
 export { scanViews, scanFields, scanTitle, scanToolbar, scanCss, scanRoot, applySplices } from './spans.mjs';
 export { resolveProgramPaths } from './program.mjs';
-export { expandEntities, findInternalSubset, resolveSystemPath, segmentAt, mapToSource, sourceRange, hostRefAt, refResolvedSpan, shiftSegments } from './entities.mjs';
+export { expandEntities, findInternalSubset, resolveSystemPath, segmentAt, mapToSource, sourceRange, hostRefAt, refResolvedSpan, shiftSegments, scanEntityRefs } from './entities.mjs';
 export { renderControl, renderGridControl, containerClass, isDisabled, isTextArea, resolveLocaleName, alignOf } from './control.mjs';
 export { buildGridModel, renderGridHtml, renderGrid, applyArrangement } from './grid.mjs';
 export {
@@ -54,6 +54,7 @@ export { local as warnLocal, anchored as warnAnchored, attach as warnAttach, abs
 export { deadFieldWarnings, aliasWarnings, gridHeightWarnings, gridBlockPx } from './lint.mjs';
 export { splitPatternAt, mergePatternAt, splitWidthsAt, mergeWidthsAt } from './columns.mjs';
 export { buildOutline } from './outline.mjs';
+export { definitionTargetAt, fieldDeclarationSpan } from './definition.mjs';
 export { scopeCss, FORM_SCOPE } from './css-scope.mjs';
 export { commentRanges, inComment, commentSkipper } from './xml-comment.mjs';
 export {

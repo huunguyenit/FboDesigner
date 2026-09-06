@@ -155,6 +155,26 @@ toolbar (7)
 - Thứ đã comment thì không có trong mục lục, cùng luật với designer
 
 
+### 6. Đi tới định nghĩa (`F12` / `Ctrl+click` trong editor)
+
+Ba thứ nhảy được ngay trong file XML, không cần mở designer:
+
+| Con trỏ đang trên | `F12` đi tới |
+| --- | --- |
+| `&Rows;` | **nội dung** entity — file Include, hoặc giá trị trong nháy nếu khai inline |
+| `SYSTEM "..\Include\X.ent"` | chính file ấy |
+| `[ma_kh]` hoặc `<field name="ma_kh"/>` trong view | thẻ `<field>` khai nó |
+
+Điểm đáng kể: field khai trong `Include` thì nhảy sang **đúng file ấy**, không phải một chỗ tình
+cờ trong file đang mở. Entity trỏ file thì nhảy tới **nội dung**, không dừng lại ở dòng
+`<!ENTITY … SYSTEM …>` — tấm biển chỉ đường không phải đích đến.
+
+Đứng trên chính khai báo (`<field name="ma_kh">` trong `<fields>`) thì không nhảy đi đâu: đó đã
+là định nghĩa rồi. Thứ đã comment cũng không nhảy, cùng luật với designer.
+
+Chạy trên mọi file dưới `App_Data\Controllers`, không cần license.
+
+
 ## Kích hoạt License
 
 Mọi tính năng Designer chỉ chạy khi đã có **License Key** hợp lệ trên máy của bạn.
