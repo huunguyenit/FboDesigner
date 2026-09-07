@@ -175,6 +175,33 @@ là định nghĩa rồi. Thứ đã comment cũng không nhảy, cùng luật v
 Chạy trên mọi file dưới `App_Data\Controllers`, không cần license.
 
 
+### 7. Rê chuột và gợi ý
+
+**Rê chuột** lên một field — trong `<fields>`, trong `[token]`, hay trong danh sách cột — hiện
+nhãn, kiểu, `maxLength`, bề rộng, `aliasName`, và **file khai nó** nếu đó không phải file đang
+mở. Rê lên `&Name;` hiện nó trỏ tới file nào, hoặc chính giá trị nếu khai inline.
+
+Sau khi bấm `Ctrl+Alt+D`, hover còn kèm **thống kê dữ liệu thật**:
+
+```
+ten_kh — Tên khách
+String · width 60px · aliasName="b"
+khai ở Include/SVTran-SharedFields.xml
+dữ liệu thật: dài nhất 32 ký tự / 10 dòng (đã che, độ dài giữ nguyên)
+```
+
+`width 60px` và `dài nhất 32 ký tự` đứng cạnh nhau — đó là toàn bộ câu trả lời cho «cột này có
+đủ rộng không». Hover **không** hiện giá trị nào, chỉ độ dài.
+
+**Gợi ý** bật bằng chính ký tự mở:
+
+- gõ `[` trong một `<item value>` → danh sách field, chèn cả cặp ngoặc
+- gõ `&` → danh sách entity đã khai, kèm file nó trỏ tới
+
+Danh sách field lấy từ bản **đã bung entity**, nên field đến từ `Include` cũng được gợi ý — đó
+lại đúng là phần lớn danh sách ở những program dùng Include nhiều.
+
+
 ## Kích hoạt License
 
 Mọi tính năng Designer chỉ chạy khi đã có **License Key** hợp lệ trên máy của bạn.

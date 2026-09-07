@@ -76,9 +76,15 @@ function tokenAt(item, offset) {
 /**
  * @param {string} text   văn bản controller THÔ (chưa bung entity)
  * @param {number} offset vị trí con trỏ
+ * @param {{declarations?: boolean}} [opts]
+ *   `declarations` — nhận cả khi con trỏ đứng trên CHÍNH thẻ `<field name="x">` trong `<fields>`.
+ *
+ *   Tắt (mặc định) cho F12: nhảy từ một định nghĩa tới chính nó là cú nhảy không đi đâu cả.
+ *   BẬT cho hover: đứng trên khai báo mà không hiện gì là im lặng đúng ở chỗ thông tin đầy đủ
+ *   nhất — người ta rê chuột lên một `<field>` chính là để đọc nó.
  * @returns {{kind: 'entity'|'system'|'field', name?: string, path?: string, start: number, end: number}|null}
  */
-export function definitionTargetAt(text, offset) {
+export function definitionTargetAt(text, offset, { declarations = false } = {}) {
   const src = String(text ?? '');
   const at = Number(offset);
   if (!Number.isFinite(at) || at < 0 || at > src.length) return null;
@@ -107,6 +113,72 @@ export function definitionTargetAt(text, offset) {
       const span = col.attrSpans?.name;
       if (inSpan(span, at)) {
         return { kind: 'field', name: col.name, start: span.start, end: span.end };
+      }
+    }
+  }
+
+  /*
+   * 4. Chính thẻ khai báo, chỉ khi được hỏi.
+   *
+   * Đứng CUỐI vì nó là ca rộng nhất: `scanFields` bỏ qua field nằm trong view, nên tới được đây
+   * thì offset chắc chắn không thuộc một view nào — nhưng hỏi sau vẫn rẻ hơn và không có nguy
+   * cơ chặn mất ba ca trên.
+   */
+  if (declarations) {
+    for (const f of scanFields(src)) {
+      const span = f.attrSpans?.name;
+      if (inSpan(span, at)) {
+        return { kind: 'field', name: f.name, start: span.start, end: span.end };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Con trỏ đang ở chỗ gợi ý được cái gì?
+ *
+ * Hai chỗ, và cả hai đều nhận ra bằng cách nhìn LÙI từ con trỏ — không phải bằng cách phân tích
+ * cả tài liệu. Người dùng gõ dở thì tài liệu đang KHÔNG hợp lệ, và một bộ phân tích đòi hỏi hợp
+ * lệ sẽ im lặng đúng vào lúc người ta cần gợi ý nhất.
+ *
+ *   `[ma_` trong một `<item value>`   → tên field
+ *   `&Ro`  ở bất cứ đâu               → tên entity đã khai
+ *
+ * `replaceStart`/`replaceEnd` là dải mà gợi ý sẽ THAY THẾ: kể từ ký tự mở (`[` hoặc `&`) tới con
+ * trỏ. Không tính dải này thì VS Code chèn thêm vào sau phần đã gõ và ra `[ma_[ma_kh]`.
+ *
+ * @returns {{kind: 'field'|'entity', prefix: string, replaceStart: number, replaceEnd: number}|null}
+ */
+export function completionContextAt(text, offset) {
+  const src = String(text ?? '');
+  const at = Number(offset);
+  if (!Number.isFinite(at) || at < 0 || at > src.length) return null;
+
+  // ── entity: `&` cộng phần tên đã gõ, không vượt qua khoảng trắng hay dấu kết thúc.
+  for (let i = at - 1; i >= 0 && at - i <= 64; i--) {
+    const ch = src[i];
+    if (ch === '&') {
+      return { kind: 'entity', prefix: src.slice(i + 1, at), replaceStart: i, replaceEnd: at };
+    }
+    // Tên entity chỉ gồm ngần này ký tự; gặp thứ khác là đã ra ngoài một tham chiếu đang gõ dở.
+    if (!/[\w.:-]/.test(ch)) break;
+  }
+
+  // ── field: phải nằm TRONG chuỗi `value` của một `<item>`, và sau một `[` chưa đóng.
+  for (const view of scanViews(src)) {
+    if (at < view.start || at > view.end) continue;
+    for (const item of view.items) {
+      const span = item.valueSpan;
+      if (!inSpan(span, at)) continue;
+      for (let i = at - 1; i >= span.start; i--) {
+        const ch = src[i];
+        if (ch === '[') {
+          return { kind: 'field', prefix: src.slice(i + 1, at), replaceStart: i, replaceEnd: at };
+        }
+        // `]` đóng rồi thì con trỏ đang ở NGOÀI token; `,` và `:` là ranh giới của một token.
+        if (ch === ']' || ch === ',' || ch === ':') break;
       }
     }
   }

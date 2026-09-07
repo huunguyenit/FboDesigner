@@ -4,6 +4,60 @@
 
 ## [Chưa phát hành]
 
+### Thêm — RÊ CHUỘT và GỢI Ý, và chỗ ba mảng gặp nhau
+
+Bước cuối của bản kế hoạch. Hover trên một field hiện nhãn, kiểu, `maxLength`, bề rộng,
+`aliasName`, và FILE KHAI NÓ — chỉ khi đó không phải file đang mở, vì nhắc lại tên file người ta
+đang nhìn là một dòng không mang tin nào. Hover trên `&Name;` hiện nó trỏ tới file nào, hoặc
+chính giá trị nếu khai inline, hoặc nói thẳng «chưa có khai báo».
+
+Điều đáng kể nhất không phải bản thân hover mà là thứ nó GHÉP LẠI. Sau khi bấm `Ctrl+Alt+D`,
+hover kèm luôn thống kê dữ liệu thật:
+
+    ten_kh — Tên khách
+    String · width 60px · aliasName="b"
+    khai ở Include/SVTran-SharedFields.xml
+    dữ liệu thật: dài nhất 32 ký tự / 10 dòng (đã che, độ dài giữ nguyên)
+
+`width 60px` và `dài nhất 32 ký tự` đứng cạnh nhau, và đó là toàn bộ câu trả lời cho «cột này có
+đủ rộng không» — câu hỏi mà cả nhánh xem-trước sinh ra để trả lời, nay gọn trong một lần rê
+chuột. Ba thứ dựng riêng ở ba bước khác nhau (chẩn đoán biết field khai ở đâu, xem-trước biết dữ
+liệu dài bao nhiêu, mục lục/F12 biết con trỏ đang ở đâu) chỉ có ích cùng nhau tại đúng chỗ này.
+
+Hover KHÔNG hiện một giá trị nào, chỉ độ dài. Hover là chỗ dễ chụp màn hình nhất, và cả tính
+năng xem-trước đã cố ý che dữ liệu đi rồi — hiện lại ở đây là mở đúng cánh cửa vừa đóng. Chưa
+lấy dữ liệu thì không nhắc gì tới nó: một dòng «chưa lấy dữ liệu» trên mọi hover là tiếng ồn
+dạy người ta thôi đọc hover.
+
+Gợi ý bật bằng chính ký tự mở — `[` trong một `<item value>` ra danh sách field, `&` ra danh
+sách entity. Không khai hai ký tự kích hoạt ấy thì gợi ý chỉ hiện khi người dùng tự bấm
+`Ctrl+Space`, và gần như không ai biết là có.
+
+Danh sách field lấy từ bản ĐÃ BUNG, không từ file đang mở: một controller dùng được mọi field mà
+Include của nó kéo vào, nên gợi ý chỉ những field gõ thấy trong file này là bỏ mất phần lớn danh
+sách — đúng ở những program dùng Include nhiều nhất. Có phép kiểm riêng cho điều đó.
+
+`replaceStart` tính TỪ ký tự mở chứ không từ con trỏ. Không tính thì VS Code chèn thêm vào sau
+phần đã gõ và ra `[ma_[ma_kh]` — lỗi nhìn thấy ngay, nhưng chỉ khi bấm chọn, tức là sau khi
+tính năng đã có vẻ chạy.
+
+Bối cảnh gợi ý nhận ra bằng cách nhìn LÙI từ con trỏ, không bằng cách phân tích cả tài liệu:
+người dùng đang gõ dở thì tài liệu KHÔNG hợp lệ, và một bộ phân tích đòi hỏi hợp lệ sẽ im lặng
+đúng vào lúc người ta cần gợi ý nhất.
+
+`definitionTargetAt` nhận thêm tuỳ chọn `declarations`. Tắt (mặc định) cho F12 — nhảy từ một
+định nghĩa tới chính nó là cú nhảy không đi đâu cả. BẬT cho hover — người ta rê chuột lên một
+`<field>` chính là để đọc nó, và im lặng ở đó là im lặng đúng chỗ thông tin đầy đủ nhất.
+
+Hai provider ở chung một file vì chúng hỏi cùng một thứ và trả lời từ CÙNG MỘT bản bung. Bản ấy
+được nhớ theo (file, `document.version`): gợi ý bắn theo từng phím nên bộ nhớ này không cứu được
+lượt gõ tiếp theo, nhưng nó cứu những lượt hỏi lại trong cùng một phiên bản — VS Code lọc lại
+danh sách, hover ngay sau completion, hai provider cùng hỏi một chỗ.
+
+Test: 26 phép kiểm ở core cho bối cảnh gợi ý (phần lớn là chỗ KHÔNG được gợi ý) + 37 ở tầng vỏ.
+Đáng giá nhất là hai ca: field đến từ Include có mặt trong danh sách gợi ý, và hover đọc được
+thống kê dữ liệu thật mà không lộ một giá trị nào.
+
 ### Thêm — ĐI TỚI ĐỊNH NGHĨA (`F12` / `Ctrl+click`) trong editor văn bản
 
 Ba thứ nhảy được ngay trong file XML: tham chiếu `&Name;`, đường dẫn `SYSTEM "…"` trong khai

@@ -80,6 +80,12 @@ export const languages = {
   registerDefinitionProvider() {
     return { dispose() {} };
   },
+  registerHoverProvider() {
+    return { dispose() {} };
+  },
+  registerCompletionItemProvider() {
+    return { dispose() {} };
+  },
   createDiagnosticCollection(name) {
     const c = new FakeCollection();
     c.name = name;
@@ -91,6 +97,7 @@ export const languages = {
 /** Cấu hình mặc định — `render-host.config()` chỉ đọc vài khoá và có sẵn giá trị rơi về. */
 export const workspace = {
   textDocuments: [],
+  asRelativePath: (p) => String(p),
   getConfiguration() {
     return { get: () => undefined };
   },
@@ -126,6 +133,34 @@ export class Location {
   }
 }
 
+/** Gom markdown vào `.value` như thật — test đọc thẳng chuỗi ấy. */
+export class MarkdownString {
+  constructor(value = '') {
+    this.value = value;
+  }
+
+  appendMarkdown(v) {
+    this.value += v;
+    return this;
+  }
+}
+
+export class Hover {
+  constructor(contents, range) {
+    this.contents = contents;
+    this.range = range;
+  }
+}
+
+export const CompletionItemKind = { Field: 4, Reference: 17 };
+
+export class CompletionItem {
+  constructor(label, kind) {
+    this.label = label;
+    this.kind = kind;
+  }
+}
+
 export class DocumentSymbol {
   constructor(name, detail, kind, range, selectionRange) {
     this.name = name;
@@ -145,4 +180,5 @@ export const EndOfLine = { LF: 1, CRLF: 2 };
 export default {
   DiagnosticSeverity, Position, Range, Diagnostic, Uri, languages, workspace, window, ViewColumn,
   EndOfLine, SymbolKind, DocumentSymbol, Location,
+  MarkdownString, Hover, CompletionItem, CompletionItemKind,
 };

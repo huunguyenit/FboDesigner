@@ -9,7 +9,7 @@
 // chính nó là một cú nhảy không đi đâu cả.
 
 import { ok, eq, section } from './harness.mjs';
-import { definitionTargetAt, fieldDeclarationSpan } from '../src/definition.mjs';
+import { definitionTargetAt, fieldDeclarationSpan, completionContextAt } from '../src/definition.mjs';
 
 const NL = '\r\n';
 const XML = [
@@ -124,3 +124,64 @@ const span = fieldDeclarationSpan(XML, 'ten_kh');
 // mấy dòng rồi bắt người ta tự tìm.
 eq('trỏ đúng vào tên', XML.slice(span.start, span.end), 'ten_kh');
 eq('field không có thì null', fieldDeclarationSpan(XML, 'khong_co'), null);
+
+section('completion — bối cảnh gợi ý field');
+/*
+ * Nhận ra bằng cách nhìn LÙI từ con trỏ, không bằng cách phân tích cả tài liệu: người dùng đang
+ * gõ dở thì tài liệu KHÔNG hợp lệ, và một bộ phân tích đòi hỏi hợp lệ sẽ im lặng đúng vào lúc
+ * người ta cần gợi ý nhất.
+ */
+const CV = '<dir><view id="V"><item value="11: [ma_kh].Label, [ma_"/></view></dir>';
+const cc = (off) => completionContextAt(CV, off);
+
+const dangGo = cc(CV.indexOf('[ma_"') + 4);
+eq('đang gõ dở → gợi ý field', dangGo.kind, 'field');
+eq('phần đã gõ', dangGo.prefix, 'ma_');
+/*
+ * Dải thay thế tính TỪ dấu `[`, không từ con trỏ. Không tính thì VS Code chèn thêm vào sau phần
+ * đã gõ và ra `[ma_[ma_kh]` — lỗi nhìn thấy ngay nhưng chỉ khi bấm chọn, tức là sau khi tính
+ * năng đã có vẻ chạy.
+ */
+eq('thay thế từ dấu ngoặc mở', CV.slice(dangGo.replaceStart, dangGo.replaceEnd), '[ma_');
+
+const ngaySau = cc(CV.indexOf('[ma_kh].Label') + 1);
+eq('ngay sau dấu ngoặc cũng gợi ý', ngaySau.kind, 'field');
+eq('chưa gõ gì thì prefix rỗng', ngaySau.prefix, '');
+
+section('completion — chỗ KHÔNG được gợi ý field');
+// Ngoài token: `]` đã đóng, `,` và `:` là ranh giới.
+eq('trên pattern', cc(CV.indexOf('11: ') + 1), null);
+eq('sau dấu ngoặc đã đóng', cc(CV.indexOf('].Label') + 3), null);
+// Ngoài `<item value>` hoàn toàn.
+eq('ngoài item value', cc(CV.indexOf('id="V"') + 4), null);
+eq('trong <dir> trần', cc(3), null);
+
+section('completion — bối cảnh gợi ý entity');
+const e1 = completionContextAt('x &Ro', 5);
+eq('loại', e1.kind, 'entity');
+eq('phần đã gõ', e1.prefix, 'Ro');
+eq('thay thế từ dấu &', e1.replaceStart, 2);
+eq('chỉ mới gõ dấu &', completionContextAt('x &', 3).prefix, '');
+// Khoảng trắng cắt đứt: `& Ro` không phải một tham chiếu đang gõ dở.
+eq('khoảng trắng cắt đứt', completionContextAt('x & Ro', 6), null);
+eq('không có dấu & nào', completionContextAt('xin chao', 8), null);
+// Entity thắng field khi cả hai cùng khớp — `&` nằm gần con trỏ hơn.
+const both = '<dir><view id="V"><item value="1: [&Ro"/></view></dir>';
+eq('trong token mà đang gõ entity thì ra entity', completionContextAt(both, both.indexOf('&Ro') + 3).kind, 'entity');
+
+section('completion — offset lạ không làm nó ném');
+for (const bad of [-1, CV.length + 1, NaN, null, undefined, 'x']) {
+  eq(`offset ${String(bad)} → null`, completionContextAt(CV, bad), null);
+}
+eq('văn bản rỗng', completionContextAt('', 0), null);
+
+section('definition — hover nhận thêm ca đứng trên chính khai báo');
+const DECL = '<dir><fields><field name="ma_kh"/></fields><view id="V"/></dir>';
+const onDecl = DECL.indexOf('name="ma_kh"') + 8;
+// F12 trả null ở đây (nhảy tới chính mình là cú nhảy không đi đâu); hover thì PHẢI nhận, vì
+// người ta rê chuột lên một `<field>` chính là để đọc nó.
+eq('F12 vẫn null', definitionTargetAt(DECL, onDecl), null);
+eq('hover nhận', definitionTargetAt(DECL, onDecl, { declarations: true })?.name, 'ma_kh');
+eq('và trỏ đúng vào tên',
+  DECL.slice(definitionTargetAt(DECL, onDecl, { declarations: true }).start,
+    definitionTargetAt(DECL, onDecl, { declarations: true }).end), 'ma_kh');

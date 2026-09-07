@@ -54,7 +54,7 @@ export { local as warnLocal, anchored as warnAnchored, attach as warnAttach, abs
 export { deadFieldWarnings, aliasWarnings, gridHeightWarnings, gridBlockPx } from './lint.mjs';
 export { splitPatternAt, mergePatternAt, splitWidthsAt, mergeWidthsAt } from './columns.mjs';
 export { buildOutline } from './outline.mjs';
-export { definitionTargetAt, fieldDeclarationSpan } from './definition.mjs';
+export { definitionTargetAt, fieldDeclarationSpan, completionContextAt } from './definition.mjs';
 export { scopeCss, FORM_SCOPE } from './css-scope.mjs';
 export { commentRanges, inComment, commentSkipper } from './xml-comment.mjs';
 export {

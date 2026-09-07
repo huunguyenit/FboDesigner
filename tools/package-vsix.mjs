@@ -46,6 +46,7 @@ const CONTENT = [
   ['extension/src/sample-store.js', 'extension/src/sample-store.js'],
   ['extension/src/symbol-host.js', 'extension/src/symbol-host.js'],
   ['extension/src/definition-host.js', 'extension/src/definition-host.js'],
+  ['extension/src/language-host.js', 'extension/src/language-host.js'],
   ['extension/src/text-position.js', 'extension/src/text-position.js'],
   ['extension/src/edit-host.js', 'extension/src/edit-host.js'],
   ['extension/src/edit-history.js', 'extension/src/edit-history.js'],

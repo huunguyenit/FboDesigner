@@ -46,7 +46,7 @@ if not exist "%PRIV%" (
 
 echo ========================================
 echo   FBO Designer - Issue License Key
-echo   Han dung mac dinh: 1 thang
+echo   Han dung mac dinh: 12 thang
 echo   So may mac dinh: 1
 echo ========================================
 echo.
@@ -77,7 +77,7 @@ if "!LIC_NAME!"=="" (
 )
 
 set "LIC_EXP="
-for /f "usebackq delims=" %%A in (`powershell -NoProfile -Command "(Get-Date).AddMonths(1).ToString('yyyy-MM-dd')"`) do set "LIC_EXP=%%A"
+for /f "usebackq delims=" %%A in (`powershell -NoProfile -Command "(Get-Date).AddMonths(12).ToString('yyyy-MM-dd')"`) do set "LIC_EXP=%%A"
 if "!LIC_EXP!"=="" (
   echo [x] Khong tinh duoc ngay het han ^(powershell^).
   pause
@@ -88,7 +88,7 @@ echo.
 echo --- Thong tin ---
 echo ID     : !LIC_ID!
 echo Name   : !LIC_NAME!
-echo Expire : !LIC_EXP!  ^(1 thang^)
+echo Expire : !LIC_EXP!  ^(12 thang^)
 echo Max    : 1 may
 echo.
 

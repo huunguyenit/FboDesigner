@@ -22,6 +22,7 @@ const { initLicenseSettings, withLicense, ensureLicense } = require('./license')
 const { registerDiagnostics } = require('./diagnostic-host');
 const { registerSymbols } = require('./symbol-host');
 const { registerDefinitions } = require('./definition-host');
+const { registerLanguageFeatures } = require('./language-host');
 
 /**
  * Core nằm ở hai chỗ khác nhau tuỳ cách chạy, và đó là chuyện cố ý:
@@ -86,6 +87,12 @@ async function activate(context) {
    * phần còn lại. Không gate license, cùng lý do với mục lục và chẩn đoán.
    */
   registerDefinitions(context, core, output);
+
+  /*
+   * Rê chuột và gợi ý. Hover đọc được cả DỮ LIỆU THẬT khi người dùng đã bấm `Ctrl+Alt+D` — chỗ
+   * `width="60"` và «dài nhất 38 ký tự» đứng cạnh nhau đủ gần để thấy con số nào sai.
+   */
+  registerLanguageFeatures(context, core, output);
 
   // Mọi lệnh nghiệp vụ đều qua withLicense — Settings (machineId / dán key) vẫn dùng được.
   context.subscriptions.push(
