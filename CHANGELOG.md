@@ -2,7 +2,7 @@
 
 Định dạng dựa trên [Keep a Changelog](https://keepachangelog.com/).
 
-## [Chưa phát hành]
+## [1.0.2] — 2026-09-07
 
 ### Thêm — RÊ CHUỘT và GỢI Ý, và chỗ ba mảng gặp nhau
 

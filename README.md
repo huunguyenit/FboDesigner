@@ -4,10 +4,21 @@ FBO Designer là extension cho Cursor giúp thiết kế form FBO ngay trong IDE
 
 ## Tại sao nên dùng
 
+**Thiết kế**
+
 - Thiết kế form FBO trực tiếp trên file `Dir` / `Filter` / `Grid`
 - Blueprint mặc định: thước px, slot, `colspan`, `split`, `anchor` đọc layout từ XML thuần
 - Kéo thả, thêm hàng / field / cột, đổi chỗ control
 - Sinh script khai báo lọc nhanh và thêm cột database
+
+**Đọc và sửa XML** *(mới ở 1.0.2)*
+
+- **Gạch đỏ ngay trong editor** cho 26 luật — và lỗi hiện ở **đúng file phải sửa**, kể cả khi
+  hàng ấy khai trong `Include`
+- **Mục lục** (`Ctrl+Shift+O`), **F12** tới chỗ khai, **rê chuột** đọc thông số field, **gợi ý**
+  tên field và entity — chạy trên mọi file dưới `App_Data\Controllers`, không cần license
+- **Xem dữ liệu thật trên lưới** (`Ctrl+Alt+D`): vài dòng thật đổ vào đúng bề rộng cột, để biết
+  cột 60px có cắt mất tên khách hay không. Che dữ liệu mặc định, giữ nguyên độ dài
 - Ctrl+click (hoặc double click) nhảy đúng file / dòng khai báo entity và Include
 
 ## Tính năng chính
@@ -34,9 +45,13 @@ Blueprint là lớp thiết kế mặc định trên form đang mở:
 
 *Lưới chi tiết: bề rộng cột (px) và nút* `(+)` *chèn cột giữa các header.*
 
-### 2. Tạo script: khai báo lọc và thêm cột
+### 2. Lệnh và phím tắt
 
-Hai lệnh riêng — sinh script chạy trên database khách, nặng hơn thao tác kéo thả trên design:
+Bốn lệnh, gọi từ chuột phải → **FBO Designer** hoặc Command Palette.
+
+`Ctrl+Alt+F` và `Ctrl+Alt+C` **sinh script SQL để bạn tự chạy** — extension không bao giờ chạy
+script thay bạn. `Ctrl+Alt+C` và `Ctrl+Alt+D` có **đọc** database khách (chỉ đọc, có hạn giờ) để
+dò sẵn; nối không được thì `Ctrl+Alt+C` vẫn chạy và hỏi tay.
 
 
 | Lệnh                                   | Phím tắt     | Việc làm                                                                                          |
@@ -44,9 +59,8 @@ Hai lệnh riêng — sinh script chạy trên database khách, nặng hơn thao
 | **Mở giao diện giả lập FBO**           | `Ctrl+Alt+O` | Mở panel designer bám theo file controller đang active                                            |
 | **Khai báo lọc nhanh cho lưới này**    | `Ctrl+Alt+F` | Bật `allowFilter` / `<query>` trên XML lưới (nếu thiếu), sinh SQL xoá–nạp lại `sysfilterdeclares` |
 | **Sinh script thêm cột cho field mới** | `Ctrl+Alt+C` | So field trên form với schema, sinh SQL thêm cột cho field chưa có trên bảng                      |
+| **Xem dữ liệu thật trên lưới**         | `Ctrl+Alt+D` | Lấy vài dòng thật đổ vào lưới để đo bề rộng cột; bấm lại để bỏ đi (xem §4)                       |
 
-
-Mở file lưới / form FBO → chuột phải → **FBO Designer**, hoặc Command Palette.
 
 ![Commands](docs/images/Command.png)
 
