@@ -2,7 +2,7 @@
 // Đây là bài test giữ lời hứa "không bao giờ parse-rồi-serialize-lại cả file".
 
 import { ok, eq, section } from './harness.mjs';
-import { scanViews, scanFields, applySplices, scanCss } from '../src/spans.mjs';
+import { scanViews, scanFields, applySplices, scanCss, scanConfigQueries } from '../src/spans.mjs';
 
 const XML = [
   '<?xml version="1.0" encoding="windows-1258"?>',
@@ -98,3 +98,53 @@ const MIXED = '<grid><css><text><![CDATA[<Encrypted>AbCd+/=</Encrypted>\r\ndiv.G
 const mixed = scanCss(MIXED);
 ok('bỏ hết phần mã hoá', !mixed.includes('Encrypted') && !mixed.includes('AbCd'));
 ok('giữ rule đọc được', mixed.includes('div.GroupExtra{background-image:url(../Images/Extra.png);}'));
+
+section('spans — <queries> của Grid/Config: bản khai vá chuỗi');
+
+/*
+ * Đây là cách FBO thêm join vào câu query của controller mà KHÔNG sửa file controller. Lấy
+ * nguyên hình dạng của `Grid/Config/Fields/SOTran.xml` và group Initialize 001 (HOATP
+ * FBISP2421) — hai mảnh vá cùng một câu ở hai chỗ neo khác nhau.
+ */
+const CFG = [
+  '<grid xmlns="urn:schemas-fast-com:grid-fields">',
+  '  <queries>',
+  '    <query event="Loading">',
+  '      <items>',
+  '        <item source="a left join dmkh b on a.ma_kh = b.ma_kh" destination="a left join dmkh b on a.ma_kh = b.ma_kh left join dmnvbh v0 on a.ma_nvbh = v0.ma_nvbh" />',
+  '        <item source="" destination="KHONG BAO GIO" />',
+  '      </items>',
+  '    </query>',
+  '    <query event="Finding">',
+  '      <items><item source="x" destination="y" /></items>',
+  '    </query>',
+  '    <query event="Scattering">',
+  '      <clauses><clause type="From" statement=" a left join dmttct u0 on a.ma_ct = u0.ma_ct"/></clauses>',
+  '      <items><item source="\\bstatus\\b" destination="a.status"/></items>',
+  '    </query>',
+  '  </queries>',
+  '</grid>',
+].join('\r\n');
+
+const cfgQ = scanConfigQueries(CFG);
+eq('đọc đúng các sự kiện', Object.keys(cfgQ).sort(), ['Finding', 'Loading']);
+eq('Loading: một cặp (cặp source rỗng bị bỏ)', cfgQ.Loading.length, 1);
+eq('source nguyên văn', cfgQ.Loading[0].source, 'a left join dmkh b on a.ma_kh = b.ma_kh');
+ok('destination nguyên văn', cfgQ.Loading[0].destination.endsWith('left join dmnvbh v0 on a.ma_nvbh = v0.ma_nvbh'));
+
+/*
+ * `Scattering` CỐ Ý không đọc: `source` của nó là BIỂU THỨC CHÍNH QUY (`\bstatus\b`), không
+ * phải chuỗi thường, và nó vá mệnh đề lọc chứ không vá câu query. Trộn hai loại vào một bảng là
+ * để một `\b` chạy vào phép thay chuỗi thường.
+ */
+ok('KHÔNG đọc Scattering', cfgQ.Scattering === undefined);
+
+// `<clause statement=…>` không phải một cặp source/destination — không được lẫn vào.
+ok('không nhặt <clause>', JSON.stringify(cfgQ).indexOf('dmttct') === -1);
+
+// Thẻ nằm trong comment thì KHÔNG tồn tại — cùng luật với mọi bộ quét khác của file này.
+const commented = scanConfigQueries(
+  '<grid><!-- <queries><query event="Loading"><items><item source="a" destination="b"/></items></query></queries> --></grid>',
+);
+eq('bản khai đã comment thì không tính', Object.keys(commented).length, 0);
+

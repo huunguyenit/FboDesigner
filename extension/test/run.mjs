@@ -10,9 +10,14 @@
 //
 // Dùng chung `core/test/harness.mjs` để output đọc giống hệt nhau.
 
+import './test-sql-host.mjs';
+import './test-sql-host-exec.mjs';
+import './test-date-mask.mjs';
+import './test-dev-features.mjs';
 import './test-diagnostic-host.mjs';
 import './test-sample-store.mjs';
 import './test-sample-render.mjs';
+import './test-sample-host.mjs';
 import './test-symbol-host.mjs';
 import './test-definition-host.mjs';
 import './test-language-host.mjs';

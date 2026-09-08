@@ -14,12 +14,19 @@ FBO Designer là extension cho Cursor giúp thiết kế form FBO ngay trong IDE
 **Đọc và sửa XML** *(mới ở 1.0.2)*
 
 - **Gạch đỏ ngay trong editor** cho 26 luật — và lỗi hiện ở **đúng file phải sửa**, kể cả khi
-  hàng ấy khai trong `Include`
+  hàng ấy khai trong `Include` *(bản dev)*
 - **Mục lục** (`Ctrl+Shift+O`), **F12** tới chỗ khai, **rê chuột** đọc thông số field, **gợi ý**
   tên field và entity — chạy trên mọi file dưới `App_Data\Controllers`, không cần license
+  *(bản dev)*
 - **Xem dữ liệu thật trên lưới** (`Ctrl+Alt+D`): vài dòng thật đổ vào đúng bề rộng cột, để biết
-  cột 60px có cắt mất tên khách hay không. Che dữ liệu mặc định, giữ nguyên độ dài
+  cột 60px có cắt mất tên khách hay không. Che dữ liệu mặc định, giữ nguyên độ dài. Danh mục,
+  chứng từ, lưới chi tiết và báo cáo — mỗi loại lấy dữ liệu theo đúng cách runtime lấy
 - Ctrl+click (hoặc double click) nhảy đúng file / dòng khai báo entity và Include
+
+> **`*(bản dev)*`** đánh dấu tính năng **ẩn** trong bản `.vsix` tải về bình thường — chỉ có khi
+> gói được đóng bằng `node tools/package-vsix.mjs --dev`, hoặc khi chạy trực tiếp bằng F5 từ mã
+> nguồn. Đây là các mục §3, §5, §6, §7 bên dưới. §4 (xem dữ liệu thật) không nằm trong nhóm này —
+> luôn có mặt.
 
 ## Tính năng chính
 
@@ -92,7 +99,7 @@ Chạy **Sinh script thêm cột cho field mới** trên form/lưới: extension
 
 
 
-### 3. Chẩn đoán trong Problems panel
+### 3. Chẩn đoán trong Problems panel *(bản dev)*
 
 Mở một file trong `Dir` / `Filter` / `Grid` là extension quét ngay và đẩy lỗi vào **Problems**
 (`Ctrl+Shift+M`) — không cần mở designer, không cần license.
@@ -115,33 +122,109 @@ Include đang sửa **chưa lưu** thì chẩn đoán vẫn tính trên bản đ
 
 ### 4. Xem dữ liệu thật trên lưới
 
-Chỉnh bề rộng cột mà không biết dữ liệu thật dài bao nhiêu là đoán. Mở một file trong
-`App_Data\Controllers\Grid` → `Ctrl+Alt+D`: extension lấy vài dòng thật về và đổ vào chính lưới
-đang vẽ, đúng bề rộng cột, đúng chỗ runtime cắt chữ. Bấm lại phím tắt để bỏ đi.
+Chỉnh bề rộng cột mà không biết dữ liệu thật dài bao nhiêu là đoán. Mở giao diện giả lập cho một
+file trong `App_Data\Controllers\Grid` và extension **tự lấy** vài dòng thật đổ vào chính lưới
+đang vẽ, đúng bề rộng cột, đúng chỗ runtime cắt chữ. `Ctrl+Alt+D` bật/tắt bằng tay.
+
+Tự lấy tắt được ở `fboDesigner.autoLoadSampleData`. Nó chỉ chạy **một lần cho mỗi file**, chỉ với
+lưới, và **không bao giờ hỏi gì**: lưới báo cáo và lưới cần nhập tham số `@x` không tự lấy — chúng
+chờ bạn bấm `Ctrl+Alt+D`. Bấm `Ctrl+Alt+D` để **tắt** dữ liệu của một file thì file ấy không tự
+lấy lại trong phiên này.
 
 | | |
 | --- | --- |
 | **Che mặc định BẬT** | chữ thành `x`/`X`, số thành `0`, **giữ nguyên độ dài** — vẫn đo được cột mà ảnh chụp không kèm dữ liệu khách. Tắt ở `fboDesigner.maskSampleData` khi cần đo tới từng pixel |
-| **Chỉ đọc, có trần** | `SELECT TOP 10` (đổi ở `fboDesigner.sampleRowCount`, trần 100), `READ UNCOMMITTED` để không khoá ai đang làm việc thật, hạn 10 giây |
-| **Không tự chạy** | chỉ chạy khi bạn bấm lệnh. Không có nhánh nào tự lấy dữ liệu lúc mở file hay lúc gõ phím |
+| **Có trần, có hạn giờ** | trần `fboDesigner.sampleRowCount` (mặc định 10, tối đa 100) — lưới danh mục/chứng từ chèn thẳng `top N`; lưới chi tiết và báo cáo (script của khách, không an toàn để chèn `top`/`SET ROWCOUNT`) chạy KHÔNG giới hạn ở SQL rồi CẮT CÒN ĐÚNG trần ấy khi hiện lên lưới. `READ UNCOMMITTED` để không khoá ai đang làm việc thật, hạn 10 giây — riêng nhánh báo cáo 60 giây |
+| **Tự chạy có công tắc** | `fboDesigner.autoLoadSampleData` (mặc định BẬT): tự lấy MỘT LẦN lúc mở giao diện giả lập cho một lưới. Không có nhánh nào lấy lúc gõ phím, lúc vẽ lại, hay ở một file không phải lưới |
 | **Không giữ lại** | dữ liệu nằm trong bộ nhớ của phiên, không ghi đĩa, mất khi đóng cửa sổ |
 
-Câu lệnh dựng từ `<query event="Finding">` của chính file, và **không một mẩu SQL nào của file
-đi thẳng vào câu lệnh** — chỉ tên bảng, tên alias, tên cột đã qua kiểm định danh. Cột nào không
-dựng được thì **bỏ riêng cột đó** và nói lý do ở Output, chứ không bỏ cả phép xem trước:
+Câu lệnh lấy **mọi field đã khai** trong `<fields>`, theo đúng **thứ tự khai** — của controller
+trước, rồi của từng mảnh `Grid/Config` theo hạng. KHÔNG theo `<view>`: `arrangement` là phép sắp
+chỗ ngồi trên lưới, không phải thứ tự cột trong câu SQL, và một field khai ở `<fields>` mà không
+có trong `<view>` (`ma_ct` của `Grid/Config/Include/Voucher.Field.Status`) vẫn được runtime kéo
+về — nó còn là **khoá join** của `left join dmttct u0 on a.ma_ct = …`.
 
-- `aliasName` là biểu thức không bóc được thành `alias.cột`
-- alias không có trong câu Finding, hoặc trỏ tới **bảng tạm cục bộ** (`#x` — không sống ngoài
-  phiên đã tạo ra nó)
-- bảng join là tiền tố chia kỳ chưa có kỳ
+Thứ tự cột trong câu SQL không ảnh hưởng thứ tự cột trên màn hình: lưới vẫn vẽ theo `<view>` +
+`arrangement`, vì nó tra ô theo `field@name` của cột nó đang vẽ.
 
-Ô của những cột ấy hiện **gạch chéo xám** — để phân biệt với ô có dữ liệu mà giá trị rỗng.
+`%l` phân giải theo `@@language` (`ten_kh%l` → `ten_kh` ở bản tiếng Việt, `ten_kh2` ở bản tiếng
+Anh), cả trên `<field>` lẫn trong thân câu query. Còn dữ liệu lấy bằng cách nào thì `grid@type`
+quyết định — bốn nhánh, bốn nguồn khác nhau:
+
+| `type` | Nguồn dữ liệu |
+| --- | --- |
+| *(trống)* — **danh mục** | `grid@table` + `grid@order`. Câu lệnh dựng **hoàn toàn từ định danh**, không một mẩu SQL nào của file lọt vào |
+| **Voucher** — chứng từ | chạy lại `<query event="Loading">` của file (`FastBusiness$App$Voucher$Loading`), thay `@@id`, `@@master`, `@@prime`, `@@textList`, `@@textExternal`… |
+| **Detail** — lưới chi tiết | **hai câu**. Câu dò trước (`select top 1 convert(char(6), ngay_ct, 112) as partition, stt_rec from c64$000000 where status not in ('*', 'L')` — không khai `<partition>` thì `select top 1 ma_kh from dmkh`), rồi chạy lại `<query event="Loading">` với kỳ và khoá vừa dò được — KHÔNG giới hạn số dòng ở SQL, tầng vỏ cắt còn đúng `fboDesigner.sampleRowCount` sau khi đọc xong |
+| **Report** — báo cáo | `<command event="Processing">` của `Filter/` cùng tên — hai hình dạng: proc nhận `'#$query'` thì đọc lại qua bảng tạm `##fbo$sample`; KHÔNG nhận thì CHẠY ĐỦ SCRIPT **NGUYÊN VĂN, không sửa một ký tự nào** (không cắt ngắn, không bảng tạm, không dò schema trước, không cắm mốc gì vào SQL) — tầng vỏ tự đếm script THẬT SỰ trả về bao nhiêu bảng bằng cách đọc ranh giới resultset ngay trên output của `sqlcmd` (mỗi bảng có một dòng gạch ngang phân cách sau header), rồi chọn đúng bảng theo `dir@id` của Filter (vượt quá số bảng thật có thì lấy bảng CUỐI, có ghi rõ ra Output), khớp cột vào lưới theo TÊN. **Không bao giờ tự nạp** — chỉ chạy khi bấm tay, qua một **form** hiện mọi tham số `@x` cùng lúc (nhãn, mặc định VÀ mặt nạ ngày lấy từ `<field>` của Filter). Nút chính của form cũng là chỗ xác nhận chạy stored procedure báo cáo của khách |
+
+Tham số `@x` mà câu query cần (6 lưới chi tiết của FBISP24 đòi thẳng `@ma_vt`/`@stt_rec`) — trùng tên với `grid@code` thì tự điền bằng khoá vừa dò được ở BƯỚC 1, không mở form; không trùng thì vẫn hỏi qua form như trên.
+
+Ba nhánh sau chạy **chính câu query của controller** — đổi lại là dữ liệu xem trước giống hệt
+runtime (đúng join, đúng kỳ, đúng phân quyền), và cái giá là mọi tác dụng phụ của câu ấy cũng
+xảy ra thật. Chúng chỉ đọc được ở **file đã customize** (`.xml`); câu query của file gốc `.f`
+nằm trong `<Encrypted>`, và extension nói thẳng điều đó thay vì đoán.
+
+Ô ngày trong form tham số dùng một ô CÓ MẶT NẠ (`dd/MM/yyyy`…): gõ số tự nhảy vùng, bôi đen
+cả ô rồi Delete/Backspace giữ lại dấu phân cách (`__/__/____`), và ngày được kẹp về ngày cuối
+cùng hợp lệ của tháng/năm đang có khi đủ cả ba vùng (`30/02/2026` → `28/02/2026`).
+
+Giá trị cho các biến `@@…` nằm ở `core/config/sample-params.json`, đổi tự do bằng thiết lập
+`fboDesigner.sampleParams` (`@@sysDatabaseName` / `@@appDatabaseName` lấy từ `Web.config`).
+
+**`Grid/Config` cũng được tính vào**, cả cột lẫn join. Cấu hình ẩn (`Grid/Config/Fields/<Tên>.xml`
+và `<group>` của `Grid/Config/Initialize.xml`) thêm cột vào lưới, và nó nuôi mấy cột ấy bằng cách
+VÁ CHUỖI câu query của controller:
+
+```xml
+<query event="Loading">
+  <items>
+    <item source="a left join dmkh b on a.ma_kh = b.ma_kh"
+          destination="a left join dmkh b on a.ma_kh = b.ma_kh left join dmnvbh v0 on a.ma_nvbh = v0.ma_nvbh" />
+  </items>
+</query>
+```
+
+Bản vá áp theo đúng thứ tự ưu tiên của `mergeGridConfig` (Fields trước Initialize) và áp TRƯỚC
+khi thay `@@…`, vì bản khai neo vào chính tên biến (`source="', @@textOrderBy"`). Thiếu nó là câu
+mẫu mang `v0.ten_nvbh` trong khi mệnh đề join không hề có `v0`. `event="Scattering"` cố ý không
+đọc: `source` của nó là biểu thức chính quy và nó vá mệnh đề lọc, không vá câu query.
+
+**Nguồn của một cột** xét theo thứ tự: `field@aliasName` trước (`aliasName="b"` → `b.ten_vt`),
+rồi tới `field@defaultValue` khi field khai `external="true"` mà KHÔNG khai `aliasName`. Đó đúng
+là cột không nằm trên bảng nào cả — `<field name="ten_dvt%l" external="true" defaultValue="''">`,
+`<field name="u0" external="true" defaultValue="rtrim(u0.statusname%l)">` — và dựng `a.ten_dvt`
+cho nó là "Invalid column name" giết cả câu lệnh.
+
+Ranh giới là NGUỒN của lưới, không phải `type`. **Chứng từ** và **lưới chi tiết** đọc bảng
+master/chi tiết cộng mấy join viết rõ, nên `external` không alias = chắc chắn không có trên hàng
+gốc → lấy `defaultValue`. **Danh mục** và **báo cáo** đọc một nguồn phẳng hay là view đã join sẵn
+(`viewdmkh` có thật cột `ten_nvbh`), nên `external` không nói được gì → chỉ lấy `defaultValue`
+khi nó là biểu thức, không lấy khi nó là hằng `''`/`0`. Field không `external` thì luôn bỏ qua
+`defaultValue`: cột có thật trên bảng, và đó chỉ là giá trị lúc thêm dòng.
+
+Nếu câu query của file dùng tham số `@x` (6 lưới chi tiết của FBISP24 dùng khoá của hàng cha —
+`@ma_vt`, `@stt_rec`), extension hỏi giá trị y như với báo cáo.
+
+Cột nào không dựng được thì **bỏ riêng cột đó** và nói lý do ở Output, chứ không bỏ cả phép xem
+trước. Ô của những cột ấy hiện **gạch chéo xám** — để phân biệt với ô có dữ liệu mà giá trị rỗng.
+
+Lưới `Inquiry` không tự lấy dữ liệu (màn hình cha bơm vào) nên không xem trước được.
+
+**Giá trị hiện đúng như runtime hiện**, vì bề rộng đo được là bề rộng của chuỗi HIỆN RA, không
+phải của chuỗi SQL trả về:
+
+| | |
+| --- | --- |
+| **Tiếng Việt nguyên vẹn** | `sqlcmd` được gọi qua **file, không qua tham số dòng lệnh**: câu lệnh ghi ra một file `.sql` UTF-8 (`-i`), kết quả đọc lại từ một file khác (`-o`), cả hai với `-f 65001` — không phải đọc thẳng ở stdout, vì ống stdout của `execFile` không theo codepage đó. Nhánh dựng bảng tạm/bảng đích (`##fbo$sample`) còn bọc thêm cột chữ của **vế chiếu cuối cùng** dưới dạng hex rồi giải ở tầng vỏ, phòng khi việc gán qua `insert…select` ở giữa vẫn làm mất dấu; `@@textList` của lưới chứng từ thì KHÔNG bọc — nó dựng bảng tạm `#t` mà proc join bằng chính giá trị của nó. Không làm những việc trên thì `CÔNG TY … THƯƠNG MẠI` ra `CONG TY … THUONG M?I` hoặc `Chi?t kh?u nh¢m` |
+| **`dataFormatString`** | `2026-09-07 00:00:00.000` → `07/09/2026`, `1234567.8900` → `1 234 567.89`. Mặt nạ `@datetimeFormat` / `@…ViewFormat` đọc từ `Options/Options.xml` của chính program; mặt nạ `View` để trống ô khi giá trị bằng 0, đúng quy ước FBO |
+| **Canh lề** | số canh **phải**, ngày canh **giữa**, còn lại canh **trái** — theo `field@type`, không chỉ theo `<items style="Numeric">`, vì phần lớn cột tiền khai `type="Decimal"` mà không khai `<items>` |
 
 Cần `sqlcmd` trên máy (khai đường dẫn ở `fboDesigner.sqlcmdPath` nếu cài chỗ lạ) và `Web.config`
 của program đọc được.
 
 
-### 5. Mục lục file (`Ctrl+Shift+O`)
+### 5. Mục lục file (`Ctrl+Shift+O`) *(bản dev)*
 
 Controller thật dài vài nghìn dòng. `Ctrl+Shift+O` (hoặc panel **Outline**) cho cây cấu trúc và
 nhảy thẳng tới chỗ khai:
@@ -169,7 +252,7 @@ toolbar (7)
 - Thứ đã comment thì không có trong mục lục, cùng luật với designer
 
 
-### 6. Đi tới định nghĩa (`F12` / `Ctrl+click` trong editor)
+### 6. Đi tới định nghĩa (`F12` / `Ctrl+click` trong editor) *(bản dev)*
 
 Ba thứ nhảy được ngay trong file XML, không cần mở designer:
 
@@ -189,7 +272,7 @@ là định nghĩa rồi. Thứ đã comment cũng không nhảy, cùng luật v
 Chạy trên mọi file dưới `App_Data\Controllers`, không cần license.
 
 
-### 7. Rê chuột và gợi ý
+### 7. Rê chuột và gợi ý *(bản dev)*
 
 **Rê chuột** lên một field — trong `<fields>`, trong `[token]`, hay trong danh sách cột — hiện
 nhãn, kiểu, `maxLength`, bề rộng, `aliasName`, và **file khai nó** nếu đó không phải file đang

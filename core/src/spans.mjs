@@ -457,3 +457,53 @@ export function scanCss(text) {
     .replace(/<Encrypted>[\s\S]*?<\/Encrypted>/gi, '')
     .trim();
 }
+
+/**
+ * `<queries><query event="…"><items><item source destination/></items></query></queries>` của
+ * một mảnh `Grid/Config` — bản khai VÁ CHUỖI cho câu query của controller.
+ *
+ * Đây là cách FBO thêm join vào một câu query mà KHÔNG sửa file controller: cấu hình nói «tìm
+ * chuỗi A trong câu query, thay bằng chuỗi B». Hai mảnh cấu hình của `Grid/SOTran.xml`
+ * (HOATP FBISP2421) vá cùng một câu, ở hai chỗ neo khác nhau:
+ *
+ *   Config/Fields/SOTran.xml   A = `a left join dmkh b on a.ma_kh = b.ma_kh`
+ *                              B = A + ` left join dmnvbh v0 on a.ma_nvbh = v0.ma_nvbh`
+ *   Initialize group 001       A = `', @@textOrderBy`
+ *                              B = ` left join dmttct u0 on … ', @@textOrderBy`
+ *
+ * Mảnh thứ hai neo vào DẤU NHÁY ĐÓNG của chuỗi join cộng tham số kế tiếp, nên nó chèn vào bên
+ * trong chuỗi ấy mà không đụng gì tới mảnh thứ nhất. Nhờ vậy hai phép vá không tranh nhau, và
+ * thứ tự áp không đổi kết quả — nhưng vẫn áp theo `rank` cho tất định.
+ *
+ * `event="Scattering"` CỐ Ý không đọc ở đây: `source` của nó là BIỂU THỨC CHÍNH QUY
+ * (`\bstatus\b`, `[(]ma_ct[)]`), không phải chuỗi thường, và nó vá mệnh đề lọc chứ không vá câu
+ * query. Trộn hai loại vào một bảng là chỗ để một `\b` chạy vào phép thay chuỗi thường.
+ *
+ * @returns {Record<string, Array<{source: string, destination: string}>>} khoá là `event`
+ */
+export function scanConfigQueries(text) {
+  const out = {};
+  const skip = commentSkipper(text);
+  const RE_QUERY = /<query\s+event="(\w+)"\s*>([\s\S]*?)<\/query>/gi;
+  let q;
+  while ((q = RE_QUERY.exec(text)) !== null) {
+    if (skip(q.index)) continue;
+    const event = q[1];
+    if (event.toLowerCase() === 'scattering') continue;
+
+    // Chỉ `<item>` nằm trong `<items>`: `<clauses><clause statement=…>` là bản khai khác hẳn.
+    const items = /<items\s*>([\s\S]*?)<\/items>/i.exec(q[2]);
+    if (!items) continue;
+
+    const list = out[event] ?? (out[event] = []);
+    const RE_PAIR = /<item\b([^>]*?)\/?>/gi;
+    let it;
+    while ((it = RE_PAIR.exec(items[1])) !== null) {
+      const { attrs } = parseAttrs(it[1], 0);
+      // `source` rỗng thì phép thay chạy vào MỌI vị trí — bỏ, chứ không để nó phá cả câu.
+      if (!attrs.source) continue;
+      list.push({ source: attrs.source, destination: attrs.destination ?? '' });
+    }
+  }
+  return out;
+}

@@ -5,11 +5,14 @@
 // sách splice; ai ghi là việc của tầng extension. Mất luật này là mất khả năng test headless.
 
 export { readSource, decodeSource, encodeWindows1258, stripAccents } from './encoding.mjs';
-export { scanViews, scanFields, scanTitle, scanToolbar, scanCss, scanRoot, applySplices } from './spans.mjs';
+export {
+  scanViews, scanFields, scanTitle, scanToolbar, scanCss, scanRoot, applySplices, scanConfigQueries,
+} from './spans.mjs';
 export { resolveProgramPaths } from './program.mjs';
 export { expandEntities, findInternalSubset, resolveSystemPath, segmentAt, mapToSource, sourceRange, hostRefAt, refResolvedSpan, shiftSegments, scanEntityRefs } from './entities.mjs';
+export { scanOptionVars, formatSampleValue, isNumericField, isDateField, formatDate, parseDisplayDate, resolveMask } from './format.mjs';
 export { renderControl, renderGridControl, containerClass, isDisabled, isTextArea, resolveLocaleName, alignOf } from './control.mjs';
-export { buildGridModel, renderGridHtml, renderGrid, applyArrangement } from './grid.mjs';
+export { buildGridModel, renderGridHtml, renderGrid, applyArrangement, mergeGridConfig } from './grid.mjs';
 export {
   classifyItem,
   parseWidths,
@@ -41,7 +44,7 @@ export {
   valuesToFieldSpec,
   isValidFieldName,
 } from './field-template.mjs';
-export { msg, t, MESSAGES, FIELDS_CONFIG, VIEWS_CONFIG, SQL_CONFIG } from './msg.mjs';
+export { msg, t, MESSAGES, FIELDS_CONFIG, VIEWS_CONFIG, SQL_CONFIG, SAMPLE_PARAMS } from './msg.mjs';
 /*
  * Hình dạng cảnh báo chẩn đoán. Tầng vỏ nhận `{code, message, severity, item, range}`, trong đó
  * `range` là `{file, start, end}` trong FILE NGUỒN — có thể là một file Include, không nhất
@@ -67,7 +70,7 @@ export {
   renderFilterDeclareSql,
   planEnableFilter,
 } from './filter-declare.mjs';
-export { buildViewModel, renderViewHtml, renderControllerHtml, renderRowHtml, DIALOG_CHROME_PX } from './render.mjs';
+export { buildViewModel, renderViewHtml, renderControllerHtml, renderRowHtml, DIALOG_CHROME_PX, scanGridConfig, configQueryRewrites } from './render.mjs';
 export {
   mainTableExclusionReason,
   sqlTypeOf,
@@ -77,7 +80,22 @@ export {
   renderAddColumnSql,
   DEFAULT_PARTITION_TEMPLATE,
 } from './add-column.mjs';
-export { buildSampleSelect, maskSampleValue, maskSampleRows, SAMPLE_TOP_DEFAULT, SAMPLE_TOP_MAX } from './grid-sample.mjs';
+export {
+  buildSampleSelect,
+  buildSampleProbe,
+  maskSampleValue,
+  maskSampleRows,
+  sampleKindOf,
+  scanScriptParams,
+  scriptParamFields,
+  scriptParamLiteral,
+  readControllerQuery,
+  substituteParams,
+  partitionPeriod,
+  SAMPLE_TOP_DEFAULT,
+  SAMPLE_TOP_MAX,
+  SAMPLE_SENTINEL,
+} from './grid-sample.mjs';
 export {
   assertIdent,
   ENTITY_APP_DATABASE_SQL,

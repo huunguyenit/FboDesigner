@@ -15,6 +15,7 @@
 // thẳng từ XML nên đúng; phần chrome quanh lưới còn là ước lượng.
 
 import { renderGridControl, isDisabled, resolveLocaleName, alignOf } from './control.mjs';
+import { formatSampleValue } from './format.mjs';
 import { sourceRange, hostRefAt } from './entities.mjs';
 import { msg, VIEWS_CONFIG } from './msg.mjs';
 import * as warn from './warn.mjs';
@@ -581,7 +582,7 @@ function anchorAttrs(col) {
  *   `embedded` — lưới nằm TRONG một tab của form, không phải màn hình lưới đứng riêng.
  *   `bodyHeight` — `<field rows="N">` của ô chứa lưới: chiều cao phần thân, px.
  */
-export function renderGridHtml(model, { embedded = false, bodyHeight = null, sampleRows = null } = {}) {
+export function renderGridHtml(model, { embedded = false, bodyHeight = null, sampleRows = null, formats = {} } = {}) {
   const fitWidth = !embedded && isViewportGrid(model.type);
 
   /*
@@ -732,9 +733,10 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null, sam
    * `withId: false` là bắt buộc: `id` suy từ tên field, nên mười hàng là mười phần tử trùng id.
    *
    * Cột KHÔNG CÓ KHOÁ trong dòng dữ liệu khác hẳn cột có khoá mà giá trị rỗng — cột ấy đã bị
-   * `buildSampleSelect` bỏ ra khỏi câu lệnh (bảng tạm cục bộ, biểu thức không bóc được…). Đánh
-   * dấu `data-fbo-nodata` để tầng vỏ nói được «chỗ này không lấy được dữ liệu», thay vì để
-   * người dùng đọc một ô trống thành «dữ liệu rỗng».
+   * `buildSampleSelect` bỏ ra khỏi câu lệnh (biểu thức, alias trỏ sang bảng khác trên một lưới
+   * danh mục…), hoặc câu query của file không trả về nó. Đánh dấu `data-fbo-nodata` để tầng vỏ
+   * nói được «chỗ này không lấy được dữ liệu», thay vì để người dùng đọc một ô trống thành
+   * «dữ liệu rỗng».
    */
   function dataBody(rows) {
     return rows.map((row, i) => {
@@ -744,12 +746,18 @@ export function renderGridHtml(model, { embedded = false, bodyHeight = null, sam
         }
         if (c.hidden) return dataCell(c, '');
         const raw = row[c.name];
+        /*
+         * Định dạng theo `field@dataFormatString` TRƯỚC khi vẽ. Dữ liệu về từ `sqlcmd` là văn
+         * bản thô của SQL Server (`2026-09-07 00:00:00.000`, `1234567.8900`); runtime hiện
+         * `07/09/2026` và `1 234 567.89`. Đo bề rộng cột trên chuỗi thô là đo trên một chuỗi
+         * dài hơn chuỗi thật — sai đúng cái tính năng này sinh ra để đo.
+         */
         return dataCell(c, renderGridControl(c.field, {
           vi: model.vi,
           cellWidth: c.width,
           // `NULL` của SQL về chuỗi rỗng: `null` ở tham số `value` mang nghĩa «dùng giá trị mặc
           // định của field», và một ô NULL thì không được hiện ra giá trị mặc định của ai cả.
-          value: raw === null || raw === undefined ? '' : String(raw),
+          value: formatSampleValue(raw, c.field, formats),
           withId: false,
         }));
       }).join('');
@@ -1042,7 +1050,7 @@ export function applyArrangement(columns, arrangement, warnings = []) {
  * Trùng tên thì bản của CONTROLLER thắng: cấu hình ẩn là phần bổ sung dùng chung, còn controller
  * là chỗ khai riêng cho màn hình này.
  */
-function mergeGridConfig(view, fields, config, warnings) {
+export function mergeGridConfig(view, fields, config, warnings) {
   if (!config || config.length === 0) return { view, fields, arrangement: '' };
 
   const byName = new Map(fields.map((f) => [f.name, f]));
@@ -1190,7 +1198,12 @@ export function renderGrid(views, fields, opts = {}) {
   }
   const embedded = opts.embedded === true;
   return {
-    html: renderGridHtml(model, { embedded, bodyHeight: opts.bodyHeight ?? null, sampleRows: opts.sampleRows ?? null }),
+    html: renderGridHtml(model, {
+      embedded,
+      bodyHeight: opts.bodyHeight ?? null,
+      sampleRows: opts.sampleRows ?? null,
+      formats: opts.formats ?? {},
+    }),
     model,
     // Tầng vỏ cần biết để nới `#fbo-stage` ra hết bề ngang — `width:100%` trong một hộp
     // `inline-block` co theo nội dung thì không nới được gì. Xem `panelStyle`.

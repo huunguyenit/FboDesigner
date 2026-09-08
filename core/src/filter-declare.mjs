@@ -77,6 +77,10 @@ export function scanPartition(text) {
     prime: a.prime ?? null,
     inquiry: a.inquiry ?? null,
     field: a.field ?? null,
+    // Biểu thức đổi một ngày thành hậu tố kỳ (`convert(char(6), {0}, 112)`). Không dùng ở đây,
+    // nhưng `grid-sample.mjs` truyền NGUYÊN VĂN nó cho `FastBusiness$App$Voucher$Loading` —
+    // bỏ trống là proc tính kỳ bằng một biểu thức rỗng và không trả về dòng nào.
+    expression: a.expression ?? null,
     primeTable: a.prime ? `${a.prime}%Partition` : null,
     // `increase`/`default` trần — thô, không diễn giải gì thêm ở đây. `add-column.mjs` đọc hai
     // thứ này để phân biệt "chia kỳ thật" (bảng xoay theo tháng/năm) với "khai <partition> nhưng

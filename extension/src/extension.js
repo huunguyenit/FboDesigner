@@ -23,6 +23,7 @@ const { registerDiagnostics } = require('./diagnostic-host');
 const { registerSymbols } = require('./symbol-host');
 const { registerDefinitions } = require('./definition-host');
 const { registerLanguageFeatures } = require('./language-host');
+const { devFeaturesEnabled } = require('./dev-features');
 
 /**
  * Core nằm ở hai chỗ khác nhau tuỳ cách chạy, và đó là chuyện cố ý:
@@ -62,37 +63,31 @@ async function activate(context) {
   context.subscriptions.push(FboDesignerProvider.register(context, core, output));
 
   /*
-   * Chẩn đoán KHÔNG đi qua `withLicense`, khác mọi lệnh bên dưới.
+   * Phase #1 (chẩn đoán) và Phase #2 (mục lục, F12, rê chuột, gợi ý) là TÍNH NĂNG ẨN — xem
+   * `dev-features.js`. Mặc định KHÔNG đăng ký bốn provider dưới đây: bản `.vsix` đóng gói bình
+   * thường không mang chúng, chỉ bản đóng bằng `--dev` (hoặc chạy F5 từ mã nguồn) mới có.
    *
-   * Gạch đỏ trên file là thứ chạy nền, không phải một lệnh người dùng bấm. Khoá nó lại thì
-   * người chưa kích hoạt mở một controller hỏng ra và thấy... không gì cả — không thông báo,
-   * không chỗ để hỏi vì sao. Im lặng là câu trả lời tệ hơn cả một lời từ chối, và đây cũng là
-   * cách tự nhiên nhất để người ta thấy extension này làm được gì.
+   * Bên trong khối này KHÔNG có lệnh nào gate license — nếu sau này bật cho khách thật, giữ
+   * nguyên lý do đã ghi ở từng provider: chúng là thứ editor tự hỏi (Problems, Outline, F12,
+   * hover), không phải lệnh người ta chủ động bấm, nên khoá license ở đây là im lặng đúng chỗ
+   * cần một lời giải thích nhất.
    */
-  registerDiagnostics(context, core, output);
+  if (devFeaturesEnabled(context)) {
+    // Gạch đỏ trên file là thứ chạy nền, không phải một lệnh người dùng bấm.
+    registerDiagnostics(context, core, output);
 
-  /*
-   * Mục lục cũng KHÔNG gate license, cùng lý do với chẩn đoán: nó là thứ editor tự hỏi khi
-   * người dùng bấm `Ctrl+Shift+O`, không phải một lệnh người ta chủ động chạy. Khoá lại thì
-   * outline trống trơn mà không có chỗ nào nói vì sao.
-   *
-   * Phạm vi rộng hơn designer — mọi file dưới `App_Data\Controllers`, kể cả `Include\` — vì
-   * mục lục không cần vẽ được màn hình mới hữu ích. Xem `symbol-host.js`.
-   */
-  registerSymbols(context, core, output);
+    // Phạm vi rộng hơn designer — mọi file dưới `App_Data\Controllers`, kể cả `Include\` —
+    // vì mục lục không cần vẽ được màn hình mới hữu ích. Xem `symbol-host.js`.
+    registerSymbols(context, core, output);
 
-  /*
-   * F12 / Ctrl+click TRONG EDITOR VĂN BẢN — khác Ctrl+click trên designer, vốn đi qua
-   * `revealSource` và còn quyết mở ở cột nào. Ở đây provider chỉ trả một `Location`, VS Code lo
-   * phần còn lại. Không gate license, cùng lý do với mục lục và chẩn đoán.
-   */
-  registerDefinitions(context, core, output);
+    // F12 / Ctrl+click TRONG EDITOR VĂN BẢN — khác Ctrl+click trên designer, vốn đi qua
+    // `revealSource` và còn quyết mở ở cột nào. Ở đây provider chỉ trả một `Location`.
+    registerDefinitions(context, core, output);
 
-  /*
-   * Rê chuột và gợi ý. Hover đọc được cả DỮ LIỆU THẬT khi người dùng đã bấm `Ctrl+Alt+D` — chỗ
-   * `width="60"` và «dài nhất 38 ký tự» đứng cạnh nhau đủ gần để thấy con số nào sai.
-   */
-  registerLanguageFeatures(context, core, output);
+    // Hover đọc được cả DỮ LIỆU THẬT khi người dùng đã bấm `Ctrl+Alt+D` — chỗ `width="60"` và
+    // «dài nhất 38 ký tự» đứng cạnh nhau đủ gần để thấy con số nào sai.
+    registerLanguageFeatures(context, core, output);
+  }
 
   // Mọi lệnh nghiệp vụ đều qua withLicense — Settings (machineId / dán key) vẫn dùng được.
   context.subscriptions.push(

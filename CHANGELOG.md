@@ -2,6 +2,684 @@
 
 Định dạng dựa trên [Keep a Changelog](https://keepachangelog.com/).
 
+## [Chưa phát hành]
+
+### Thêm — Phase #1/#2 thành TÍNH NĂNG ẨN, chỉ bật khi đóng `.vsix` bằng `--dev`
+
+Chẩn đoán (Problems panel), mục lục (`Ctrl+Shift+O`), F12, rê chuột và gợi ý — bốn provider đăng
+ký ở `activate()` — nay KHÔNG có trong bản `.vsix` đóng gói bình thường. Chúng vẫn còn nguyên
+trong mã nguồn và trong bộ test, chỉ là không được `registerDiagnostics`/`registerSymbols`/
+`registerDefinitions`/`registerLanguageFeatures` gọi tới trừ khi bật.
+
+Bật khi MỘT trong hai — [`extension/src/dev-features.js`](extension/src/dev-features.js):
+
+1. Extension Host chạy ở chế độ KHÔNG PHẢI `Production` (`context.extensionMode`) — tức F5 từ
+   mã nguồn (`Development`) hoặc Extension Test Host (`Test`). Đó là máy của người đang PHÁT
+   TRIỂN extension, không cần giấu gì với chính họ.
+2. Gói `.vsix` được đóng bằng `node tools/package-vsix.mjs --dev`. Cờ này KHÔNG đổi một dòng mã
+   nào, không đổi số hiệu phiên bản — nó chỉ thêm đúng MỘT FILE RỖNG vào gói,
+   `extension/dev-features.flag`. `extension.js` đọc SỰ CÓ MẶT của file ấy, không đọc nội dung.
+   Hai gói dựng từ cùng một commit chỉ khác nhau ở việc có hay không có đúng một file trống —
+   không phải hai nhánh mã khác nhau, không phải hai lượt build khác nhau.
+
+Vì sao một file đánh dấu chứ không phải một khoá trong `package.json`: `package.json` bị đọc
+rộng — Cursor/VS Code hiện nó trong panel Extensions, và một `.vsix` chỉ là file ZIP nên ai tò
+mò cũng mở ra xem được (xem đầu `package-vsix.mjs`). Một khoá `"dev": true` nằm ngay đó là mời
+người ta hỏi "cờ gì vậy". Một file rỗng cạnh `package.json` thì không cần giải thích gì trong
+`package.json` cả.
+
+`context` méo mó hoặc thiếu thì mặc định luôn nghiêng về phía ẨN (không phải bật đại): thiếu
+thông tin để biết chắc là F5 thì rơi về kiểm tra file, và không có file thì trả `false`.
+
+Mọi lý do "không gate license" đã ghi ở từng provider (Problems, Outline, F12, hover là thứ
+editor tự hỏi, không phải lệnh người ta chủ động bấm) vẫn còn nguyên — cờ dev đứng NGOÀI câu hỏi
+license, trả lời một câu khác: bản này có MANG tính năng ấy vào hay không, trước cả khi tính tới
+ai được phép dùng nó.
+
+`.flag` được khai thêm vào `[Content_Types].xml` như một Default Extension (`text/plain`) — OPC
+đòi khai kiểu cho MỌI đuôi file có trong gói, thiếu một cái thì trình đọc chặt từ chối cả gói.
+Khai TĨNH, không điều kiện theo `--dev`: khai thêm một đuôi không dùng tới là vô hại, còn thiếu
+khai đúng lúc cần thì gói `--dev` hỏng ngay lúc cài trên máy người kiểm thử.
+
+`Ctrl+Alt+D` (Phase #4, xem dữ liệu thật) KHÔNG nằm trong cờ này — vẫn luôn có mặt, chỉ gate
+license như trước giờ.
+
+Test: 10 phép kiểm
+([`extension/test/test-dev-features.mjs`](extension/test/test-dev-features.mjs)), và xác nhận
+trên chính file `.vsix` thật — đóng cả hai đường rồi mở lại bằng
+`System.IO.Compression.ZipFile` để khẳng định `extension/dev-features.flag` có mặt đúng lúc,
+vắng mặt đúng lúc.
+
+
+### Sửa tiếp — mốc (`~fbo-dataset-N~`) SAI VỀ NGUYÊN TẮC, bỏ hẳn: `dir@id` là chỉ số vào bảng THẬT SỰ trả về, không phải vào câu lệnh
+
+Bản ngay trước cắm một mốc riêng cho MỖI CÂU sinh resultset trong script (`reportResultsets`).
+Sai ở chỗ: nếu một câu `exec` DUY NHẤT tự bên trong nó in ra NHIỀU HƠN MỘT bảng (điều hoàn toàn
+có thể với một stored procedure báo cáo), thì một mốc đặt trước câu `exec` ấy không thể tách các
+bảng đó ra được — `dir@id` của FBO/DevWorkFlow đúng nghĩa là chỉ số vào `DataSet.Tables[N]`, tức
+đếm theo BẢNG THẬT SỰ SQL Server trả về, một con số chỉ biết được SAU KHI CHẠY XONG, không phải
+đếm theo số câu lệnh đứng trong văn bản script.
+
+Bỏ hẳn cơ chế cắm mốc. Thay vào đó (`grid-sample.mjs: buildDirectResultsetSelect`):
+
+- Script chạy NGUYÊN VĂN, không sửa MỘT KÝ TỰ NÀO — không mốc, không bảng tạm, không dò schema.
+- `sql-host.js: runSampleQueryDataset` bật header của `sqlcmd`, rồi `splitResultsets` tách CHÍNH
+  output thô thành từng bảng bằng ranh giới có sẵn của chính `sqlcmd`: mỗi resultset in ra một
+  dòng header rồi một dòng gạch ngang phân cách (`----------`) — không cần bất kỳ dấu hiệu nào
+  do FBO Designer tự thêm vào.
+- Số bảng thật sự (`tableCount`) chỉ biết được ở bước này; `dir@id` vượt quá số đó thì rơi về
+  bảng CUỐI CÙNG, có ghi rõ ra Output kèm cả số bảng thật lẫn `dir@id` đã khai, để không ai phải
+  đoán vì sao xem trước ra khác báo cáo thật.
+
+### Sửa tiếp — Tiếng Việt vẫn mất dấu dù đã đổi `sqlcmd -Q` → `-i <file>`: đường ống `stdout` của `execFile` không theo `-f 65001`
+
+Đổi sang `-i <file UTF-8>` (mục dưới) đọc ĐÚNG khi chạy `sqlcmd` tay trong SSMS/console, nhưng
+extension vẫn ra mojibake — vì `execFile` đọc kết quả qua một PIPE, không phải một console/TTY
+thật, và `-f` (codepage) của `sqlcmd` chi phối codepage của CONSOLE, không nhất thiết áp dụng cho
+một pipe. Sửa theo đúng cách MCP `run_sql_script` đã dùng: thêm `-o <file kết quả>`, đọc lại từ
+FILE đó (không đọc `stdout` nữa), bỏ BOM đầu file trước khi giải UTF-8
+(`sql-host.js: runSqlcmd`, `decodeSqlcmdRows`).
+
+### Sửa — TÌM RA GỐC RỄ LỖI ENCODE: `sqlcmd -Q` mất dấu tiếng Việt qua ARGV, không phải cần hex mọi nơi
+
+Đối chiếu trực tiếp `zc_rptPurchaseDiscount` của HOATP qua MCP (chương trình thật, `\\172.168.5.14\
+CustomerPro\FBI\HOATP\FBISP2421`) mới lộ ra HAI sự thật cùng lúc:
+
+1. **SQL Server của khách là 2008 R2** — không có `sys.dm_exec_describe_first_result_set` (hàm
+   này chỉ từ SQL Server 2012). Toàn bộ cơ chế "dò schema trước rồi hex-hoá qua bảng tạm" của bản
+   trước chết ngay từ bước dò — `Invalid object name 'sys.dm_exec_describe_first_result_set'` —
+   và không bao giờ tới được bước đọc dữ liệu thật.
+2. **Một SELECT trần tiếng Việt đọc THẲNG từ HOATP ra ĐÚNG dấu, không cần hex.** Nghĩa là giả
+   thiết nền tảng của toàn bộ cơ chế hex trong file này — "`sqlcmd` LUÔN đổi ký tự có dấu thành
+   `?` ở tầng console/OEM codepage" — chỉ đúng với CÁCH GỌI `sqlcmd` mà `sql-host.js` đang dùng
+   (`-Q "<query>"`, câu lệnh qua ARGV), không đúng với `sqlcmd` nói chung.
+
+### Sửa tận gốc: `sqlcmd -i <file UTF-8 có BOM> -f 65001`, không còn `-Q`
+
+`runSqlcmd` (`sql-host.js`) đổi từ truyền câu lệnh qua `-Q` (một đối số dòng lệnh — CHÍNH đường
+này làm mất dấu, không phải bản thân `sqlcmd`) sang ghi câu lệnh ra một FILE TẠM mã hoá UTF-8 kèm
+BOM rồi chạy `-i <file> -f 65001` (UTF-8 cả đọc lẫn ghi), đọc lại stdout bằng UTF-8 thay vì
+`latin1`. `run_sql_script` của MCP 4ai-fbo vốn đã dùng đúng cách này ("`sqlcmd -i` với codepage
+UTF-8") — không phải một phát minh mới, mà là một cách gọi ĐÃ ĐƯỢC XÁC NHẬN hoạt động đúng trên
+đúng loại SQL Server này.
+
+### Viết lại nhánh Report: KHÔNG dò schema, KHÔNG bảng tạm, KHÔNG hex — CHẠY ĐỦ SCRIPT
+
+Chuẩn tắc do người dùng chốt 2026-09-08: *"chạy đủ script, bốc dataset, lấy đúng table id và gán
+vào cột là xong"*. Toàn bộ cơ chế BƯỚC 0 (`sys.dm_exec_describe_first_result_set`) + bảng tạm
+`##fbo$sample` + `insert…exec`/`select…into` bị BỎ. Thay vào đó:
+
+- Mỗi câu SINH RESULTSET trong script (`reportResultsets`) được cắm một MỐC RIÊNG
+  (`~fbo-dataset-0~`, `~fbo-dataset-1~`, …) ngay TRƯỚC nó — không đụng một ký tự nào vào nội
+  dung các câu, chỉ chèn một dòng `select '<mốc>';` xen giữa.
+- Script chạy ĐỦ, đúng thứ tự gốc, một lần duy nhất — không cắt ngắn, không phân biệt bảng đã
+  chọn đứng ở đâu.
+- Tầng vỏ (`sql-host.js: runSampleQueryDataset`) bật header của `sqlcmd`, cắt đúng đoạn nằm GIỮA
+  mốc của bảng `dir@id` đã chọn và mốc kế tiếp (hoặc hết luồng), rồi khớp cột theo TÊN
+  (`mapNamedRows`) — field nào lưới khai mà bảng thật không có cột trùng tên thì BỎ, không đoán.
+- KHÔNG hex-hoá: không cần nữa, vì đường `sqlcmd` mới (xem trên) đã ra đúng dấu tiếng Việt.
+
+Đây cũng là lý do gọi được ÍT hơn — bản trước gọi hai lượt `sqlcmd` (một lượt dò schema, một lượt
+đọc dữ liệu); bản này gọi ĐÚNG MỘT LƯỢT.
+
+### Sửa — XEM DỮ LIỆU THẬT: báo cáo CHẠY ĐỦ SCRIPT, không cắt ngắn (xác nhận của người dùng 2026-09-08)
+
+`buildResultsetSelect` (báo cáo không `'#$query'`) từng CẮT NGẮN script ngay sau bảng đã chọn:
+nếu `dir@id` trỏ tới một bảng KHÔNG phải bảng cuối, mọi câu đứng sau nó (kể cả `exec` proc báo
+cáo thật) bị bỏ qua hoàn toàn — sai tác dụng phụ so với runtime, và là lệch với chuẩn tắc đã
+chốt: "chạy đủ script, bốc dataset, lấy đúng table id và gán vào cột".
+
+Nay bảng đã chọn được HỨNG VÀO MỘT BẢNG TẠM (`##fbo$sample`) ngay tại đúng vị trí của nó trong
+script, rồi PHẦN CÒN LẠI của script vẫn chạy tiếp sau đó — cho tác dụng phụ y hệt runtime, bất kể
+`dir@id` trỏ tới bảng nào. Mốc `SAMPLE_SENTINEL` cắm SAU CÙNG (sau cả phần script còn lại), nên
+dữ liệu đọc lại luôn là ĐÚNG bảng tạm đã hứng từ trước, không phụ thuộc gì vào việc phần còn lại
+của script có in ra resultset gây nhiễu hay không.
+
+Cách hứng vào bảng tạm cũng đơn giản hơn cho trường hợp bảng đã chọn là một `select` trần: dùng
+`select … into` (SQL Server tự suy ra schema của chính câu select đó), không cần `create table`
+khai kiểu tay như trước — chỉ nhánh `exec` mới cần `create table` đúng schema rồi `insert … exec`
+(cú pháp duy nhất nạp resultset của một exec vào một bảng có sẵn).
+
+### Đổi — XEM DỮ LIỆU THẬT: bỏ SET ROWCOUNT, cắt số dòng ở TẦNG VỎ thay vì ở SQL
+
+Lưới chi tiết (`buildDetailSelect`) và báo cáo dự phòng (`buildRawResultsetSelect`) từng chặn số
+dòng bằng `SET ROWCOUNT` — cách duy nhất giới hạn được một script nhiều câu mà không đụng cú
+pháp của nó. Cái giá đã ghi từ đầu nhưng chưa đủ nghiêm trọng để đổi: `SET ROWCOUNT` chặn MỌI
+resultset của cả batch, kể cả các câu `insert into #tmp` ở GIỮA script — một script tự dựng bảng
+tạm rồi tổng hợp sẽ ra con số của N dòng đầu của BẢNG TẠM, không phải N dòng đầu của kết quả cuối
+(xác nhận của người dùng 2026-09-08: script càng phức tạp thì càng dễ ra một con số không liên
+quan gì tới thứ đang xem).
+
+Nay hai nhánh ấy chạy câu lệnh KHÔNG giới hạn số dòng ở SQL, và tầng vỏ (`sample-host.js`) CẮT
+CÒN ĐÚNG `fboDesigner.sampleRowCount` (mặc định 10) ngay sau khi đọc xong, trước khi đưa vào
+lưới. Vẫn MỘT chỗ cấu hình duy nhất cho mọi kiểu lưới — ba nhánh còn lại (danh mục, chứng từ, báo
+cáo có schema) đã tự giới hạn bằng `top N` thật trong câu lệnh, nên lát cắt này với chúng vô hại.
+Đánh đổi nói thẳng: câu lệnh có thể kéo về nhiều hơn số dòng cần hiện — chấp nhận được cho một
+phép xem trước, và nếu bảng thật sự lớn thì `sqlcmd` tự chạm hạn giờ (đọc được hơn một con số sai
+lặng lẽ).
+
+### Sửa — XEM DỮ LIỆU THẬT: báo cáo (không '#$query') giờ HEX-HOÁ được, hết lỗi tiếng Việt thành '?'
+
+Bản trước (khớp `dataset[dir@id]` theo tên bằng cách bật header của `sqlcmd`) đọc ĐÚNG cột,
+nhưng vẫn còn lỗi cũ: cột chữ có dấu không hex-hoá được, và `sqlcmd` tự đổi ký tự tiếng Việt
+thành `?` ở tầng console/OEM codepage TRƯỚC KHI byte tới tay tầng vỏ — mất luôn, không cách nào
+decode lại được nữa ("Chi?t kh?u nh¢m 02.02" thay vì "Chiết khấu nhóm 02.02"). Ba nhánh kia
+(danh mục / chứng từ / chi tiết) không dính lỗi này vì chúng TỰ dựng câu `select` nên hex-hoá
+được; nhánh báo cáo chạy nguyên văn câu của file nên trước đây không biết cột nào là chữ để bọc.
+
+Nay thêm một BƯỚC 0: trước khi đọc, hỏi CHÍNH XÁC schema của bảng đã chọn (`dir@id`) bằng
+`sys.dm_exec_describe_first_result_set` — hàm này biên dịch TĨNH một batch T-SQL và trả về tên
+cột thật, kiểu SQL thật, KHÔNG chạy gì cả. Biết trước schema rồi thì dựng được câu ĐỌC LẠI có
+hex, y hệt ba nhánh kia:
+
+- Bảng đã chọn là một `exec …` — không "SELECT ... FROM" thẳng một lệnh gọi proc được, nên dựng
+  một bảng tạm TOÀN CỤC ĐÚNG schema vừa hỏi rồi `insert … exec …` (cú pháp DUY NHẤT nạp resultset
+  của một exec vào một bảng có sẵn), xong mới `select` lại có hex từ bảng ấy.
+- Bảng đã chọn là một `select …` (ví dụ `dataset[0]` là câu debug/echo tham số) — bọc thẳng thành
+  bảng con `(select …) as t`, không cần bảng tạm nào.
+
+`sys.dm_exec_describe_first_result_set` đòi SQL Server 2012+. Câu dò lỗi (SQL Server cũ hơn, hay
+lý do khác) thì tự rơi về cách đọc của bản trước — khớp theo tên LÚC CHẠY, không hex-hoá được,
+kèm ghi chú rõ vì sao — không dừng cả lệnh chỉ vì một câu dò không chạy được.
+
+### Sửa — XEM DỮ LIỆU THẬT: báo cáo lấy đúng `dataset[dir@id]`, khớp cột theo TÊN
+
+Khi proc không nhận bảng đích (`'#$query'`), script Processing có thể tự in ra NHIỀU bảng — ADO.NET
+nhận kết quả về một `DataSet` gồm nhiều `DataTable`, và Filter nói RÕ lấy bảng nào bằng `dir@id`.
+Đo được trên `zcrptPurchaseDiscount.xml` (HOATP/FBISP2421): script in ra đúng hai bảng —
+`select @tu_ngay as tu_ngay, @den_ngay as den_ngay` là `dataset[0]`, kết quả của
+`exec zc_rptPurchaseDiscount …` là `dataset[1]` — và Filter khai `<dir id="1">`, tức lấy
+`dataset[1]`. Bản trước LUÔN lấy resultset của `exec` (đúng cho ca này, tình cờ trùng với
+`dir id="1"`), nhưng không đọc `dir@id` nên sai với bất kỳ Filter nào khai số khác.
+
+Nay `grid-sample.mjs` tách thân Processing thành từng CÂU (`splitReportStatements` — ranh giới là
+mỗi lần gặp lại `select`/`exec`, vì corpus không có dấu `;` đáng tin cậy để tách), lọc ra những câu
+THẬT SỰ sinh resultset (bỏ `select @x = …` chỉ gán biến), rồi đọc `dir@id` làm chỉ số 0-based vào
+đúng danh sách ấy. Không khai, hay khai vượt quá số bảng thật có, thì lấy bảng CUỐI CÙNG (phỏng
+đoán an toàn nhất — script kiểu này gần như luôn kết thúc bằng câu tạo dữ liệu thật), kèm ghi chú
+khi số bị vượt quá.
+
+Cột KHÔNG còn khớp theo VỊ TRÍ nữa — mà theo TÊN THẬT của resultset, đúng cách ADO.NET tự bind
+`DataTable` vào lưới. Vì không dựng được `select` bọc ngoài (đây là nguyên văn câu của file), tầng
+vỏ bật header của `sqlcmd` (`runSampleQueryNamed`, `sql-host.js`) thay vì tắt hẳn (`-h -1`): đọc
+dòng-ngay-sau-mốc làm tên cột, bỏ dòng gạch ngang trang trí nếu có, rồi khớp `field@name` (đã phân
+giải `%l`) không phân biệt hoa/thường. Field nào lưới khai mà resultset không có cột trùng tên thì
+bị BỎ — không đoán, không giữ một cột rỗng lặng lẽ — và người dùng thấy rõ lý do ở Output.
+
+### Sửa — DIALOG THAM SỐ: ô ngày là Ô CÓ MẶT NẠ, không còn text trần
+
+Ô ngày trong form tham số (Detail lẫn Report) giờ là một ô CÓ MẶT NẠ thật sự, không chỉ hiện đúng
+định dạng rồi để người dùng tự gõ đúng chuỗi:
+
+- Gõ số TỰ NHẢY VÙNG — đủ hai chữ số cho `dd`/`MM`, đủ bốn cho `yyyy` thì con trỏ tự sang vùng kế.
+- Bôi đen CẢ Ô rồi Delete/Backspace GIỮ LẠI dấu phân cách (`__/__/____`), không xoá trắng thành
+  chuỗi rỗng.
+- Sửa ở vùng nào thì CHỈ vùng đó đổi — click vào vùng tháng chỉ ghi đè tháng, ngày và năm giữ
+  nguyên.
+- NGÀY được kẹp về ngày cuối cùng hợp lệ của tháng/năm đang có: `30/02/2026` → `28/02/2026`
+  (2026 không nhuận); `29/02/2024` giữ nguyên (2024 nhuận). Ngày CHỜ đủ cả tháng lẫn năm mới kẹp —
+  kẹp là phép một chiều, ghi đè sớm khi năm chưa biết có thể phá mất một ngày 29/02 đúng của một
+  năm nhuận mà không lấy lại được.
+
+Sống trong chuỗi HTML mà `dialog-panel.js` gửi cho webview (`attachDateMask`) — không phải một hàm
+export được, vì nó CHỈ chạy trong trình duyệt của webview. `scriptParamFields` (core) cấp thêm
+`mask` cho mỗi tham số (mặc định `dd/MM/yyyy`, hay mặt nạ thật nếu field trỏ `@tên` của
+`Options.xml`); `askScriptParams` (extension) truyền mặt nạ ấy vào field spec.
+
+### Sửa — XEM DỮ LIỆU THẬT: ba chỗ chỉnh sau khi dùng thật
+
+**1. Tham số trùng khoá chính thì tự điền, không mở form.** 6 lưới chi tiết của FBISP24 đòi
+khoá của hàng cha dưới dạng một tham số `@x` thẳng (`@stt_rec`, `@ma_vt`) thay vì qua
+`@@whereClause`. Trước đây lệnh vẫn mở form hỏi giá trị ấy — dù BƯỚC 1 (câu dò) vừa mới tự lấy
+được đúng giá trị đó từ database. Nay tham số nào TRÙNG TÊN với `grid@code` được điền thẳng bằng
+khoá vừa dò, kèm một dòng Output nói rõ đã điền gì — không hỏi lại một thứ vừa mới tự có. Tham
+số khác tên (khoá của một cấp cha khác) không có nguồn nào chắc chắn, nên vẫn hỏi qua form.
+
+**2. Báo cáo không nhận `'#$query'` thì không dựng `##fbo$sample`.** Một số proc báo cáo
+(`zc_rptPurchaseDiscount` chẳng hạn) không nhận tham số bảng đích nào — chúng tự in kết quả
+ngay khi `exec` chạy. Bản trước vẫn dựng `##fbo$sample` rồi `select … from` bảng ấy sau khi
+`exec`, và vì không có `'#$query'` để thay nên không ai tạo ra bảng đó — "Invalid object name",
+giết cả câu chỉ vì một bước thừa. Nay nhánh này được nhận diện riêng (`buildExecDirectSelect`):
+mốc `SAMPLE_SENTINEL` cắm NGAY TRƯỚC chữ `exec` (mọi `select` dò/gán biến đứng trước, kiểu
+`select @tu_ngay as tu_ngay, …`, bị cắt bỏ đúng như tài liệu đầu file đã nói), và kết quả của
+CHÍNH `exec` trở thành dữ liệu — không bảng tạm, không `select` bọc ngoài. Đánh đổi: không bọc
+được nữa thì không hex-hoá được, nên cột chữ có dấu tiếng Việt có thể sai bảng mã — `notes` nói
+thẳng điều này. Số dòng vẫn chặn được bằng `SET ROWCOUNT` quanh câu `exec`.
+
+**3. Form tham số hiện ngày theo `dataFormatString` của field.** Trường ngày trong form (cả
+lưới chi tiết lẫn báo cáo) từng hiện chuỗi SQL trần (`2026-09-07`) thay vì định dạng người dùng
+quen nhìn. Nay hiện theo đúng mặt nạ của field — `dd/MM/yyyy` mặc định, hoặc mặt nạ thật nếu
+field trỏ qua một biến của `Options.xml` (`dataFormatString="@datetimeFormat"`) — và đọc
+NGƯỢC lại đúng mặt nạ ấy thành giá trị SQL khi người dùng bấm chạy, dù họ có gõ lại hay giữ
+nguyên mặc định. `core/src/format.mjs` cấp thêm `formatDate`/`parseDisplayDate` cho việc
+này; `scriptParamFields` nhận thêm `formats` (bản đồ đọc từ `Options.xml`, tầng vỏ tự đọc)
+và trả thêm `mask` cho mỗi tham số.
+
+### Sửa — XEM DỮ LIỆU THẬT: lưới chi tiết chạy HAI câu — dò trước, đọc sau
+
+Lưới `Detail` không tự đứng được. Runtime bơm vào nó hai thứ mà màn hình cha đang giữ: khoá chính
+của chứng từ đang mở (`@@whereClause`) và kỳ của chính chứng từ ấy (`$partition$current`). Bản
+trước đoán cả hai — `1 = 1` cho khoá, tháng hiện tại cho kỳ — và cả hai đều sai theo cùng một
+kiểu: `1 = 1` trộn dòng của MỌI chứng từ rồi `SET ROWCOUNT` cắt mười dòng đầu của đống trộn ấy,
+còn tháng hiện tại thì đọc `d64$202609` trong khi chứng từ có thật nằm ở `d64$202607`. Một bản xem
+trước sinh ra để ĐO BỀ RỘNG CỘT mà cho ra một lưới không chứng từ thật nào giống thì nó đang nói
+dối; cái thứ hai còn tệ hơn — nó cho ra lưới rỗng.
+
+Nay nhánh ấy đi HAI bước, và hai bước là bắt buộc: kết quả bước 1 quyết định bước 2 đọc BẢNG NÀO,
+nên không có cách nào gộp vào một câu.
+
+**Bước 1 — câu dò.** Hai hình dạng, theo có hay không có `<partition>`:
+
+```sql
+select top 1 convert(char(6), ngay_ct, 112) as partition, stt_rec
+from c64$000000 where status not in ('*', 'L')      -- có <partition>: bảng là partition@table
+
+select top 1 ma_kh from dmkh             -- không <partition>: bảng là grid@table
+```
+
+Cột kỳ dựng từ `partition@expression` (`{0}` là chỗ giữ cho `partition@field`); không khai thì mặc
+định `convert(char(6), {0}, 112)`. `status not in ('*', 'L')` CHỈ có ở nhánh trên, và đó không phải chi tiết
+trang trí: `partition@table` là bảng CHỨNG TỪ, nơi `status` chắc chắn có và nơi `'*'` nghĩa là đã
+xoá; nhánh dưới đọc một bảng danh mục, hỏi `status` ở đó là "Invalid column name" — giết cả câu dò.
+
+**Bước 2 — câu đọc**, chạy chính `<query event="Loading">` của file với hai giá trị vừa dò:
+
+```sql
+select … from d64$202607 a where a.stt_rec = 'PN1000000000123' order by stt_rec, line_nbr
+```
+
+Kỳ đọc về đi thẳng vào TÊN BẢNG, nên nó phải qua một phép chặn bằng bảng chữ cái trước khi được
+ghép — database trả về gì thì cũng là dữ liệu, không phải mẩu SQL được tin. Khoá thì đi vào một
+chuỗi, và nháy trong nó được nhân đôi.
+
+Câu dò hỏng ở bất kỳ đâu — không dựng được, sqlcmd lỗi, bảng rỗng — thì bước 2 vẫn chạy, quay về
+`1 = 1` + kỳ lịch, kèm một dòng `notes` nói rõ vì sao. Kém hơn, nhưng một bản xem trước kém vẫn hơn
+không có bản nào.
+
+Core cấp `buildSampleProbe(text)` cho bước 1 và nhận `probe: {period, key}` ở `buildSampleSelect`
+cho bước 2 — chạy SQL vẫn là việc của tầng vỏ, đúng giao kèo cũ.
+
+### Đổi — XEM DỮ LIỆU THẬT: lưới báo cáo hỏi bằng FORM, không phải chuỗi hộp nhập
+
+Tham số của lưới báo cáo từng được hỏi bằng một QuickPick bấm-để-sửa rồi một InputBox cho từng ô,
+và sau đó là một hộp cảnh báo `showWarningMessage` nữa để xác nhận. Báo cáo tồn kho hỏi 17 tham số:
+nhìn thấy cả 17 ô cùng lúc, mỗi ô mang đúng nhãn của nó trên màn hình lọc thật, là khác hẳn với
+bấm qua một danh sách từng cái một.
+
+Nay nó là một **form** của hộp thoại riêng (`extension/src/dialog/`): mỗi tham số `@x` một ô, nhãn
+và giá trị mặc định lấy từ `<field>` của chính file `Filter/` cùng tên. Lưới báo cáo mở form ấy kể
+cả khi câu Processing không cần tham số nào — vì nút chính của form CŨNG là chỗ xác nhận «có chạy
+stored procedure của khách không», và câu hỏi ấy không phụ thuộc vào việc proc có tham số hay
+không. Hộp cảnh báo thứ hai bị bỏ: hỏi hai lần cho cùng một quyết định dạy người ta bấm cho xong.
+
+Không đổi: lưới báo cáo **không bao giờ tự nạp** (lượt tự nạp lúc mở giao diện bỏ qua nó và ghi lý
+do ra Output), và huỷ ở form là không câu nào chạy.
+
+### Sửa — XEM DỮ LIỆU THẬT: lấy đúng cách runtime lấy, thay vì tự dựng lại
+
+Bản trước dựng một câu `SELECT` của riêng nó: đọc `<query event="Finding">`, tách cặp khoá join,
+rồi ghép lại. Nó chạy được, và đó chính là vấn đề — câu tự dựng trả về dữ liệu KHÁC với dữ liệu
+runtime hiện ra: sai join (chỉ giữ cặp khoá chính), thiếu mệnh đề phân quyền, sai kỳ. Một bản
+xem trước nói dối về màn hình thật là hỏng đúng cái nó sinh ra để chữa.
+
+Nay `grid@type` quyết định lấy dữ liệu bằng cách nào, và đó là bốn cách khác hẳn nhau:
+
+- **danh mục** (`type` trống, 555/2017 lưới của FBISP24) — `grid@table` + `grid@order`, không có
+  query nào cả. Nhánh này giữ nguyên luật cũ: câu lệnh dựng HOÀN TOÀN từ định danh đã qua
+  `assertIdent`, không một mẩu SQL nào của file lọt vào. Nó cũng là nhánh DUY NHẤT chạy được
+  trên file gốc `.f`, vì nó không cần đọc câu query nào.
+- **chứng từ** (`Voucher`) — chạy lại chính lời gọi `FastBusiness$App$Voucher$Loading` của file,
+  thay `@@id`, `@@master`, `@@prime`, `@@partition`, `@@expression`, `@@extension`,
+  `@@pageCount`, `@@textList`, `@@textExternal`, `@@textOrderBy`.
+- **lưới chi tiết** (`Detail`) — chạy lại `<query event="Loading">`; `@@prime$partition$current`
+  và `@@whereClause` đều lấy từ CÂU DÒ chạy trước (xem trên), số dòng chặn bằng
+  `SET ROWCOUNT`.
+- **báo cáo** (`Report`) — lưới không có bảng và không có query; dữ liệu do
+  `<command event="Processing">` của `Filter/` CÙNG TÊN sinh ra.
+
+Đánh đổi phải nói thẳng, và nó nằm ngay đầu `grid-sample.mjs`: ba nhánh sau CHẠY SQL CỦA FILE
+trên database của khách. Lệnh vẫn chỉ-đọc theo ý định, nhưng ý định ấy giờ là của người viết
+controller, không phải của công cụ. Cái không đổi: mọi thứ do công cụ SINH RA — tên bảng, tên
+cột, alias, `order by` — vẫn đi qua `assertIdent`, tức không thêm lỗ hổng nào của riêng mình vào
+một câu vốn đã là của khách.
+
+`aliasName` quyết định nguồn của một cột, và `defaultValue` chỉ vào cuộc ở lưới **Detail**, khi
+field khai `external="true"` mà KHÔNG khai `aliasName`. Đó là ca `<field name="ten_dvt%l" external="true"
+defaultValue="''">` của `Grid/SQDetail.f`: không alias, không bảng nào có cột `ten_dvt`, nên
+`rtrim(a.ten_dvt)` là "Invalid column name" và nó giết CẢ câu lệnh chứ không chỉ một cột.
+1069/1109 field khai `defaultValue` mà không khai `aliasName` đều là ca này.
+
+Điều kiện phải HẸP đúng như vậy, đo được trên corpus: 622 field khai CẢ HAI — `ten_vt%l` cùng
+file khai `aliasName="b" defaultValue="''"` — và ở đó `aliasName` mới là nguồn thật, còn
+`defaultValue` chỉ là giá trị dùng khi chưa join được; ưu tiên nó vô điều kiện là làm rỗng cột
+«Tên vật tư» của gần như mọi lưới chi tiết. Và field KHÔNG `external` thì cột có thật trên bảng
+— `so_luong defaultValue="0"` của `Grid/BIAccountAssignmentGrid.f` mà lấy `0` thì cả cột số
+lượng về 0 trong khi bảng có số thật.
+
+Và CHỈ lưới `Detail`. Lưới danh mục thường đọc một VIEW đã join sẵn — `Grid/Customer.xml` của
+HOATP đọc `viewdmkh`, nơi `ten_nvbh` là một cột có thật. Field vẫn khai
+`external="true" defaultValue="''"` (nó nói với runtime rằng cột này không nhập tay được), nhưng
+nguồn dữ liệu thì là cột thật; lấy `''` ở đó là làm rỗng một cột đang có dữ liệu, tệ hơn hẳn ca
+nó sinh ra để chữa. Lưới chứng từ và lưới báo cáo cũng không đi đường này — câu của chúng do
+stored procedure dựng, không do bản khai cột dựng.
+
+Trên field của LƯỚI, `defaultValue` luôn là một mẩu SQL (1731 lần khai, không ngoại lệ). Trên
+field của `Dir/`/`Filter/` thì ngược lại — `defaultValue="new Date()"` là JavaScript chạy trên
+trình duyệt. Đó là hai thứ khác nhau mang cùng một tên, và là lý do `scriptParamFields` cố ý
+không đụng tới nó.
+
+Mọi mẩu SQL đọc từ THUỘC TÍNH đều được gỡ escape XML trước khi ghép. `defaultValue="case when
+ma_so_thue &lt;&gt; '' then 0 else 1 end"` — dấu `<>` phải viết escape trong XML, mà bộ quét trả
+về nguyên văn thuộc tính (nó giữ offset để ghi ngược, nên không được đổi độ dài chuỗi). Đưa
+thẳng vào là `&lt;&gt;` chạy vào SQL Server.
+
+`%l` phân giải cả trong THÂN câu query, không chỉ trên `<field>`: câu Loading của
+`Grid/CustomerParameterDetail.f` viết thẳng `isnull(a.val_view%l, b.val_view%l)`. Chuỗi
+`like '%lo%'` không bị đụng tới — phép thay đòi một định danh đứng ngay trước `%l`.
+
+Ba quyết định đáng ghi lại vì chúng không suy ra được từ file:
+
+`$partition$current` ra **tháng/năm hiện tại**, không dò `partition@default`. Luật: có thẻ
+`<partition>` thì chắc chắn có chia kỳ.
+
+Số dòng của lưới chi tiết chặn bằng **`SET ROWCOUNT`**, không phải bằng `top`. Bản đầu chèn
+`top N` vào chữ `select` đầu tiên, đọc từ 14 file văn bản thường lúc ấy nhìn thấy; bung entity
+ra thì con số thật là 92 câu, và 42 trong số đó là SCRIPT nhiều câu có `declare`, `if … else`,
+bảng tạm, tới 43 chữ `select` (`Grid/BillDetail.f`). Ở đó chữ `select` đầu tiên là
+`select @whereKey = '…'` — một phép gán — nên câu thật vẫn kéo về cả bảng. Không có luật regex
+nào chọn đúng «câu trả dữ liệu» trong một script như thế. `SET ROWCOUNT` chặn mọi bộ kết quả của
+cả batch mà không đụng một ký tự nào vào SQL của file, đúng hợp đồng đã ghi. Nó cũng chặn các
+câu `insert into #tmp` ở giữa script — `notes` nói ra điều đó thay vì để người đọc tự phát hiện.
+
+`'#$query'` của câu Processing thành một bảng tạm **TOÀN CỤC** (`##`), không phải cục bộ.
+Proc báo cáo dựng `select … into <tên>` bằng SQL động, mà bảng `#` tạo trong một `exec()` chết
+ngay khi `exec()` ấy kết thúc — đọc lại là rỗng, mà rỗng thì trông y hệt "báo cáo không có dòng
+nào". Giá của `##` là tên hằng nên hai người chạy cùng lúc đụng nhau; `drop` ở cả hai đầu làm nó
+tự lành sau một nhịp.
+
+Câu lệnh in ra một **dòng mốc** trước phần dữ liệu. Câu Processing của mọi báo cáo có vài
+`select` phụ đứng trước `exec` (dòng tiêu đề, tham số lề in), mà `sqlcmd -h -1` nối mọi bộ kết
+quả thành một khối — không cắt ở mốc thì mấy dòng phụ thành mấy dòng dữ liệu đầu tiên, sai mà
+nhìn vẫn ra vẻ đúng.
+
+`%l` phân giải theo `@@language`: `1` ra `ten_kh`, `2` ra `ten_kh2`. Một công tắc cho cả câu
+lệnh, cùng chỗ với mọi biến `@@…` khác — chứ không phải một tuỳ chọn thứ hai để hai bên lệch
+nhau. NHÃN cột trả về thì vẫn giữ NGUYÊN VĂN tên khai (`ten_kh%l`): `renderGridHtml` tra ô theo
+`field@name`, đổi nhãn sang tên đã phân giải là cả cột im lặng rỗng.
+
+### Sửa — `@@textList` của lưới chứng từ phải TRẦN, và thứ tự cột là của `<fields>`
+
+Hai lỗi cùng lộ ra khi đối chiếu với câu runtime thật của `Grid/SOTran.xml` (HOATP FBISP2421) và
+đọc định nghĩa `FastBusiness$App$Voucher$Loading` trên chính database ấy.
+
+**1. Bọc hex `@@textList` là phá phép join.** Proc dùng hai danh sách cột vào hai việc khác hẳn:
+
+    insert into #t select <@@textList> from m64$<kỳ> where stt_rec in (select c from #r)
+    select <@@textExternal> from #t a left join dmkh b on a.ma_kh = b.ma_kh …
+
+`@@textList` dựng BẢNG TẠM `#t`, rồi `#t` mang alias `a` và được JOIN bằng chính giá trị của nó.
+Bọc hex ở đó hỏng hai lần cùng lúc: `a.ma_kh` thành chuỗi hex nên `on a.ma_kh = b.ma_kh` không
+bao giờ khớp (mọi cột đến từ bảng join — `ten_kh`, `ten_nvbh`, `u0.statusname` — về NULL), và
+`@@textExternal` còn bọc hex LẦN NỮA lên giá trị đã là hex.
+
+Nay chỉ **vế chiếu cuối cùng** mới bọc: `@@textExternal`, `@@fieldExternal`, và danh sách của
+nhánh danh mục/báo cáo. `@@textList` để trần — nó là dữ liệu trung gian, không ai đọc.
+
+Đây cũng là lý do `ma_ct` phải có trong `@@textList`: mệnh đề join của cấu hình là
+`left join dmttct u0 on a.ma_ct = u0.ma_ct and a.status = u0.status`, mà `a` chính là `#t`.
+Thiếu `ma_ct` trong `@@textList` thì `#t` không có cột ấy và cả câu chết.
+
+**2. Thứ tự cột là của `<fields>`, không phải của `<view>`.** Hai chi tiết của câu runtime chỉ
+khớp khi đi đường `<fields>`:
+
+- `t_ck_nt`…`t_tt_nt` đứng SAU `ten_nvbh` trong câu SQL, dù trên lưới chúng đứng TRƯỚC `ma_nt` —
+  vì `Config/Fields/SOTran.xml` khai `arrangement="…t_ck_nt:%b(ma_nt);…"`. `arrangement` là phép
+  sắp CHỖ NGỒI TRÊN LƯỚI; đem nó vào câu SQL là xếp sai đúng bốn cột tiền.
+- `ma_ct` nằm GIỮA `dien_giai` và `status`, đúng chỗ nó được khai trong
+  `Grid/Config/Include/Voucher.Field.Status`. `<view>` của group ấy không liệt kê nó, nên mọi
+  cách xếp theo view đều đẩy nó ra cuối.
+
+Thứ tự SQL không ảnh hưởng thứ tự trên màn hình: tầng vỏ ghép cột theo VỊ TRÍ rồi khoá dòng theo
+tên, còn `renderGridHtml` tra ô theo `field@name` của cột nó đang vẽ.
+
+Kiểm trên database THẬT của HOATP (`HOATP_FBISP2421_A`), chỉ-đọc:
+
+- `@@textList` sinh ra khớp TỪNG KÝ TỰ với câu runtime người dùng cung cấp.
+- Vòng hex đi-về chính xác: `4300D400…` giải ra đúng `CÔNG TY TNHH THƯƠNG MẠI VÀ DỊCH VỤ HÒA
+  THÀNH PHÁT`.
+- Mô phỏng đúng hai bước cuối của proc bằng SELECT thuần trên `m64$202609`: cả ba phép join đều
+  khớp, `ten_kh`/`ten_nvbh`/`u0` có giá trị, và sau khi giải hex + định dạng thì ra
+  `Chờ duyệt`, `Khách hàng nhóm KV1`, `04/09/2026`, `109 296.00`.
+
+Giới hạn còn lại, nói ra để không ai đi tìm: khi câu `Loading` của một lưới chi tiết viết THẲNG
+danh sách cột của nó thay vì dùng `@@fieldExternal` (`select top 0 file_name, … from sysfileinfo`
+của `Grid/BIILApprovalFiles.f`), ta không bọc hex được — đó là SQL của file, không phải danh sách
+ta dựng. Đo trên HOATP FBISP2421: 18 lưới rơi vào ca này, và cả 18 đều là MỘT màn hình lặp lại —
+lưới danh sách tệp đính kèm đọc `sysfileinfo` (`*ApprovalFiles`, `*PurchaseOrderFiles`,
+`PurchaseRequisitionFiles`), cùng một câu `select top 0 … from sysfileinfo` chép sang từng chứng
+từ. `top 0` nên không có dòng nào để hỏng; cột hỏng được nếu có sẽ là `file_name` tiếng Việt.
+
+Một điều đo được đáng ghi: `m64$000000` của khách này RỖNG — dữ liệu nằm ở `m64$202609`. Proc tự
+dựng hậu tố kỳ từ `@@expression` áp lên `ngay_ct` của từng dòng, còn `@@extension` (`'000000'`)
+nó chỉ dùng để lấy HÌNH DẠNG CỘT cho bảng tạm. Nên bản khai hiện tại (`@@extension` =
+`partition@default`) là đúng, không phải chỗ cần sửa.
+
+### Sửa — tiếng Việt về nguyên vẹn ở MỌI nhánh, không chỉ nhánh danh mục
+
+`sqlcmd` ghi stdout theo CODE PAGE CONSOLE, và phép đổi ấy dùng «best-fit» của Windows: chữ nào
+có chữ cái gốc thì rụng dấu, chữ nào không thì thành `?`. Đó đúng là hình dạng người dùng báo —
+`CÔNG TY … THƯƠNG MẠI` ra `CONG TY … THUONG M?I`, mất dấu chứ không phải mất hết.
+
+Cột chữ đã đi dạng hex, nhưng CHỈ ở nhánh danh mục và báo cáo. `@@textList`, `@@textExternal`,
+`@@fieldExternal` bị để ngoài với lý do «đó là danh sách cột đưa vào query của file, không phải
+giá trị trả về». Sai: proc ghép thẳng ba danh sách ấy vào `select`, nên chúng LÀ giá trị trả về
+— và đó là lý do lưới chứng từ và lưới chi tiết vẫn ra `M?I`. Nay bật cho cả bốn nhánh.
+
+Bọc thêm một lớp `convert(nvarchar(4000), …)` ở trong cùng, và nó xoá một phép ĐOÁN: không có
+lớp ấy thì dãy byte phụ thuộc KIỂU CỘT (`nvarchar` ra UTF-16LE, `varchar` ra code page của
+collation), nên tầng vỏ phải đoán mình đang cầm cái nào — bản trước đoán bằng cách đếm byte lẻ
+bằng 0, mà một tên toàn tiếng Việt (`Ạ` = A0 1E) có ít byte 0 hơn hẳn một tên tiếng Anh. Phép
+đoán ấy lật đúng vào chuỗi khó nhất. Ép kiểu ở vế SQL rẻ hơn mọi phép đoán ở vế JS, và
+`decodeHexCell` nay chỉ còn một dòng.
+
+Chỉ bọc cột CHỮ: tầng vỏ cũng chỉ giải hex cho cột chữ, nên bọc một cột số là nó hiện ra đúng
+dãy hex.
+
+### Thêm — định dạng theo `dataFormatString`, và canh lề theo kiểu cột
+
+Dữ liệu về từ `sqlcmd` là văn bản thô của SQL Server; runtime thì hiện khác hẳn:
+
+    2026-09-07 00:00:00.000   →   07/09/2026
+    1234567.8900              →   1 234 567.89
+
+Một bản xem trước để ĐO BỀ RỘNG CỘT mà hiện chuỗi thô là đo sai, và sai theo hướng khó nhận ra:
+chuỗi thô DÀI HƠN chuỗi thật (`.000` thừa ở mọi ô ngày), nên cột nào cũng có vẻ chật hơn thực tế.
+
+`field@dataFormatString` có hai loại, và chúng không cùng một ngôn ngữ: `@tên` TRỎ tới một biến
+trong `Options/Options.xml` của program (`@datetimeFormat` → `dd/MM/yyyy`,
+`@foreignCurrencyAmountViewFormat` → `# ### ### ### ###.00`), còn mặt nạ viết thẳng thì chính nó
+là mặt nạ. Không đọc được `Options.xml` thì KHÔNG đoán — giá trị rơi về dạng thô.
+
+Mặt nạ số đọc theo nghĩa đen: dấu ngăn nhóm là đúng ký tự viết trong mặt nạ (FBO dùng khoảng
+trắng), số chữ số lẻ đúng bằng số ký tự sau dấu `.`. Cặp `Input`/`View` khác nhau đúng một chỗ,
+và chỗ ấy có nghĩa:
+
+    foreignCurrencyAmountInputFormat   # ### ### ### ##0.00   → 0 hiện ra `0.00`
+    foreignCurrencyAmountViewFormat    # ### ### ### ###.00   → 0 để TRỐNG ô
+
+Hàng đơn vị của mặt nạ `View` là `#` chứ không phải `0`, tức không buộc in chữ số — quy ước «số 0
+thì để trống» làm lưới FBO nhìn thưa chứ không dày đặc số 0. Bỏ qua nó là bản xem trước đầy
+`0.00` ở những ô runtime để trắng.
+
+Ngày KHÔNG đi qua `new Date()`: nó diễn giải theo múi giờ của máy, và một ô ngày lệch một ngày vì
+múi giờ là lỗi không ai ngờ tới ở một công cụ xem trước. Mặt nạ thay trong MỘT lượt, vì `mm`
+(phút) là chuỗi con của `MM` (tháng).
+
+Canh lề mặc định nay theo KIỂU cột: **số canh phải, ngày canh giữa, còn lại canh trái**.
+`<items style="Numeric">` một mình là chưa đủ — phần lớn cột tiền của lưới chứng từ khai
+`type="Decimal"` mà KHÔNG khai `<items>` (`t_tt_nt`, `t_ck_nt`, `t_thue_nt` của
+`Grid/Config/Fields/SOTran.xml`), nên trước đây chúng dính lề trái trong khi runtime canh phải.
+Nhánh «còn lại» trả `null` chứ không trả `left`: `text-align` mặc định của `<input>` đã là trái.
+
+Mọi nhánh không định dạng được đều rơi về giá trị THÔ, không nhánh nào ném — một ô hiện số thô
+vẫn đọc được, một bản vẽ chết vì một ô lạ thì không.
+
+Test: 38 phép kiểm ở `core/test/test-format.mjs`.
+
+### Sửa — lấy MỌI field đã khai, không chỉ field có mặt trong `<view>`
+
+Danh sách cột trước đây dựng thuần từ `view/field`. Thiếu, và ca chứng minh nằm ngay trong
+`Grid/Config/Include/Voucher.Field.Status`: nó khai ba field — `ma_ct`, `status`, `u0` — nhưng
+`<view>` của group chỉ liệt kê `status` và `u0`. `ma_ct` không có mặt ở view nào cả, mà câu
+runtime thì vẫn mang `rtrim(a.ma_ct) as ma_ct`.
+
+Nay: **mọi field đã khai đều vào câu lệnh**, xếp theo thứ tự của `view` (kể cả phép sắp
+`arrangement` của cấu hình ẩn); field không có mặt trong `view` xếp SAU CÙNG, theo thứ tự khai.
+
+Cột thừa không tốn gì: `renderGridHtml` tra ô theo `field@name` của cột nó đang vẽ, nên một khoá
+thừa trong dòng dữ liệu chỉ nằm đó không ai đọc. Thiếu thì ngược lại — ô hiện gạch chéo «không
+lấy được dữ liệu», và với `@@textList` thì tệ hơn hẳn: thiếu một cột là proc dựng ra một câu
+khác hẳn câu thật.
+
+Đo trên `Grid/` của FBISP24: 31 lưới có cột chỉ khai ở `<fields>` (49 cột) — `ma_ct` của sáu lưới
+chứng từ, `nhieu_dvt`/`sua_tk_vt` của mười bốn lưới chi tiết, `ma_kho`/`ten_kho%l`/`ma_tt`/
+`ten_tt%l` của mấy lưới thuế. Thêm một lưới danh mục dựng được câu mà trước đây trả về
+`no_columns` vì `<view>` của nó rỗng.
+
+### Sửa — `Grid/Config` thêm cột thì cũng phải thêm JOIN nuôi cột ấy
+
+Cấu hình ẩn đã được gộp vào DANH SÁCH CỘT của câu mẫu. Cái còn thiếu là vế kia: cấu hình cũng
+sửa câu query, và nó khai điều đó dưới dạng VÁ CHUỖI chứ không phải một câu query mới.
+
+    <query event="Loading">
+      <items>
+        <item source="a left join dmkh b on a.ma_kh = b.ma_kh"
+              destination="a left join dmkh b on a.ma_kh = b.ma_kh left join dmnvbh v0 on …" />
+      </items>
+    </query>
+
+Bỏ qua vế ấy là câu mẫu mang `rtrim(v0.ten_nvbh) as ten_nvbh` trong khi mệnh đề join truyền cho
+`FastBusiness$App$Voucher$Loading` không hề có `v0` — "The multi-part identifier could not be
+bound", và nó giết CẢ câu chứ không chỉ một cột.
+
+`Grid/SOTran.xml` của HOATP FBISP2421 là ca đủ cả hai mảnh, và hai bản vá neo vào hai chỗ khác
+nhau — đó là chi tiết đáng ghi lại nhất:
+
+    Config/Fields/SOTran.xml   neo vào chính mệnh đề join   → thêm `left join dmnvbh v0`
+    Initialize group 001       neo vào `', @@textOrderBy`   → thêm `left join dmttct u0`
+
+Mảnh thứ hai neo vào DẤU NHÁY ĐÓNG của chuỗi join cộng tham số kế tiếp, nên nó chèn vào bên
+trong chuỗi ấy mà không đụng gì tới mảnh thứ nhất. Nhờ vậy hai phép vá không tranh nhau — nhưng
+thứ tự áp vẫn theo `rank` (Fields trước Initialize, cùng thứ tự `mergeGridConfig` dùng để xếp
+cột), vì dựa vào sự không-tranh-nhau ấy là dựa vào một trùng hợp, không phải một luật.
+
+Áp bản vá TRƯỚC khi thay `@@…`: bản khai neo vào chính tên biến, nên thay biến trước là không
+còn gì để tìm. Thay bằng `split`/`join` chứ không bằng `RegExp` — `source` là một mẩu SQL thường,
+đầy ký tự có nghĩa trong biểu thức chính quy.
+
+`event="Scattering"` CỐ Ý không đọc: `source` của nó là BIỂU THỨC CHÍNH QUY (`\bstatus\b`,
+`[(]ma_ct[)]`) và nó vá mệnh đề LỌC, không vá câu query. Trộn hai loại vào một bảng là để một
+`\b` chạy vào phép thay chuỗi thường. `<clauses><clause statement=…>` cũng không nhặt.
+
+### Sửa — `defaultValue` cũng là nguồn của cột trên lưới CHỨNG TỪ
+
+Bản trước giới hạn `defaultValue` ở lưới `Detail`. Sai, và ca chứng minh là cột «Trạng thái» của
+gần như mọi lưới chứng từ: `<field name="u0" external="true" defaultValue="rtrim(u0.statusname%l)">`
+khai trong `<group id="001">` của `Grid/Config/Initialize.xml`. Không alias, không cột `u0` trên
+bảng master, nên `rtrim(a.u0)` là "Invalid column name".
+
+Ranh giới thật là NGUỒN của lưới, không phải `type`:
+
+- **chứng từ / lưới chi tiết** đọc bảng master/chi tiết (`m64$000000`, `d31$000000`) cộng mấy
+  mệnh đề join viết rõ trong câu. `external="true"` không alias ở đó nghĩa là cột KHÔNG nằm trên
+  hàng gốc, chấm hết — `defaultValue` là nguồn duy nhất còn lại.
+- **danh mục / báo cáo** đọc một nguồn PHẲNG, mà nguồn ấy hay là một view đã join sẵn:
+  `Grid/Customer.xml` của HOATP đọc `viewdmkh`, nơi `ten_nvbh` là cột có thật. Ở đây `external`
+  không nói được gì về việc cột có tồn tại hay không, nên `defaultValue` chỉ được dùng khi nó là
+  BIỂU THỨC — hằng `''`/`0` thì bỏ qua và SELECT cột thật.
+
+Đo trên `App_Data\Controllers` của HOATP FBISP2421 sau khi sửa: 612 lưới danh mục, 118 lưới chi
+tiết và 25 lưới chứng từ dựng được câu; 22 lưới được áp bản vá của cấu hình; và **không lưới nào
+còn alias xuất hiện ở vế `select` mà thiếu trong mệnh đề join** — đúng cái lỗi runtime mà cả hai
+bản sửa này tồn tại để chặn.
+
+### Thêm — tự lấy dữ liệu thật khi mở giao diện giả lập
+
+`fboDesigner.autoLoadSampleData`, **mặc định BẬT**: mở designer cho một lưới thì dữ liệu thật đổ
+vào ngay, không cần bấm `Ctrl+Alt+D` nữa.
+
+Điều này lật một luật đã ghi ở đầu `sample-host.js` từ bản đầu — «KHÔNG BAO GIỜ TỰ CHẠY: dữ liệu
+thật của khách không phải thứ tự dưng chảy về máy lập trình viên». Lật theo yêu cầu của người
+dùng (2026-09-07), và luật cũ vẫn còn nguyên trong file kèm lý do lật, vì nó là thứ người sửa
+tiếp cần đọc trước khi nới thêm.
+
+Bốn thứ chặn lại, và chúng mới là phần đáng đọc:
+
+- **Chỉ lưới, một lần cho mỗi file.** Bốn cửa chặn (tuỳ chọn tắt / không phải controller lưới /
+  đã có dữ liệu / người dùng đã tự tắt) đều rẻ và đều đứng TRƯỚC lượt nối database, nên nhảy qua
+  nhảy lại giữa hai file không sinh ra một lượt `sqlcmd` nào.
+- **Lượt tự nạp KHÔNG BAO GIỜ HỎI.** Lưới báo cáo (cần tham số + hộp xác nhận) và lưới có tham số
+  `@x` bị bỏ qua, im lặng, kèm một dòng lý do ở Output. Một hộp thoại tự bật lên vì người ta vừa
+  MỞ một file là thứ dạy người ta tắt tuỳ chọn — mà tuỳ chọn ấy vừa được bật mặc định.
+- **TẮT TAY THẮNG.** Bấm `Ctrl+Alt+D` để tắt dữ liệu của một file thì file ấy không tự nạp lại
+  trong phiên này. Không có luật này thì tắt xong, nhảy sang file khác rồi quay lại là dữ liệu tự
+  về — người dùng vừa bảo «đừng hiện nữa» và công cụ hiện lại ngay.
+- **Không `await`, không ném.** Bố cục vẽ ra ngay; kho dữ liệu tự bảo panel vẽ lại khi có dòng.
+  Một lượt tự nạp ném ra là cả `track()` của panel chết theo, mà bản xem trước phải vẽ được bố
+  cục kể cả khi không nối được database — đó mới là thứ designer sinh ra để làm.
+
+Che dữ liệu vẫn BẬT mặc định, nên thứ tự nạp về là chuỗi đã che, giữ nguyên độ dài.
+
+### Thêm — bản khai giá trị cho các biến `@@…`
+
+`core/config/sample-params.json`, đè được bằng thiết lập `fboDesigner.sampleParams`. Mỗi giá trị
+là một MẨU SQL chứ không phải một giá trị — chuỗi phải tự mang dấu nháy — vì cùng một biến khi
+thì là tham số chuỗi (`@@id` → `'HDA'`), khi thì là tên bảng ghép thẳng
+(`@@sysDatabaseName..ticket`); một lớp tự thêm nháy sẽ sai đúng một nửa số chỗ.
+
+`@@appDatabaseName`/`@@sysDatabaseName` lấy từ `Web.config`. Vì thế lệnh nay **nối database
+TRƯỚC** khi dựng câu lệnh: hai biến ấy có mặt ở 750 chỗ trong FBISP24, dựng trước rồi mới nối là
+dựng ra một câu còn nguyên chúng, tức một câu chắc chắn hỏng.
+
+### Thêm — hỏi tham số của câu query, và hỏi lại trước khi chạy báo cáo
+
+Tham số `@x` không đoán: chúng là điều kiện lọc của người dùng (từ ngày, đến ngày, kho nào), và
+đoán một khoảng ngày là chạy một báo cáo trên khoảng dữ liệu không ai yêu cầu. Extension quét ra
+đúng những tham số script DÙNG mà KHÔNG tự `declare` (khai lại một biến script tự khai là lỗi
+biên dịch — `rptStockBalance` mở đầu bằng `declare @c varchar(1024)`), ghép với `<field>` của
+chính file Filter để có nhãn và giá trị mặc định thật, rồi hỏi bằng một danh sách bấm-để-sửa.
+Không phải một chuỗi hộp nhập nối đuôi: báo cáo tồn kho hỏi 17 tham số mà người ta thường chỉ
+sửa hai.
+
+`defaultValue` KHÔNG dùng làm giá trị mặc định — nó là JavaScript chạy trên trình duyệt
+(`new Date()`), không phải một hằng. `clientDefault` mới là hằng.
+
+Không riêng báo cáo: 6 lưới chi tiết của FBISP24 cũng cần (`@ma_vt`, `@stt_rec` — khoá của hàng
+cha mà runtime bơm vào), và bỏ qua chúng là dựng ra một câu chắc chắn chết ở "Must declare the
+scalar variable". Cùng một cơ chế, cùng một hộp thoại; nhãn lấy từ `<field>` của file Filter với
+lưới báo cáo, của chính file lưới với những lưới còn lại.
+
+Rồi hỏi lại một lần nữa bằng hộp thoại modal trước khi chạy — chỉ với lưới báo cáo. Đây là nhánh duy nhất gọi một
+stored procedure của khách với tham số vừa nhập: nó có thể quét cả năm dữ liệu và ghi bảng tạm y
+như một lần chạy báo cáo thật. Hạn giờ nới lên 60 giây cho riêng nhánh này; ba nhánh còn lại
+giữ 10 giây.
+
+### Giới hạn — nói ra thay vì đoán
+
+Câu query của file gốc `.f` nằm trong `<Encrypted>`: 729/751 câu Processing, và 464 câu Loading
+của `Grid/` (320 lưới chi tiết + 144 lưới chứng từ). Extension nói thẳng «đang mã hoá» chứ không
+im lặng trả về lưới rỗng. Đo trên corpus FBISP24, ba nhánh mới chạy được ở 84 lưới chi tiết, 7
+lưới chứng từ và 44 lưới báo cáo — toàn bộ là file `.xml` đã customize, tức đúng loại file người
+ta mở designer ra để sửa. Nhánh danh mục chạy được ở toàn bộ 551 lưới đo được. (6 lưới chi tiết trong số 84 kia hỏi thêm tham
+số trước khi chạy.)
+
+Lưới `Inquiry` (207 file) không tự lấy dữ liệu — màn hình cha bơm vào — nên bị từ chối kèm lý do.
+
+Test: 124 phép kiểm ở core cho bốn nhánh + 40 ở tầng vỏ cho cả luồng (nối database trước, hỏi
+tham số, huỷ ở bất kỳ đâu là không chạy gì, và bốn cửa chặn của lượt tự nạp). Bản giả `vscode` nay vào vai được người dùng —
+xếp sẵn câu trả lời cho `showQuickPick`/`showInputBox`, đọc lại `asked` để khẳng định đã hỏi
+đúng những gì.
+
 ## [1.0.2] — 2026-09-07
 
 ### Thêm — RÊ CHUỘT và GỢI Ý, và chỗ ba mảng gặp nhau

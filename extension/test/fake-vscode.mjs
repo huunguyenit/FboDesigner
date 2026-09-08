@@ -94,12 +94,21 @@ export const languages = {
   },
 };
 
-/** Cấu hình mặc định — `render-host.config()` chỉ đọc vài khoá và có sẵn giá trị rơi về. */
+/**
+ * Cấu hình. Mặc định RỖNG — `render-host.config()` chỉ đọc vài khoá và có sẵn giá trị rơi về,
+ * nên `undefined` là hình dạng đúng của "người dùng chưa khai gì".
+ *
+ * `settings` ghi đè được: test của lượt tự nạp phải bật/tắt được
+ * `fboDesigner.autoLoadSampleData`, mà đó là một khoá có mặc định BẬT — không tắt được thì
+ * không kiểm được nhánh tắt.
+ */
 export const workspace = {
   textDocuments: [],
   asRelativePath: (p) => String(p),
-  getConfiguration() {
-    return { get: () => undefined };
+  settings: {},
+  getConfiguration(section) {
+    const prefix = section ? `${section}.` : '';
+    return { get: (key) => workspace.settings[`${prefix}${key}`] };
   },
   onDidOpenTextDocument: () => ({ dispose() {} }),
   onDidChangeTextDocument: () => ({ dispose() {} }),
@@ -107,12 +116,55 @@ export const workspace = {
   onDidCloseTextDocument: () => ({ dispose() {} }),
 };
 
+/**
+ * `window` của bản giả là một BÀN ĐIỀU KHIỂN, không chỉ là mấy hàm rỗng.
+ *
+ * `sample-host` hỏi người dùng bằng `showQuickPick`/`showInputBox`/`showWarningMessage` — muốn
+ * kiểm luồng hỏi-tham-số-báo-cáo thì test phải VÀO VAI người dùng. Nên mỗi hàm hỏi đọc câu trả
+ * lời từ hàng đợi `answers.*` và ghi lại lời mời vào `asked.*`: test xếp sẵn câu trả lời trước,
+ * rồi đọc `asked` sau để khẳng định người dùng đã được hỏi ĐÚNG những gì.
+ *
+ * Hàng đợi cạn thì trả `undefined` — đúng ngữ nghĩa VS Code khi người dùng bấm Esc, và cũng là
+ * cách một test quên xếp câu trả lời sẽ thất bại ở nhánh «đã huỷ» thay vì treo.
+ */
 export const window = {
   activeTextEditor: undefined,
   createOutputChannel: () => ({ appendLine() {} }),
-  showWarningMessage() {},
-  showErrorMessage() {},
+
+  asked: { quickPick: [], inputBox: [], warning: [], info: [] },
+  answers: { quickPick: [], inputBox: [], warning: [] },
+
+  reset() {
+    window.asked = { quickPick: [], inputBox: [], warning: [], info: [] };
+    window.answers = { quickPick: [], inputBox: [], warning: [] };
+    workspace.settings = {};
+  },
+
+  async showQuickPick(items, options) {
+    window.asked.quickPick.push({ items: await items, options });
+    return window.answers.quickPick.shift();
+  },
+  async showInputBox(options) {
+    window.asked.inputBox.push(options);
+    return window.answers.inputBox.shift();
+  },
+  showWarningMessage(message, ...rest) {
+    window.asked.warning.push(message);
+    // Hộp thoại modal (`{modal:true}, ...actions`) chờ một lựa chọn; toast một dòng thì không.
+    return rest.length > 0 ? window.answers.warning.shift() : undefined;
+  },
+  showInformationMessage(message) {
+    window.asked.info.push(message);
+  },
+  showErrorMessage(message) {
+    window.asked.info.push(message);
+  },
+  withProgress(_options, task) {
+    return task();
+  },
 };
+
+export const ProgressLocation = { SourceControl: 1, Window: 10, Notification: 15 };
 
 /**
  * Đủ dùng cho outline. `Null` phải là một giá trị THẬT chứ không phải `undefined`: cả điểm của
@@ -177,8 +229,12 @@ export const ViewColumn = { One: 1, Beside: -2 };
 /** `buildPayload` đọc `document.eol` để báo CRLF/LF trong payload. */
 export const EndOfLine = { LF: 1, CRLF: 2 };
 
+/** Giá trị THẬT của vscode.d.ts — `dev-features.js` so sánh trực tiếp với các hằng này. */
+export const ExtensionMode = { Production: 1, Development: 2, Test: 3 };
+
 export default {
   DiagnosticSeverity, Position, Range, Diagnostic, Uri, languages, workspace, window, ViewColumn,
   EndOfLine, SymbolKind, DocumentSymbol, Location,
   MarkdownString, Hover, CompletionItem, CompletionItemKind,
+  ExtensionMode,
 };

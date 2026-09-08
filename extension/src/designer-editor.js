@@ -26,6 +26,7 @@ const { OverlayDialogs } = require('./dialog/dialog-overlay');
 const { runWithDialogs } = require('./dialog/dialog-service');
 const { trackDesignerWebview } = require('./designer-webview');
 const sampleStore = require('./sample-store');
+const { autoLoadSample } = require('./sample-host');
 const { ensureLicense, lockedWebviewHtml } = require('./license');
 const { t } = require('./locale');
 
@@ -156,6 +157,13 @@ class FboDesignerProvider {
      * `patchRow` chỉ biết vá một hàng của form.
      */
     const unwatchSample = sampleStore.onRefresh(document.uri.fsPath, () => render());
+
+    /*
+     * Tự nạp dữ liệu thật, nếu `fboDesigner.autoLoadSampleData` bật (mặc định BẬT). Không
+     * `await` — xem lý do ở `PreviewPanel.track`: bố cục phải hiện ra ngay, dữ liệu về sau và
+     * tự gọi `render()` qua kho.
+     */
+    autoLoadSample(this.core, this.output, document);
 
     panel.onDidDispose(() => {
       if (renderTimer) clearTimeout(renderTimer);

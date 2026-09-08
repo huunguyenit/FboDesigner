@@ -16,7 +16,7 @@
 // Phạm vi: view đầu tiên, cả ba vùng — header (`categoryIndex` 0 hoặc không khai), main tức
 // vùng tab (`> 0`) và footer (`-1`) — cộng lưới Detail nhúng trong tab (`<items style="Grid">`).
 
-import { scanViews, scanFields, scanTitle, scanRoot, scanToolbar, scanCss } from './spans.mjs';
+import { scanViews, scanFields, scanTitle, scanRoot, scanToolbar, scanCss, scanConfigQueries } from './spans.mjs';
 import { classifyItem, parseWidths, parseRow, buildCells } from './item-value.mjs';
 import {
   renderControl,
@@ -1160,7 +1160,7 @@ function regionIsEmbeddedGridOnly(region, model) {
  * (`<group>` với `<grid xmlns=…grid-fields>`) nhưng ruột thì cùng một hình dạng, và dựng bộ quét
  * thứ hai cho cùng một hình dạng là dựng sẵn chỗ cho hai bên trôi khỏi nhau.
  */
-function scanGridConfig(parts) {
+export function scanGridConfig(parts) {
   if (!Array.isArray(parts)) return [];
   return parts.map((p) => {
     const view = scanViews(p.text).find((v) => (v.columns ?? []).length > 0);
@@ -1168,6 +1168,10 @@ function scanGridConfig(parts) {
       fields: scanFields(p.text),
       columns: view?.columns ?? [],
       arrangement: view?.attrs?.arrangement ?? '',
+      // Bản khai VÁ CHUỖI cho câu query của controller — xem `scanConfigQueries`. Phép vẽ không
+      // dùng tới, nhưng `buildSampleSelect` thì có: thiếu nó là câu mẫu tham chiếu một alias
+      // (`v0`, `u0`) mà mệnh đề join không hề có.
+      queries: scanConfigQueries(p.text),
       segments: p.segments ?? null,
       file: p.file ?? '',
       // `kind` để tô màu và để nói ra nguồn; `rank` để xếp thứ tự cột. Xem `mergeGridConfig`.
@@ -1177,6 +1181,27 @@ function scanGridConfig(parts) {
       chainFiles: Array.isArray(p.chainFiles) ? p.chainFiles.filter(Boolean) : [],
     };
   });
+}
+
+/**
+ * Bản khai VÁ CHUỖI của mọi mảnh `Grid/Config`, gộp lại theo đúng thứ tự áp.
+ *
+ * Thứ tự lấy từ `rank` — giống hệt `mergeGridConfig`: `Config/Fields/<Tên>.xml` (hạng 1) trước
+ * `Initialize.xml` (hạng 2), sắp ỔN ĐỊNH để hai mảnh cùng hạng giữ nguyên thứ tự đọc file. Ở
+ * `Grid/SOTran.xml` của HOATP hai bản vá neo vào hai chỗ khác nhau nên đổi thứ tự cũng ra cùng
+ * một câu — nhưng dựa vào điều đó là dựa vào một sự trùng hợp, không phải một luật.
+ *
+ * @param {Array} parts  kết quả `scanGridConfig`
+ * @param {string} event `Loading` / `Finding` — `Scattering` không bao giờ có mặt (xem
+ *                       `scanConfigQueries`)
+ * @returns {Array<{source: string, destination: string}>}
+ */
+export function configQueryRewrites(parts, event = 'Loading') {
+  if (!Array.isArray(parts)) return [];
+  return [...parts]
+    .map((p, i) => ({ p, i }))
+    .sort((x, y) => (x.p.rank ?? 1) - (y.p.rank ?? 1) || x.i - y.i)
+    .flatMap((x) => (x.p.queries ?? {})[event] ?? []);
 }
 
 /**
@@ -1215,6 +1240,7 @@ export function renderControllerHtml(text, opts = {}) {
       toolbar: scanToolbar(text),
       css,
       config: scanGridConfig(opts.gridConfig),
+      formats: opts.formats ?? {},
     });
     /*
      * Luật lint chạy SAU khi model đã dựng xong, và đọc `built.model.columns` chứ không đọc

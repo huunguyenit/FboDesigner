@@ -23,7 +23,8 @@
   "fboDesigner.licenseKey.desc": "License Key (`FBO1....`). Dán key vào đây để kích hoạt; xoá hết để huỷ kích hoạt. Sau khi kích hoạt, key vẫn hiện để copy.",
   "fboDesigner.machineId.desc": "Machine ID của máy này (tự điền, chỉ xem/copy gửi admin khi xin license). Sửa tay sẽ bị ghi đè lại khi mở extension.",
   "fboDesigner.previewData.title": "Xem dữ liệu thật trên lưới",
-  "fboDesigner.maskSampleData.desc": "Che dữ liệu thật khi xem trước (giữ nguyên độ dài, chữ thành x/X, số thành 0). Bật mặc định: đo bề rộng cột vẫn đúng, mà ảnh chụp màn hình không kèm dữ liệu khách. Tắt khi cần đo chính xác tới từng pixel.",
+  "fboDesigner.autoLoadSampleData.desc": "Mở giao diện giả lập cho một LƯỚI thì tự lấy dữ liệu thật một lần. Tắt để chỉ lấy khi bấm Ctrl+Alt+D. Lưới báo cáo và lưới cần nhập tham số không bao giờ tự lấy (chúng phải hỏi), và bấm Ctrl+Alt+D để TẮT dữ liệu của một file thì file ấy không tự lấy lại trong phiên này.",
   "fboDesigner.sampleRowCount.desc": "Số dòng lấy về khi xem dữ liệu thật (1–100).",
+  "fboDesigner.sampleParams.desc": "Giá trị cho các biến @@… khi xem dữ liệu thật chạy lại câu query của controller (vd \"@@userID\": \"1\", \"@@queryString\": \"''\"). Mỗi giá trị là MỘT MẨU SQL, nên chuỗi phải tự mang dấu nháy. Đè lên core/config/sample-params.json.",
   "fboDesigner.sqlcmdPath.desc": "Đường dẫn tới SQLCMD.EXE. Bỏ trống thì tự dò hai đường cài mặc định rồi tới PATH."
 }

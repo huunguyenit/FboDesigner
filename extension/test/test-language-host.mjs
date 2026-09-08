@@ -133,7 +133,7 @@ store.setSample(file, {
     { ma_kh: 'KH0001', ten_kh: 'Công ty TNHH Thương mại Toàn Cầu' },
     { ma_kh: 'KH0002', ten_kh: 'Ngắn' },
   ],
-  columns: [], skipped: [], notes: [], masked: true, table: 'dmkh', top: 10,
+  columns: [], skipped: [], notes: [], masked: false, table: 'dmkh', top: 10,
 });
 
 const tenKh = hoverAt('name="ten_kh"', 7);
@@ -142,7 +142,7 @@ ok('nói có dữ liệu thật', tenKh.includes('dữ liệu thật'));
 // mà người dùng cần thấy cạnh nhau.
 ok('nêu ĐỘ DÀI dài nhất', tenKh.includes('**32**'));
 ok('và số dòng đã lấy', tenKh.includes('2 dòng'));
-ok('nói rõ là đã che', tenKh.includes('đã che'));
+ok('không nói đã che', !tenKh.includes('đã che'));
 ok('bề rộng cột vẫn ở ngay đó để mà so', tenKh.includes('width 60px'));
 /*
  * KHÔNG hiện giá trị nào ra. Hover là chỗ dễ chụp màn hình, và cả tính năng xem-trước đã cố ý

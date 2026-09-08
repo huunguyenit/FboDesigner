@@ -20,12 +20,33 @@ const store = new Map();
 /** fsPath (thường hoá) → Set<() => void> — bề mặt nào cần vẽ lại khi dữ liệu đổi. */
 const refreshers = new Map();
 
+/**
+ * File nào NGƯỜI DÙNG đã tự tắt dữ liệu đi.
+ *
+ * Cần từ khi có tuỳ chọn tự nạp (`fboDesigner.autoLoadSampleData`): không có nó thì bấm
+ * `Ctrl+Alt+D` để tắt xong, nhảy sang file khác rồi quay lại là dữ liệu tự về — người dùng vừa
+ * bảo "đừng hiện nữa" và công cụ hiện lại ngay. Một lần TẮT TAY thắng tuỳ chọn tự nạp, cho tới
+ * khi họ tự bấm nạp lại.
+ */
+const dismissed = new Set();
+
 const keyOf = (p) => String(p ?? '').toLowerCase();
 
 /** Đặt dữ liệu cho một file, rồi bảo mọi bề mặt đang vẽ file ấy vẽ lại. */
 function setSample(fsPath, data) {
   store.set(keyOf(fsPath), data);
+  dismissed.delete(keyOf(fsPath));
   requestRefresh(fsPath);
+}
+
+/** Người dùng tự tắt — nhớ lại để lần tự nạp sau không cãi lời họ. */
+function dismissSample(fsPath) {
+  dismissed.add(keyOf(fsPath));
+}
+
+/** @returns {boolean} người dùng đã tự tắt file này trong phiên này chưa */
+function isDismissed(fsPath) {
+  return dismissed.has(keyOf(fsPath));
 }
 
 /** @returns {object|null} */
@@ -69,6 +90,7 @@ function requestRefresh(fsPath) {
 function clearAll() {
   store.clear();
   refreshers.clear();
+  dismissed.clear();
 }
 
-module.exports = { setSample, getSample, clearSample, onRefresh, clearAll };
+module.exports = { setSample, getSample, clearSample, dismissSample, isDismissed, onRefresh, clearAll };

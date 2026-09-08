@@ -45,6 +45,18 @@ export const VIEWS_CONFIG = loadJson('views.json');
 export const SQL_CONFIG = loadJson('sql.json');
 
 /**
+ * Giá trị mặc định cho các biến `@@…` khi chạy lại câu query của controller.
+ *
+ * Khoá `_doc` là phần chú thích cho người sửa file (JSON không có comment) — lọc bỏ ở đây một
+ * lần, để chỗ dùng không phải nhớ mà bỏ. Mọi khoá còn lại đều bắt đầu bằng `@@`.
+ *
+ * @type {Record<string, string>}
+ */
+export const SAMPLE_PARAMS = Object.fromEntries(
+  Object.entries(loadJson('sample-params.json')).filter(([k]) => k.startsWith('@@')),
+);
+
+/**
  * @param {string} key
  * @param {Record<string, unknown>} [params]
  * @returns {string}

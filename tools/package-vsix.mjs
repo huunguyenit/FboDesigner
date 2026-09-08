@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 // package-vsix.mjs — đóng gói .vsix mà không cần `vsce`, không cần npm install.
 //
-//   node tools/package-vsix.mjs
+//   node tools/package-vsix.mjs           bản THƯỜNG — Phase #1/#2 (chẩn đoán, mục lục, F12,
+//                                          rê chuột, gợi ý) ẨN, xem `extension/src/dev-features.js`
+//   node tools/package-vsix.mjs --dev     bản DEV — mang thêm bốn tính năng ấy
+//
+// `--dev` KHÔNG đổi một dòng mã nào, không đổi số hiệu phiên bản. Nó chỉ thêm đúng MỘT file
+// rỗng vào gói — `extension/dev-features.flag`. `extension.js` đọc sự CÓ MẶT của file ấy lúc
+// `activate()`, không đọc nội dung. Hai gói dựng từ cùng một commit chỉ khác nhau ở việc có
+// hay không có đúng một file trống.
 //
 // Một .vsix chỉ là file ZIP theo quy ước OPC:
 //
@@ -26,6 +33,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STAGE = path.join(ROOT, '.build', 'vsix');
 const DIST = path.join(ROOT, 'dist');
 
+/** `--dev` — xem đầu file. Bất cứ vị trí nào trong argv, không cần giá trị đi kèm. */
+const DEV_BUILD = process.argv.slice(2).includes('--dev');
+
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'extension', 'package.json'), 'utf8'));
 const { name, version, publisher, displayName, description } = manifest;
 const engine = manifest.engines.vscode;
@@ -48,6 +58,7 @@ const CONTENT = [
   ['extension/src/definition-host.js', 'extension/src/definition-host.js'],
   ['extension/src/language-host.js', 'extension/src/language-host.js'],
   ['extension/src/text-position.js', 'extension/src/text-position.js'],
+  ['extension/src/dev-features.js', 'extension/src/dev-features.js'],
   ['extension/src/edit-host.js', 'extension/src/edit-host.js'],
   ['extension/src/edit-history.js', 'extension/src/edit-history.js'],
   ['extension/src/dialog/dialog-service.js', 'extension/src/dialog/dialog-service.js'],
@@ -87,10 +98,12 @@ const CONTENT = [
   ['core/src/definition.mjs', 'extension/core/definition.mjs'],
   ['core/src/grid-sample.mjs', 'extension/core/grid-sample.mjs'],
   ['core/src/control.mjs', 'extension/core/control.mjs'],
+  ['core/src/format.mjs', 'extension/core/format.mjs'],
   ['core/config/fields.json', 'extension/core/config/fields.json'],
   ['core/config/views.json', 'extension/core/config/views.json'],
   ['core/config/messages.json', 'extension/core/config/messages.json'],
   ['core/config/sql.json', 'extension/core/config/sql.json'],
+  ['core/config/sample-params.json', 'extension/core/config/sample-params.json'],
   ['core/src/entities.mjs', 'extension/core/entities.mjs'],
   ['core/src/program.mjs', 'extension/core/program.mjs'],
   ['core/src/render.mjs', 'extension/core/render.mjs'],
@@ -142,6 +155,7 @@ const CONTENT_TYPES = `<?xml version="1.0" encoding="utf-8"?>
   <Default Extension="md" ContentType="text/markdown" />
   <Default Extension="xml" ContentType="text/xml" />
   <Default Extension="txt" ContentType="text/plain" />
+  <Default Extension="flag" ContentType="text/plain" />
   <Default Extension="png" ContentType="image/png" />
   <Default Extension="gif" ContentType="image/gif" />
   <Default Extension="html" ContentType="text/html" />
@@ -354,10 +368,26 @@ for (const [from, to] of CONTENT) {
   fs.copyFileSync(src, dst);
 }
 
+/*
+ * File đánh dấu cho bản DEV — ghi TRỰC TIẾP vào `entries`, không qua `CONTENT`.
+ *
+ * `CONTENT` là danh sách tường minh CỐ ĐỊNH ("khai TƯỜNG MINH, không quét cả thư mục" — xem
+ * đầu file), đọc thẳng từ mã nguồn nên nó phải giống nhau ở mọi lần chạy. File đánh dấu thì
+ * ngược lại — có mặt hay không tuỳ `--dev` — nên nó không thuộc về danh sách ấy; thêm có điều
+ * kiện ngay tại chỗ dựng `entries` là đúng chỗ của nó.
+ */
+const devFlagEntry = [];
+if (DEV_BUILD) {
+  const flagPath = path.join(STAGE, 'extension', 'dev-features.flag');
+  fs.writeFileSync(flagPath, '', 'utf8');
+  devFlagEntry.push({ abs: flagPath, name: 'extension/dev-features.flag' });
+}
+
 const entries = [
   { abs: path.join(STAGE, '[Content_Types].xml'), name: '[Content_Types].xml' },
   { abs: path.join(STAGE, 'extension.vsixmanifest'), name: 'extension.vsixmanifest' },
   ...CONTENT.map(([, to]) => ({ abs: path.join(STAGE, to), name: to })),
+  ...devFlagEntry,
 ];
 
 const out = path.join(DIST, `${name}-${version}.vsix`);
@@ -377,5 +407,6 @@ if (problems.length) {
 }
 
 const size = fs.statSync(out).size;
-process.stdout.write(`\n${out}\n  ${actual.length} entry · ${(size / 1024).toFixed(1)} KB · tên entry hợp lệ\n`);
+process.stdout.write(`\n${out}\n  ${actual.length} entry · ${(size / 1024).toFixed(1)} KB · tên entry hợp lệ`
+  + `${DEV_BUILD ? ' · DEV (Phase #1/#2 bật)' : ' · Phase #1/#2 ẩn'}\n`);
 process.stdout.write('\nCài: Cursor → Extensions → … → Install from VSIX…\n');

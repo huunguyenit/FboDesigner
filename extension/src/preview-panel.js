@@ -23,6 +23,7 @@ const {
   samePath,
 } = require('./render-host');
 const sampleStore = require('./sample-store');
+const { autoLoadSample } = require('./sample-host');
 const { handleEdit } = require('./edit-host');
 const { history } = require('./edit-history');
 const { OverlayDialogs } = require('./dialog/dialog-overlay');
@@ -153,6 +154,16 @@ class PreviewPanel {
     this.panel.title = `Designer · ${path.basename(document.uri.fsPath)}`;
     this.watchSample(document.uri.fsPath);
     this.render();
+
+    /*
+     * Tự nạp dữ liệu thật, nếu `fboDesigner.autoLoadSampleData` bật (mặc định BẬT).
+     *
+     * KHÔNG `await`: nạp dữ liệu là một lượt `sqlcmd` mất vài giây, còn `track` thì chạy trên
+     * đường người dùng nhảy file. Chờ nó là panel đứng im nhìn vào file cũ trong lúc chờ mạng.
+     * `render()` ở trên vẽ bố cục ngay; kho dữ liệu tự bảo panel vẽ lại khi có dòng
+     * (`watchSample`), nên không cần biết lượt nạp xong lúc nào.
+     */
+    autoLoadSample(this.core, this.output, document);
   }
 
   /**

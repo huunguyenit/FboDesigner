@@ -21,6 +21,7 @@
 // chương trình chạy được.
 
 import { VIEWS_CONFIG } from './msg.mjs';
+import { isNumericField, isDateField } from './format.mjs';
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ESCAPES[c]);
@@ -100,6 +101,19 @@ export function alignOf(field) {
   if (declared === 'left' || declared === 'right' || declared === 'center') return declared;
   if (itemsStyle(field) === 'numeric') return 'right';
   if (isBoolean(field)) return 'center';
+  /*
+   * Mặc định theo KIỂU, không chỉ theo `<items style>`: số canh PHẢI, ngày canh GIỮA, còn lại
+   * canh TRÁI.
+   *
+   * `<items style="Numeric">` một mình là chưa đủ — phần lớn cột tiền của lưới chứng từ khai
+   * `type="Decimal"` mà KHÔNG khai `<items>` (`t_tt_nt`, `t_ck_nt`, `t_thue_nt` của
+   * `Grid/Config/Fields/SOTran.xml`), nên chúng dính lề trái trong khi runtime canh phải.
+   *
+   * Trả `null` cho phần «còn lại» chứ không trả `'left'`: `text-align` mặc định của `<input>`
+   * đã là trái, nên một khai báo inline thừa chỉ làm HTML dài ra mà không đổi gì trên màn hình.
+   */
+  if (isNumericField(field)) return 'right';
+  if (isDateField(field)) return 'center';
   return null;
 }
 

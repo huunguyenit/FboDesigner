@@ -424,6 +424,9 @@ function buildPayload(core, document, { cfg, paths, output, webview = null, bust
     // Cấu hình ẩn của `Grid/Config` — hai file không được controller nhắc tên nhưng vẫn thêm cột.
     gridConfig: loadGridConfig(core, document.uri.fsPath, readFile, configCache),
     sampleRows: sample ? sample.rows : null,
+    // Mặt nạ `@datetimeFormat`/`@…ViewFormat` — dữ liệu thật phải hiện đúng như runtime hiện,
+    // nếu không thì bề rộng đo được là bề rộng của một chuỗi khác. Xem `core/src/format.mjs`.
+    formats: readOptionFormats(core, paths?.programRoot, output),
     skipHtml,
   });
 
@@ -560,6 +563,39 @@ const BASE_CSS_DIR = path.join(__dirname, '..', 'media', 'base', 'css');
  * mà cũng không đọc lại 5 file cho mỗi lần gõ phím trong XML.
  */
 let baseCssCache = { stamp: '', text: '' };
+
+/** program root (thường hoá) → `{ mtime, formats }`. Xem `readOptionFormats`. */
+const optionFormatsCache = new Map();
+
+/**
+ * Mặt nạ định dạng của program — `<program>\App_Data\Controllers\Options\Options.xml`.
+ *
+ * `field@dataFormatString` phần lớn là một cái TRỎ (`@datetimeFormat`,
+ * `@foreignCurrencyAmountViewFormat`), và giá trị thật nằm ở file này. Không đọc được thì trả
+ * bản đồ RỖNG: `formatSampleValue` rơi về giá trị thô, chứ không đoán một mặt nạ.
+ *
+ * Nhớ theo `mtimeMs` như `readBaseCss`: file này đọc mỗi lần vẽ, mà mỗi lần vẽ là một lần gõ
+ * phím.
+ */
+function readOptionFormats(core, programRoot, output) {
+  if (!programRoot) return {};
+  const file = path.join(programRoot, 'App_Data', 'Controllers', 'Options', 'Options.xml');
+  let mtime = 0;
+  try { mtime = fs.statSync(file).mtimeMs; } catch { return {}; }
+
+  const key = String(programRoot).toLowerCase();
+  const hit = optionFormatsCache.get(key);
+  if (hit && hit.mtime === mtime) return hit.formats;
+
+  let formats = {};
+  try {
+    formats = core.scanOptionVars(core.readSource(file).text);
+  } catch (err) {
+    output?.appendLine(`options: không đọc được ${file} — ${err.message}`);
+  }
+  optionFormatsCache.set(key, { mtime, formats });
+  return formats;
+}
 
 function readBaseCss(output) {
   if (!fs.existsSync(BASE_CSS_DIR)) return '';
@@ -813,6 +849,12 @@ module.exports = {
   // `buildPayload` đã đọc. Tự đọc lại bằng đường khác là hai bản decode cho cùng một file, và
   // gạch đỏ lệch cột ở mọi dòng có ký tự ngoài ASCII đứng trước.
   cachedReadFile,
+  // `sample-host` cần cùng nguồn cột ẩn với bản vẽ — thiếu `Initialize`/`Fields` là SELECT
+  // thiếu `status` trong khi lưới đã hiện cột ấy.
+  loadGridConfig,
+  // `sample-host` cần đúng mặt nạ `dataFormatString` này để hộp thoại tham số hiện ngày theo
+  // đúng định dạng của field, không phải chuỗi SQL trần.
+  readOptionFormats,
   isControllerDocument,
   programAssets,
   buildPayload,

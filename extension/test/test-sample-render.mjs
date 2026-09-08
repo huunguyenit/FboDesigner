@@ -77,7 +77,7 @@ store.setSample(file, {
   columns: [{ label: 'ma_kh' }, { label: 'ten_kh' }],
   skipped: [{ message: 'cột "ten_kh": alias "c" trỏ tới bảng tạm cục bộ #x' }],
   notes: ['phép join dựng lại từ cặp khoá chính'],
-  masked: true,
+  masked: false,
   table: 'dmkh',
   top: 10,
 });
@@ -91,7 +91,7 @@ ok('cột thiếu khoá mang dấu không-lấy-được', rows[1].includes('dat
 
 section('nối kho ↔ vẽ — payload mang TÓM TẮT, không mang lại dữ liệu lần hai');
 eq('số dòng', after.sample.rows, 2);
-eq('có nói rõ là đã che', after.sample.masked, true);
+eq('không che dữ liệu', after.sample.masked, false);
 eq('lý do cột bị bỏ đi kèm để tầng vỏ hiện được', after.sample.skipped.length, 1);
 eq('ghi chú đi kèm', after.sample.notes.length, 1);
 /*

@@ -201,11 +201,11 @@
           "category": "FBO Designer",
           "description": "%fboDesigner.revealRelatedFiles.desc%"
         },
-        "fboDesigner.maskSampleData": {
+        "fboDesigner.autoLoadSampleData": {
           "type": "boolean",
           "default": true,
           "category": "FBO Designer",
-          "description": "%fboDesigner.maskSampleData.desc%"
+          "description": "%fboDesigner.autoLoadSampleData.desc%"
         },
         "fboDesigner.sampleRowCount": {
           "type": "number",
@@ -214,6 +214,15 @@
           "maximum": 100,
           "category": "FBO Designer",
           "description": "%fboDesigner.sampleRowCount.desc%"
+        },
+        "fboDesigner.sampleParams": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "category": "FBO Designer",
+          "description": "%fboDesigner.sampleParams.desc%"
         },
         "fboDesigner.sqlcmdPath": {
           "type": "string",

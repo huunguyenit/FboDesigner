@@ -40,7 +40,10 @@ function buildFieldMarkup(item) {
     control = `<input type="text" id="${id}" class="dlg-input" list="${listId}" data-field-name="${escapeHtml(name)}" value="${escapeHtml(value)}"${placeholder}${required} autocomplete="off" /><datalist id="${listId}">${options}</datalist>`;
   } else {
     const placeholder = item.placeholder ? ` placeholder="${escapeHtml(item.placeholder)}"` : '';
-    control = `<input type="text" id="${id}" class="dlg-input" data-field-name="${escapeHtml(name)}" value="${escapeHtml(value)}"${placeholder}${required} />`;
+    // `item.mask` — ô NGÀY (`dd/MM/yyyy`…) từ `askScriptParams`: client tự nhảy vùng, giữ dấu
+    // phân cách khi xoá, và kẹp ngày/tháng theo lịch thật — xem hàm `attachDateMask` bên dưới.
+    const mask = item.mask ? ` data-field-mask="${escapeHtml(item.mask)}"` : '';
+    control = `<input type="text" id="${id}" class="dlg-input" data-field-name="${escapeHtml(name)}" value="${escapeHtml(value)}"${placeholder}${mask}${required} autocomplete="off" />`;
   }
   const hint = item.hint
     ? `<div class="field-hint">${escapeHtml(item.hint)}</div>`
@@ -769,6 +772,153 @@ class DialogPanel {
               missing.focus();
               return false;
             };
+
+            /*
+             * Ô NGÀY có mặt nạ (data-field-mask, kiểu "dd/MM/yyyy") — gõ số tự nhảy vùng, chọn
+             * hết bấm Delete/Backspace thì giữ lại dấu phân cách (không xoá trắng cả ô), và ngày
+             * được kẹp về ngày cuối cùng hợp lệ của tháng/năm đang có khi vùng ấy nhập xong.
+             *
+             * KHÔNG dùng regex ở đây: file này đi qua một tầng template literal nữa của
+             * renderHtml() trước khi thành HTML thật, và một dấu gạch chéo ngược viết thiếu ở đó
+             * là IIFE vỡ, mọi nút bấm chết câm (xem bình luận ở nút Copy phía trên). So sánh ký
+             * tự bằng khoảng giá trị số né hẳn cái bẫy ấy — không cần một quy tắc nào cả.
+             */
+            function attachDateMask(input) {
+              const mask = input.getAttribute('data-field-mask') || '';
+              if (!mask) return;
+              const tokens = ['dd', 'MM', 'yyyy', 'yy', 'HH', 'mm', 'ss'];
+              const segments = [];
+              let pos = 0;
+              while (pos < mask.length) {
+                const hit = tokens.find((t) => mask.slice(pos, pos + t.length) === t);
+                if (hit) { segments.push({ token: hit, start: pos, len: hit.length }); pos += hit.length; } else { pos += 1; }
+              }
+              if (segments.length === 0) return;
+
+              const isLetter = (ch) => (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+              const isDigit = (ch) => ch >= '0' && ch <= '9';
+
+              const initial = input.value || '';
+              const chars = mask.split('').map((ch, idx) => {
+                if (!isLetter(ch)) return ch;
+                const c = initial[idx];
+                return isDigit(c) ? c : '_';
+              });
+
+              const render = () => { input.value = chars.join(''); };
+              render();
+
+              const segAt = (p) => segments.find((s) => p >= s.start && p < s.start + s.len) || segments[0];
+              const setCaret = (seg) => {
+                try { input.setSelectionRange(seg.start, seg.start + seg.len); } catch (err) { /* ô đã rời màn hình */ }
+              };
+              const segText = (seg) => chars.slice(seg.start, seg.start + seg.len).join('');
+              const setSegText = (seg, text) => {
+                for (let k = 0; k < seg.len; k++) chars[seg.start + k] = text[k] || '_';
+              };
+              const segOf = (token) => segments.find((s) => s.token === token) || null;
+
+              // Ngày cuối cùng của một tháng — tận dụng "ngày 0 của tháng sau" của Date thay vì
+              // bảng tra tay (và nó tự lo năm nhuận cho tháng 2).
+              const daysInMonth = (mm, yyyy) => {
+                const m = parseInt(mm, 10) || 1;
+                const y = parseInt(yyyy, 10) || 2000;
+                return new Date(y, m, 0).getDate();
+              };
+
+              const clampSegment = (seg) => {
+                const text = segText(seg);
+                if (text.indexOf('_') !== -1) return; // chưa nhập đủ, đừng đoán
+                const n = parseInt(text, 10);
+                if (seg.token === 'MM') {
+                  setSegText(seg, String(Math.min(Math.max(n, 1), 12)).padStart(2, '0'));
+                } else if (seg.token === 'dd') {
+                  const mmSeg = segOf('MM');
+                  const yearSeg = segOf('yyyy') || segOf('yy');
+                  const mmText = mmSeg ? segText(mmSeg) : '';
+                  const yearText = yearSeg ? segText(yearSeg) : '';
+                  const known = mmText.indexOf('_') === -1 && yearText.indexOf('_') === -1;
+                  const yyyy = yearSeg && yearSeg.token === 'yy' ? ('20' + yearText) : yearText;
+                  /*
+                   * CHƯA biết đủ cả tháng lẫn năm thì KHÔNG kẹp — 29/02 của một năm nhuận là
+                   * NGÀY THẬT, và một khi đã ghi đè xuống 28 thì không lấy lại được nữa (kẹp là
+                   * phép MỘT CHIỀU). Thà để "30" đứng tạm một nhịp còn hơn phá mất "29" đúng chỉ
+                   * vì năm chưa gõ tới — mọi vùng còn lại gõ xong đều gọi lại hàm này (xem dưới),
+                   * nên ngày luôn được xét lại lần cuối khi năm đã có.
+                   */
+                  if (!known) return;
+                  const max = daysInMonth(mmText, yyyy);
+                  setSegText(seg, String(Math.min(Math.max(n, 1), max)).padStart(2, '0'));
+                }
+              };
+
+              let buffer = '';
+              let bufferSeg = null;
+              const enterSegment = (seg) => { buffer = ''; bufferSeg = seg; setCaret(seg); };
+
+              input.addEventListener('focus', () => enterSegment(segAt(input.selectionStart || 0)));
+              input.addEventListener('click', () => enterSegment(segAt(input.selectionStart || 0)));
+
+              input.addEventListener('keydown', (event) => {
+                const seg = bufferSeg || segAt(input.selectionStart || 0);
+
+                if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                  event.preventDefault();
+                  const idx = segments.indexOf(seg);
+                  const next = event.key === 'ArrowLeft'
+                    ? segments[Math.max(idx - 1, 0)]
+                    : segments[Math.min(idx + 1, segments.length - 1)];
+                  enterSegment(next);
+                  return;
+                }
+
+                if (event.key === 'Backspace' || event.key === 'Delete') {
+                  event.preventDefault();
+                  // Bôi đen CẢ Ô rồi xoá — giữ lại dấu phân cách, chỉ trả các vùng về placeholder.
+                  const wholeSelected = input.selectionStart === 0 && input.selectionEnd === mask.length;
+                  const targets = wholeSelected ? segments : [seg];
+                  targets.forEach((s) => setSegText(s, ''));
+                  render();
+                  enterSegment(seg);
+                  return;
+                }
+
+                if (event.key.length === 1 && isDigit(event.key)) {
+                  event.preventDefault();
+                  // Vào vùng mới thì gõ ĐÈ từ đầu, không nối vào số cũ của vùng ấy.
+                  buffer = (bufferSeg === seg ? buffer : '') + event.key;
+                  bufferSeg = seg;
+                  setSegText(seg, buffer);
+                  render();
+                  if (buffer.length >= seg.len) {
+                    clampSegment(seg);
+                    // Ngày phụ thuộc tháng/năm — vùng vừa gõ xong đổi thì xét lại ngày, dù ngày
+                    // đã nhập TRƯỚC nó (gõ 30 rồi mới gõ 02 vẫn phải kẹp về 28).
+                    const dd = segOf('dd');
+                    if (dd && dd !== seg) clampSegment(dd);
+                    render();
+                    const idx = segments.indexOf(seg);
+                    if (idx < segments.length - 1) enterSegment(segments[idx + 1]);
+                    else { buffer = ''; bufferSeg = null; setCaret(seg); }
+                  } else {
+                    setCaret(seg);
+                  }
+                }
+              });
+
+              input.addEventListener('blur', () => {
+                // Ngày CUỐI CÙNG — nó phụ thuộc tháng/năm, phải kẹp sau khi hai thứ kia đã chốt.
+                ['MM', 'yyyy', 'yy', 'HH', 'mm', 'ss', 'dd'].forEach((token) => {
+                  const s = segOf(token);
+                  if (s) clampSegment(s);
+                });
+                render();
+                buffer = '';
+                bufferSeg = null;
+              });
+            }
+
+            document.querySelectorAll('input[data-field-mask]').forEach(attachDateMask);
 
             document.querySelectorAll('.mode-btn').forEach((btn) => {
               btn.addEventListener('click', () => {

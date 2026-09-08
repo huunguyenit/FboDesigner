@@ -6,7 +6,8 @@
 // chính màn hình đó, nên đây là chỗ duy nhất trong bộ test nói được "giống thật hay không".
 
 import { ok, eq, section } from './harness.mjs';
-import { renderControllerHtml, renderRowHtml, sanitizeLabelHtml, evaluateHeight, DIALOG_CHROME_PX } from '../src/render.mjs';
+import { renderControllerHtml, renderRowHtml, sanitizeLabelHtml, evaluateHeight, DIALOG_CHROME_PX,
+  scanGridConfig, configQueryRewrites } from '../src/render.mjs';
 import { expandEntities } from '../src/entities.mjs';
 
 const XML = [
@@ -482,3 +483,25 @@ const orphanHtml = renderControllerHtml([
 eq('bốn ô 0 mồ côi', (orphanHtml.match(/DwfOrphanZero/g) || []).length, 4);
 ok('ô "-" trống không mang orphan', /DwfEmptyCell(?! DwfOrphanZero)/.test(orphanHtml));
 ok('có data-fbo-orphan-zero', orphanHtml.includes('data-fbo-orphan-zero="1"'));
+
+section('render — bản vá câu query của Grid/Config gộp theo đúng thứ tự ưu tiên');
+
+/*
+ * Cùng thứ tự với `mergeGridConfig`: `Config/Fields/<Tên>.xml` (hạng 1) trước `Initialize.xml`
+ * (hạng 2). Ở `Grid/SOTran.xml` của HOATP hai bản vá neo vào hai chỗ khác nhau nên đổi thứ tự
+ * cũng ra cùng một câu — nhưng dựa vào điều đó là dựa vào một sự trùng hợp, không phải một luật.
+ */
+const cfgPart = (rank, source, destination) => ({
+  text: `<grid><queries><query event="Loading"><items>`
+    + `<item source="${source}" destination="${destination}"/>`
+    + `</items></query></queries></grid>`,
+  rank,
+  file: `part-${rank}`,
+});
+
+const scannedCfg = scanGridConfig([cfgPart(2, 'B', 'b2'), cfgPart(1, 'A', 'a1')]);
+eq('mỗi mảnh mang bản khai của chính nó', scannedCfg.map((p) => p.queries.Loading[0].source), ['B', 'A']);
+eq('gộp lại thì hạng 1 đứng trước', configQueryRewrites(scannedCfg, 'Loading').map((r) => r.source), ['A', 'B']);
+eq('sự kiện khác thì rỗng', configQueryRewrites(scannedCfg, 'Finding'), []);
+eq('không có mảnh nào cũng không ném', configQueryRewrites(null), []);
+
