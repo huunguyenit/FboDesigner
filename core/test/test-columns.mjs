@@ -9,9 +9,9 @@
 
 import { ok, eq, section } from './harness.mjs';
 import {
-  splitPatternAt, mergePatternAt, splitWidthsAt, mergeWidthsAt,
+  splitPatternAt, mergePatternAt, splitWidthsAt, mergeWidthsAt, resizeWidthAt,
 } from '../src/columns.mjs';
-import { planRegionColumns, regionColumnFiles } from '../src/edit.mjs';
+import { planRegionColumns, regionColumnFiles, planRegionColumnWidth } from '../src/edit.mjs';
 import { renderControllerHtml } from '../src/render.mjs';
 import { expandEntities } from '../src/entities.mjs';
 import { applySplices } from '../src/spans.mjs';
@@ -88,6 +88,14 @@ ok('tách cột không tồn tại thì từ chối', splitWidthsAt('100, 60', 5
 ok('gộp ở cột cuối thì từ chối', mergeWidthsAt('100, 60', 1).ok === false);
 ok('bề rộng âm thì từ chối', splitWidthsAt('100, 60', 1, -5, 65).ok === false);
 
+eq('sửa đúng một cột, giữ nếp cách', resizeWidthAt('100, 60, 90', 1, 45), { ok: true, value: '100, 45, 90' });
+eq('không dấu cách vẫn giữ nếp', resizeWidthAt('100,60,90', 1, 45), { ok: true, value: '100,45,90' });
+eq('cột đầu và cột cuối cũng sửa được', resizeWidthAt('100, 60, 90', 0, 20), { ok: true, value: '20, 60, 90' });
+eq('mảnh rỗng không tính là cột — cùng luật với mergeWidthsAt', resizeWidthAt('100,,60', 1, 30), { ok: true, value: '100,,30' });
+ok('cột không tồn tại thì từ chối', resizeWidthAt('100, 60', 5, 10).ok === false);
+ok('bề rộng âm thì từ chối', resizeWidthAt('100, 60', 0, -5).ok === false);
+ok('bề rộng không nguyên thì từ chối', resizeWidthAt('100, 60', 0, 12.5).ok === false);
+
 // ─────────────────────────────────────────────────────────────────────────────
 section('tách cột — cả chùm splice trên một controller');
 
@@ -126,6 +134,26 @@ ok('hàng dừng ở cột 2 nở theo', afterSplit.includes('value="110--: [ten
 ok('hàng ở hai cột cuối bị đẩy sang phải một nấc', afterSplit.includes('value="---11: [dia_chi]'), lineOf(afterSplit, '[dia_chi]'));
 ok('anchor="3" (cột sau chỗ tách) dời thành 4', /anchor="4"/.test(afterSplit), lineOf(afterSplit, '<view'));
 ok('split="2" (vạch ngay tại chỗ tách) dời thành 3', /split="3"/.test(afterSplit), lineOf(afterSplit, '<view'));
+
+section('kéo cạnh một cột — chỉ một splice, số cột không đổi');
+
+const resize1 = planRegionColumnWidth(base.model, { region: 'header', col: 1, width: 45 });
+ok('kéo cạnh cột 2 của dải header — lập kế hoạch được', resize1.ok, resize1.reason);
+eq('file đúng controller đang mở', resize1.file, FILE);
+eq('đúng đoạn văn bản đổi (textPatch cắt tới phần thật sự lệch)', resize1.expect, '60');
+
+const afterResize = applyAll({ [FILE]: DOC }, [{ file: FILE, ...resize1.splice }])[FILE];
+ok('list px chỉ cột 2 đổi, các cột khác đứng yên', afterResize.includes('value="100, 45, 90, 150"'),
+  lineOf(afterResize, 'value="100,'));
+ok('không đụng pattern hàng nào', afterResize.includes('value="1100: [ma_kho]')
+  && afterResize.includes('value="11--: [ten_kho]')
+  && afterResize.includes('value="--11: [dia_chi]'));
+ok('anchor/split của view đứng yên — số cột không đổi thì không có gì để dời',
+  /<view id="Dir" anchor="3" split="2">/.test(afterResize));
+
+ok('vùng không tồn tại thì từ chối', planRegionColumnWidth(base.model, { region: 'nope', col: 0, width: 10 }).ok === false);
+ok('cột ngoài phạm vi thì từ chối', planRegionColumnWidth(base.model, { region: 'header', col: 99, width: 10 }).ok === false);
+ok('bề rộng không đổi thì từ chối (no-op)', planRegionColumnWidth(base.model, { region: 'header', col: 1, width: 60 }).ok === false);
 
 function lineOf(text, needle) {
   const i = text.indexOf(needle);
@@ -346,5 +374,9 @@ ok('anchor="2" của footer dời thành 3', /<category index="-1"[^>]*anchor="3
 ok('anchor/split của view KHÔNG đụng tới — chúng đếm cột trên một list px khác;'
   + ' split mà footer đang mượn của view cũng đứng yên vì lý do ấy',
   /<view id="Dir" anchor="3" split="3">/.test(afterFoot), lineOf(afterFoot, '<view'));
+const footResize = planRegionColumnWidth(foot.model, { region: 'footer', col: 0, width: 55 });
+ok('kéo cạnh cột của dải đáy có `columns` riêng — lập kế hoạch được', footResize.ok, footResize.reason);
+eq('sửa đúng list px RIÊNG của tab đáy, không đụng list px của view', footResize.expect, '80');
+
 ok('hàng của dải header không bị dồn theo', afterFoot.includes('value="11--: [ma_kho]'),
   lineOf(afterFoot, '[ma_kho]'));

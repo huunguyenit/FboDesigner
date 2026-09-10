@@ -34,7 +34,7 @@ export {
   newSplitBlankRow,
   isBlankAnchorName,
 } from './item-value.mjs';
-export { canEditRow, planRowEdit, planMoveControl, planMoveRowBlock, planSwapControl, planSwapBlock, moveControlFiles, rowEditTargetFile, planAddRow, planAddField, blankAnchorName, blankAnchorField, blankAnchorToken, blankAnchorIn, planRemoveField, planRemoveControl, planInlineEntity, planColumnWidth, planRemoveColumn, planInsertColumn, planMoveColumn, planViewHeight, planFieldRows, planRegionMetadata, planRegionColumns, regionColumnFiles } from './edit.mjs';
+export { canEditRow, planRowEdit, planMoveControl, planMoveRowBlock, planSwapControl, planSwapBlock, moveControlFiles, rowEditTargetFile, planAddRow, planAddField, blankAnchorName, blankAnchorField, blankAnchorToken, blankAnchorIn, planRemoveField, planRemoveControl, planInlineEntity, planColumnWidth, planRemoveColumn, planInsertColumn, planMoveColumn, planViewHeight, planFieldRows, planRegionMetadata, planRegionColumns, regionColumnFiles, planRegionColumnWidth } from './edit.mjs';
 export {
   FIELD_KINDS,
   FIELD_TYPES,
@@ -55,8 +55,9 @@ export { msg, t, MESSAGES, FIELDS_CONFIG, VIEWS_CONFIG, SQL_CONFIG, SAMPLE_PARAM
  */
 export { local as warnLocal, anchored as warnAnchored, attach as warnAttach, absoluteSpan as warnAbsoluteSpan } from './warn.mjs';
 export { deadFieldWarnings, aliasWarnings, gridHeightWarnings, gridBlockPx } from './lint.mjs';
-export { splitPatternAt, mergePatternAt, splitWidthsAt, mergeWidthsAt } from './columns.mjs';
+export { splitPatternAt, mergePatternAt, splitWidthsAt, mergeWidthsAt, resizeWidthAt } from './columns.mjs';
 export { buildOutline } from './outline.mjs';
+export { buildEntityInsight } from './insight.mjs';
 export { definitionTargetAt, fieldDeclarationSpan, completionContextAt } from './definition.mjs';
 export { scopeCss, FORM_SCOPE } from './css-scope.mjs';
 export { commentRanges, inComment, commentSkipper } from './xml-comment.mjs';

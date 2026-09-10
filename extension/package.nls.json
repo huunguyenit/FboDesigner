@@ -16,6 +16,7 @@
   "fboDesigner.revealRelatedFiles.desc": "Ctrl+bấm (hoặc bấm đúp) vào một ô thì mở bao nhiêu file. Một cột lưới có thể được khai ở view và ở field — hai file khác nhau.",
   "fboDesigner.revealRelatedFiles.one": "Chỉ mở file khai ra ô đang bấm.",
   "fboDesigner.revealRelatedFiles.all": "Mở kèm chuỗi file dẫn tới ô đang bấm: Initialize → Controller/Group Include → View/Field Include. Cột chỉ thuộc file lưới thì không kéo Initialize vào.",
+  "fboDesigner.showInsight.desc": "Chế độ soi entity: gạch chân &Name; và hiện ngay nội dung nó bung ra bên cạnh (hoặc \"(rỗng)\" / ⚠). Tắt thì file controller vẽ như một file XML thường.",
   "fboDesigner.entityEditTarget.desc": "Thao tác lên một control đến từ &ENTITY; thì ghi vào đâu.",
   "fboDesigner.entityEditTarget.ask": "Hỏi mỗi lần: ghi vào file gốc hay phân giải vào file thiết kế.",
   "fboDesigner.entityEditTarget.source": "Luôn ghi thẳng vào file khai ra hàng đó (Include) — mọi controller dùng chung cùng đổi theo.",

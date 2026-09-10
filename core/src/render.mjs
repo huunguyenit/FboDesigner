@@ -528,6 +528,15 @@ export function buildViewModel(view, fields, {
     const { cells, warnings: w } = buildCells(r.row, widths);
     warnings.push(...w.map((x) => anchor(x, r.index, r.item.valueSpan)));
     for (const c of cells) {
+      /*
+       * Đích bấm của CHÍNH ô này: dải nguồn của đúng token (`[ma_kh]`, `[ma_kh].Label`…), không
+       * phải cả hàng — `warn.absoluteSpan` đã là cách `anchor()` ở trên quy `at`/`len` cục bộ về
+       * dải trong `value`, dùng lại y hệt rồi mới `sourceRange` ra file/offset thật.
+       */
+      const local = c.token && segments && r.item.valueSpan
+        ? warn.absoluteSpan({ at: c.token.at, len: c.token.len }, r.item.valueSpan)
+        : null;
+      c.tokenRange = local ? sourceRange(segments, local.start, local.end) : null;
       if (c.token?.field && !fieldByName.has(c.token.field)) {
         // ERROR: ô ấy sẽ RỖNG trên form — control biến mất, không phải hiện xấu.
         // Neo vào đúng token nhờ `at`/`len` `parseRow` đã ghi lại, không phải cả hàng.
@@ -728,7 +737,17 @@ function renderCell(cell, row, model, cellIndex) {
       orphanAttr);
   }
 
-  const tokenAttr = ` data-fbo-token="${esc(token?.raw ?? '')}"`;
+  /*
+   * `data-fbo-token-*`: đích bấm riêng cho CHÍNH ô này — dải của ĐÚNG token `[ma_kh]` /
+   * `[ma_kh].Label` trong chuỗi `<item value="…">`, không phải cả hàng (`data-fbo-src-start`,
+   * có thể gộp sáu control). `cell.tokenRange` đã quy về file nguồn thật ở `buildViewModel` —
+   * token nằm sau một entity giữa hàng (`[&Revert.Field.0;]`) có thể ở file KHÁC hẳn hàng chứa
+   * nó, nên mang riêng `file` của chính nó chứ không mượn của hàng.
+   */
+  const tokenAttr = ` data-fbo-token="${esc(token?.raw ?? '')}"`
+    + (cell.tokenRange
+      ? ` data-fbo-token-file="${esc(cell.tokenRange.file)}" data-fbo-token-start="${cell.tokenRange.start}" data-fbo-token-end="${cell.tokenRange.end}"`
+      : '');
   const fieldFile = field?.tagStart?.file ?? null;
   const fieldForeign = !!(fieldFile && model.hostFile && fieldFile !== model.hostFile);
   const fieldProduct = !!(fieldFile && /\.f$/i.test(fieldFile));

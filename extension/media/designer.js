@@ -665,11 +665,21 @@ function revealCell(cell, ev) {
   const hostEnd = Number(anchor.dataset.fboHostEnd);
   const related = (cell.closest('[data-fbo-related]')?.dataset.fboRelated || '')
     .split('|').filter((f) => f !== '');
+
+  // Đích CHÍNH riêng của CHÍNH ô này — đúng token `[ma_kh]`/`[ma_kh].Label` trong dòng `<item>`,
+  // khác `anchor` ở trên (cả hàng, có thể gộp nhiều control). Không tách được thì rơi về cả hàng.
+  const tokenStart = Number(cell.dataset.fboTokenStart);
+  const tokenEnd = Number(cell.dataset.fboTokenEnd);
+  const hasTokenAnchor = Number.isFinite(tokenStart) && Number.isFinite(tokenEnd);
+
   vscode.postMessage({
     type: 'select',
     start,
     end,
     file: anchor.dataset.fboFile || '',
+    tokenFile: hasTokenAnchor ? (cell.dataset.fboTokenFile || '') : '',
+    tokenStart: hasTokenAnchor ? tokenStart : null,
+    tokenEnd: hasTokenAnchor ? tokenEnd : null,
     hostStart: Number.isFinite(hostStart) ? hostStart : null,
     hostEnd: Number.isFinite(hostEnd) ? hostEnd : null,
     foreign: anchor.dataset.fboForeign === '1',
@@ -1330,7 +1340,7 @@ function drawWidthStrip(frag, { ticks, top, isGrid, clip, region, colOffset = 0 
       ? `cột ${absCol + 1} · 0px (neo/đệm — vẫn đếm trong pattern, không nới form)`
       : (region === null
         ? `cột ${absCol} · ${label}px`
-        : `cột ${absCol + 1} · ${label}px — bấm để tách hoặc gộp BIÊN cột của cả vùng`);
+        : `cột ${absCol + 1} · ${label}px — bấm để thêm hoặc gộp BIÊN cột của cả vùng`);
 
     /*
      * `region !== null` là CHỐT DUY NHẤT cho việc chọn cột — không lặp lại `isGrid`/`isGridTab`
@@ -1372,7 +1382,8 @@ function drawWidthStrip(frag, { ticks, top, isGrid, clip, region, colOffset = 0 
 }
 
 /**
- * Thanh lệnh của một BIÊN CỘT — tách cột đang chọn làm hai, hoặc gộp nó với cột liền kề.
+ * Thanh lệnh của một BIÊN CỘT — thêm một cột mới ngay sau cột đang chọn, hoặc gộp nó với cột
+ * liền kề.
  *
  * Khác hẳn thanh lệnh của một ô (`drawHandles`), và khác ở chỗ phải nói ra cho rõ: `⊣`/`⊢` trên
  * thanh của ô đổi SỐ CỘT MỘT CONTROL đang trải, trong danh sách biên có sẵn — một hàng, một
@@ -1419,9 +1430,13 @@ function drawColumnEdgeBar(frag, { left, width, top, region, col, count, pxWidth
     bar.appendChild(b);
   };
 
+  // Tách đã bỏ — "+ Thêm" thay thế: chèn cột MỚI ngay sau cột đang chọn, bề rộng mặc định
+  // (`DEFAULT_NEW_COL_WIDTH`); cột đang chọn giữ NGUYÊN bề rộng của nó (`pxWidth`). Đi bằng
+  // CHỌN-RỒI-BẤM giống hệt Gộp — không còn hover: hover quá dễ mất khi rê chuột từ cột sang nút,
+  // và luôn phải chọn trước nên không thể bấm nhầm cột.
   const all = 'mọi hàng dùng chung danh sách biên cột này (kể cả ở tab khác) sẽ dồn theo';
-  make('Tách', `Tách cột ${col + 1} (${pxWidth}px) thành hai — ${all}`, false,
-    () => postEdit({ op: 'colSplit', region, col }));
+  make('+ Thêm', `Thêm cột sau cột ${col + 1} — ${all}`, false,
+    () => postEdit({ op: 'colSplit', region, col, left: pxWidth, right: DEFAULT_NEW_COL_WIDTH }));
   bar.appendChild(el('span', 'bp-act-sep', {}));
   make('< Gộp', col === 0 ? 'Cột đầu — bên trái không còn cột nào' : `Gộp cột ${col} với cột ${col + 1} — ${all}`,
     col === 0, () => postEdit({ op: 'colMerge', region, col: col - 1 }));
@@ -2205,7 +2220,7 @@ function wireRowHover() {
    * chuột kịp vào nút. Giữ hover nếu Y còn trong dải hàng và X còn trong mép ± ROW_ADD_HIT_PX.
    */
   stage.addEventListener('mousemove', (e) => {
-    if (drag || moveDrag || colDrag || colMoveDrag || metaDrag) return;
+    if (drag || moveDrag || colDrag || colMoveDrag || metaDrag || regionColDrag) return;
     if (e.target.closest?.('.bp-row-add')) {
       return;
     }
@@ -2238,6 +2253,38 @@ function wireRowHover() {
     hoverRowItem = null;
     drawBlueprintSoon();
   });
+}
+
+/** Bề rộng cột mới khi bấm + Thêm — mặc định giống hệt cột view chưa khai list px (VIEWS_CONFIG.defaultColumnWidth). */
+const DEFAULT_NEW_COL_WIDTH = 100;
+
+/**
+ * `<th>` ruler của đúng cột `col` (chỉ số tuyệt đối) trong vùng `region` — cái THẬT SỰ đổi width
+ * khi kéo cạnh. `height:0` (xem designer.css) nên không bao giờ nhận được sự kiện chuột, nhưng
+ * `getBoundingClientRect()`/`style.width` không đòi hỏi điều đó — đo vị trí vẫn đúng, chỉ có
+ * CHUỘT là không chạm tới được nó. Vì vậy kéo cạnh phải bắt trên chính THÂN BẢNG (những `<td>`
+ * thật, có chiều cao thật) rồi tự tính cột qua `columnEdges`, xem `formRegionOf`/`wireRegionColumnResize`.
+ */
+function regionColTh(region, col) {
+  return formLayer.querySelector(`table[data-fbo-region-table="${region}"] .DwfColRow th[data-fbo-col="${col}"]`);
+}
+
+/**
+ * Region id của một bảng FORM thật (Dir) — `null` nếu là bảng LƯỚI hoặc tab chỉ nhúng lưới,
+ * nơi cột không có danh sách biên dùng chung nào để mà kéo/thêm. Cùng luật `isGrid`/`isGridTab`
+ * mà `drawRegion` đã dùng để null hoá `region` truyền cho `drawWidthStrip`.
+ */
+function formRegionOf(table) {
+  if (!table || table.closest('.GridTabPanel') || table.dataset.fboGridOnly === '1') return null;
+  return table.dataset.fboRegionTable || null;
+}
+
+/** Cột (chỉ số tuyệt đối) có MÉP PHẢI nằm trong `RESIZE_GRIP_PX` của `clientX`, hoặc `null`. */
+function boundaryColAt(edges, clientX) {
+  for (let i = 0; i < edges.length; i++) {
+    if (Math.abs(clientX - edges[i].right) <= RESIZE_GRIP_PX) return i;
+  }
+  return null;
 }
 
 /**
@@ -2367,7 +2414,7 @@ function spanAt(cell, clientX) {
  */
 function wireResize() {
   formLayer.addEventListener('mousemove', (e) => {
-    if (drag) return;
+    if (drag || regionColDrag) return;
     const cell = e.target.closest('td[data-fbo-cell]');
     formLayer.classList.toggle('fbo-resizing', resizeEdgeAt(cell, e.clientX) !== null);
   });
@@ -2711,7 +2758,7 @@ function applyGridColumnWidth({ cells, panel, pos }, width) {
 
 function wireGridColumns() {
   formLayer.addEventListener('mousemove', (e) => {
-    if (colDrag || drag) return;
+    if (colDrag || drag || regionColDrag) return;
     const th = e.target.closest('.GridHeader td[data-fbo-column]');
     const can = th && !th.dataset.fboHidden && edgeOf(th, e.clientX);
     /*
@@ -2880,7 +2927,7 @@ const COL_MOVE_ARM_PX = 4;
 function wireColMove() {
   formLayer.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
-    if (colDrag || drag || moveDrag || metaDrag) return;
+    if (colDrag || drag || moveDrag || metaDrag || regionColDrag) return;
     const th = e.target.closest('.GridHeader td[data-fbo-column]');
     if (!th || th.dataset.fboHidden || edgeOf(th, e.clientX)) return;
     const target = gridColTarget(th);
@@ -2930,8 +2977,95 @@ function wireColMove() {
   });
 }
 
+/**
+ * Kéo cạnh MỘT cột của một vùng FORM (Dir) — cùng trải nghiệm với `wireGridColumns`, nhưng bắt
+ * chuột trên THÂN BẢNG THẬT (mọi `<td>` của bảng form — có chiều cao thật, nhận được chuột bình
+ * thường), KHÔNG phải hàng RULER (`.DwfColRow`, `height:0` — xem chú thích ở `regionColTh`, một
+ * phần tử cao 0px không bao giờ nhận được sự kiện chuột dù đo vị trí vẫn đúng). Vị trí cột lấy
+ * qua `columnEdges`/`boundaryColAt`, tính lại mỗi lần chuột động — cùng cách `wireGridColumns`
+ * tính `edgeOf` trên chính ô đang hover, chỉ khác nguồn hình học (list px dùng chung thay vì
+ * `<field width>` riêng từng cột).
+ */
+let regionColDrag = null;
+
+function wireRegionColumnResize() {
+  formLayer.addEventListener('mousemove', (e) => {
+    if (regionColDrag || drag || moveDrag || colDrag || colMoveDrag || metaDrag) return;
+    const table = e.target.closest('table[data-fbo-col-widths]');
+    const region = table ? formRegionOf(table) : null;
+    if (table && region && boundaryColAt(columnEdges(table), e.clientX) !== null) {
+      formLayer.classList.add('fbo-resizing');
+    }
+  });
+
+  formLayer.addEventListener('mousedown', (e) => {
+    if (regionColDrag || drag || moveDrag || colDrag || colMoveDrag || metaDrag) return;
+    const table = e.target.closest('table[data-fbo-col-widths]');
+    const region = table ? formRegionOf(table) : null;
+    if (!table || !region) return;
+    const col = boundaryColAt(columnEdges(table), e.clientX);
+    if (col === null) return;
+    const th = regionColTh(region, col);
+    if (!th) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    const from = Math.round(th.getBoundingClientRect().width);
+    regionColDrag = { th, table, region, col, from, width: from, startX: e.clientX };
+    document.body.classList.add('fbo-dragging');
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!regionColDrag) return;
+    regionColDrag.width = Math.max(0, Math.round(regionColDrag.from + (e.clientX - regionColDrag.startX)));
+    applyRegionColumnWidth(regionColDrag);
+    regionColDrag.th.title = `cột ${regionColDrag.col + 1} · ${regionColDrag.width}px`;
+    drawBlueprint();
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!regionColDrag) return;
+    const { region, col, width, from } = regionColDrag;
+    regionColDrag = null;
+    document.body.classList.remove('fbo-dragging');
+    formLayer.classList.remove('fbo-resizing');
+    // Thả về đúng chỗ cũ thì không gửi gì — cùng luật với `wireGridColumns`.
+    if (width !== from) postEdit({ op: 'colWidthRegion', region, col, width });
+  });
+}
+
+/**
+ * Đổi width TRÊN DOM để thấy ngay — file chưa đổi gì, đây chỉ là xem trước.
+ *
+ * `table.dataset.fboColWidths` giữ list px CỦA RIÊNG bảng đang kéo (nửa trái/phải khi có split,
+ * đánh số từ cột 0 của chính nó — xem `tableColOffset`), còn `regionRootOf` có thể trả về một
+ * phần tử KHÁC (`div.FormSplit` bọc ngoài) mang list px TUYỆT ĐỐI của cả vùng — `drawWidthStrip`
+ * đọc list này qua `regionWidthsOf` để tính `fullCount` của thanh Gộp. Cả hai phải cập nhật để
+ * không có chỗ nào còn hiện số cũ trong lúc kéo.
+ */
+function applyRegionColumnWidth({ th, table, col, width }) {
+  th.style.width = `${width}px`;
+
+  const local = col - tableColOffset(table);
+  const list = (table.dataset.fboColWidths || '').split(',');
+  if (local >= 0 && local < list.length) {
+    list[local] = String(width);
+    table.dataset.fboColWidths = list.join(',');
+  }
+
+  const root = regionRootOf(table);
+  if (root && root !== table) {
+    const rootList = (root.dataset.fboColWidths || '').split(',');
+    if (col >= 0 && col < rootList.length) {
+      rootList[col] = String(width);
+      root.dataset.fboColWidths = rootList.join(',');
+    }
+  }
+}
+
 wireGridColumns();
 wireColMove();
+wireRegionColumnResize();
 
 /**
  * Lưới nhiều cột: footer cuộn ngang, tiêu đề và thân nhận `scrollLeft` đồng bộ.

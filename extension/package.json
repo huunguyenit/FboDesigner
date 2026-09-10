@@ -230,6 +230,12 @@
           "category": "FBO Designer",
           "description": "%fboDesigner.sqlcmdPath.desc%"
         },
+        "fboDesigner.showInsight": {
+          "type": "boolean",
+          "default": true,
+          "category": "FBO Designer",
+          "description": "%fboDesigner.showInsight.desc%"
+        },
         "fboDesigner.entityEditTarget": {
           "type": "string",
           "enum": [

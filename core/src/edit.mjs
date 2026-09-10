@@ -17,7 +17,7 @@ import { segmentAt } from './entities.mjs';
 // Vùng của một hàng suy từ `<field categoryIndex>`, và luật ấy sống ở `render.mjs`. Tầng edit
 // phải tính lại vùng SAU một phép dời, nên nó dùng chung hàm chứ không chép luật sang đây.
 import { fieldCategories, rowCategoryIndex } from './render.mjs';
-import { splitPatternAt, mergePatternAt, splitWidthsAt, mergeWidthsAt } from './columns.mjs';
+import { splitPatternAt, mergePatternAt, splitWidthsAt, mergeWidthsAt, resizeWidthAt } from './columns.mjs';
 import { msg } from './msg.mjs';
 
 
@@ -1348,6 +1348,45 @@ function mergePatches(patches) {
 export function regionColumnFiles(model, op) {
   const plan = buildColumnPlan(model, op);
   return plan.ok ? [...new Set(plan.edits.map((e) => e.file))] : [];
+}
+
+/**
+ * SỬA BỀ RỘNG của một cột trong list px dùng chung của một vùng form — kéo cạnh, không tách/gộp.
+ *
+ * Khác `buildColumnPlan`: số cột không đổi, nên đây chỉ là MỘT splice trên chính list px, không
+ * đụng pattern của hàng nào (mọi hàng vẫn đọc đúng số cột như cũ) và không dời `anchor`/`split`
+ * (chúng đếm cột, số cột không đổi thì không có gì để dời). Cùng blast radius với `colWidth` của
+ * lưới — một file, một dải.
+ *
+ * KHÔNG nhận `sourceText`: `owner.span` đo trên clearText (đã bung entity), không phải toạ độ
+ * của một file cụ thể — so nguyên văn ở đây (như `planColumnWidth` làm cho lưới) sẽ so nhầm hệ
+ * toạ độ bất cứ khi nào owner nằm trong Include hoặc đi qua entity. `textPatch` tự quy đúng file
+ * + `expect` qua `model.segments`; người gọi so `expect` với văn bản file THẬT (đọc SAU khi đã
+ * biết `plan.file`) trước khi ghi — cùng luật với `planRegionColumns`, chỉ khác một file một dải.
+ *
+ * @returns {{ok:true, file, splice, expect}|{ok:false, reason:string}}
+ */
+export function planRegionColumnWidth(model, { region: regionId, col, width }) {
+  const region = (model.regions ?? []).find((r) => r.id === regionId);
+  if (!region) return { ok: false, reason: msg('edit.region_missing', { region: regionId }) };
+  if (!model.segments) return { ok: false, reason: msg('edit.width_list_source_unknown') };
+
+  const key = widthsOwnerKey(model, region.index);
+  const owner = widthsOwnerOf(model, key);
+  if (!owner.ok) return owner;
+
+  const count = region.widths.length;
+  const c = Math.trunc(Number(col));
+  if (!Number.isInteger(c) || c < 0 || c >= count) {
+    return { ok: false, reason: msg('edit.region_col_missing', { p0: c + 1, count }) };
+  }
+  const n = Math.round(Number(width));
+  if (String(n) === String(region.widths[c])) return { ok: false, reason: msg('common.no_change') };
+
+  const next = resizeWidthAt(owner.value, c, n);
+  if (!next.ok) return next;
+
+  return textPatch(model.segments, owner.span.start, owner.value, next.value, 'list px');
 }
 
 /**

@@ -467,8 +467,12 @@ const foreignCell = renderControllerHtml(expanded.clearText, {
   segments: expanded.segments,
   hostFile: HOST_FILE,
 });
-ok('ô [so_dd] mang data-fbo-foreign', foreignCell.html.includes('data-fbo-token="[so_dd]" data-field-name="so_dd" title="so_dd" data-fbo-foreign="1"'));
-ok('ô [so_hc] mang data-fbo-foreign', foreignCell.html.includes('data-fbo-token="[so_hc]" data-field-name="so_hc" title="so_hc" data-fbo-foreign="1"'));
+// `.*?` chừa chỗ cho `data-fbo-token-file/-start/-end` — đích bấm riêng của TOKEN, chen giữa
+// `data-fbo-token="…"` và `data-field-name=…` của cùng ô, không đụng tới quan hệ đang kiểm.
+ok('ô [so_dd] mang data-fbo-foreign',
+  /data-fbo-token="\[so_dd\].*?data-field-name="so_dd" title="so_dd" data-fbo-foreign="1"/.test(foreignCell.html));
+ok('ô [so_hc] mang data-fbo-foreign',
+  /data-fbo-token="\[so_hc\].*?data-field-name="so_hc" title="so_hc" data-fbo-foreign="1"/.test(foreignCell.html));
 
 section('render — pattern 0 mồ côi tô DwfOrphanZero (gạch chéo đỏ)');
 const orphanHtml = renderControllerHtml([

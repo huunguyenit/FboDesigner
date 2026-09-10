@@ -723,11 +723,17 @@ function rangeIn(document, start, end) {
   return new vscode.Range(document.positionAt(a), document.positionAt(b));
 }
 
-async function revealIn(document, viewColumn, start, end) {
+/**
+ * `focus: true` → đây là điểm đến CHÍNH (đúng token sinh ra control vừa bấm): trao focus bàn
+ * phím cho editor, để `selection` hiện lên bôi đen sáng (active) thay vì xám (inactive) — đó
+ * mới thật sự là "focus đúng control, và bôi đen nó". File phụ (`revealRelated`) giữ mặc định
+ * `false`: chúng chỉ mở kèm cho có ngữ cảnh, không phải nơi con trỏ nên dừng lại.
+ */
+async function revealIn(document, viewColumn, start, end, focus = false) {
   const range = rangeIn(document, start, end);
   const editor = await vscode.window.showTextDocument(document, {
     viewColumn,
-    preserveFocus: true,
+    preserveFocus: !focus,
     // Preview (mặc định) tái sử dụng cùng một tab — mở file B là đè mất file A vừa mở.
     // `all` mở nhiều file nên phải khóa tab: mỗi file một tab riêng trong cùng nhóm.
     preview: false,
@@ -813,15 +819,27 @@ async function revealRelated(msg, hostPath, target, output) {
 
 async function revealSource(msg, hostDocument, output) {
   const hostPath = hostDocument?.uri.fsPath ?? '';
-  const target = msg.file || hostPath;
   const mode = config().revealRelatedFiles;
 
   // Alt-click: ở lại file đang mở, trỏ vào chính `&Name;`.
-  if (msg.hostRefOnly && !samePath(target, hostPath) && Number.isFinite(msg.hostStart)) {
+  if (msg.hostRefOnly && !samePath(msg.file || hostPath, hostPath) && Number.isFinite(msg.hostStart)) {
     const hostEditor = vscode.window.visibleTextEditors.find((e) => samePath(e.document.uri.fsPath, hostPath));
-    if (hostEditor) return revealIn(hostEditor.document, hostEditor.viewColumn, msg.hostStart, msg.hostEnd);
-    if (hostDocument) return revealIn(hostDocument, vscode.ViewColumn.Beside, msg.hostStart, msg.hostEnd);
+    if (hostEditor) return revealIn(hostEditor.document, hostEditor.viewColumn, msg.hostStart, msg.hostEnd, true);
+    if (hostDocument) return revealIn(hostDocument, vscode.ViewColumn.Beside, msg.hostStart, msg.hostEnd, true);
   }
+
+  /*
+   * Đích CHÍNH: đúng TOKEN sinh ra control vừa bấm (`[ma_kh]` / `[ma_kh].Label`) trong chuỗi
+   * `<item value="…">` — không phải cả hàng, thứ có thể gộp sáu control khác nhau. Token nằm
+   * sau một entity giữa hàng (`[&Revert.Field.0;]`) có thể ở file KHÁC hẳn hàng chứa nó, nên
+   * `msg.tokenFile` mang riêng file của chính nó. Ô không tách được token (hiếm — lưới cũ, hàng
+   * dựng tay không mang `at`/`len`) thì `msg.tokenFile` rỗng, rơi về hành vi cũ: nhảy cả hàng.
+   */
+  const hasTokenAnchor = typeof msg.tokenFile === 'string' && msg.tokenFile !== ''
+    && Number.isFinite(msg.tokenStart) && Number.isFinite(msg.tokenEnd);
+  const target = (hasTokenAnchor ? msg.tokenFile : msg.file) || hostPath;
+  const start = hasTokenAnchor ? msg.tokenStart : msg.start;
+  const end = hasTokenAnchor ? msg.tokenEnd : msg.end;
 
   // Mở kèm TRƯỚC, file chính SAU: file mở sau cùng là tab nằm trên trong cùng nhóm.
   let sideColumn = null;
@@ -829,7 +847,7 @@ async function revealSource(msg, hostDocument, output) {
 
   // File đã mở sẵn thì dùng lại tab đó, đừng mở thêm một bản nữa ở cột khác.
   const visible = vscode.window.visibleTextEditors.find((e) => samePath(e.document.uri.fsPath, target));
-  if (visible) return revealIn(visible.document, visible.viewColumn, msg.start, msg.end);
+  if (visible) return revealIn(visible.document, visible.viewColumn, start, end, true);
 
   const opened = await vscode.workspace.openTextDocument(vscode.Uri.file(target)).then(
     (d) => d,
@@ -837,7 +855,7 @@ async function revealSource(msg, hostDocument, output) {
   );
   if (!opened) return;
   // Cùng cột với file phụ vừa mở → thành tab cạnh nhau, không tách cột mới / đè preview.
-  return revealIn(opened, sideColumn ?? vscode.ViewColumn.Beside, msg.start, msg.end);
+  return revealIn(opened, sideColumn ?? vscode.ViewColumn.Beside, start, end, true);
 }
 
 module.exports = {

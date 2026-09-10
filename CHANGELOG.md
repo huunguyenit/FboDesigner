@@ -4,6 +4,308 @@
 
 ## [Chưa phát hành]
 
+### Đổi — bỏ "tính năng ẩn" (dev mode), gỡ mục lục/F12/hover, chế độ soi bật/tắt qua cấu hình
+
+Ba tính năng dời sang extension XML khác đang đảm nhận: **mục lục** (`Ctrl+Shift+O`), **F12** /
+`Ctrl+click` trong editor văn bản, và **hover** (cả hover field/dữ liệu thật lẫn hover Path/copy/
+Content của chế độ soi). Gỡ cả ba khỏi extension này — giữ lại của người khác làm tốt hơn, không
+giữ hai bản làm cùng một việc.
+
+- Xoá hẳn `extension/src/symbol-host.js`, `extension/src/definition-host.js` và test tương ứng.
+- `language-host.js` chỉ còn gợi ý (completion) — `fieldHover`/`registerHoverProvider` gỡ hết.
+  Field/entity của FBO đến từ cây Include đã bung, không extension XML chung nào biết, nên gợi ý
+  ở lại.
+- `insight-host.js` gỡ hoverMessage trên vệt `&Name;`, gỡ toàn bộ máy dựng hover (`appendNode`,
+  `hoverFor`, `copyLink`, lệnh `fboDesigner.insightCopy`) — vệt + chú giải một dòng vẫn y nguyên.
+  Theo đó, `core/src/insight.mjs` bỏ luôn cây Include lồng (`children`/`raw`,
+  `buildNestedTree`/`mergeNested`/`unresolvedNested`) — dựng ra CHỈ để nuôi hover, hover mất thì
+  cây ấy thành mã chết.
+- Xoá `extension/src/dev-features.js`, cờ `extension/dev-features.flag`, và cờ `--dev` của
+  `tools/package-vsix.mjs` — không còn khái niệm "bản dev mang thêm tính năng". Chẩn đoán, gợi ý,
+  chế độ soi giờ LUÔN đăng ký trong `extension.js`, không qua `if (devFeaturesEnabled(...))`.
+- **Thêm** cấu hình `fboDesigner.showInsight` (mặc định BẬT) thay cho việc chế độ soi cứng luôn
+  bật không tắt được — `registerInsight` nghe `onDidChangeConfiguration`, đổi trong Settings thấy
+  hiệu quả ngay, không cần mở lại file.
+
+### Đổi — chế độ soi LUÔN BẬT, chú giải MỘT DÒNG neo ngay sau `&Name;`, bỏ hẳn bản clear text
+
+Dùng thật trên một chương trình thật lộ ra ba việc bản trước làm sai:
+
+1. **Phải bấm mới thấy.** `Ctrl+Alt+E` bắt người dùng nhớ một phím tắt cho một thứ lẽ ra nên có
+   sẵn — họ mở file controller là muốn thấy `&Name;` bung ra cái gì NGAY, không phải bật lên rồi
+   mới bật.
+2. **Bật lên lại mở một tài liệu khác** (bản clear text, scheme `fbo-insight:`) — đúng thứ người
+   dùng gọi là "tự bật một file khác" mỗi lần bấm. Họ chỉ cần đọc được nội dung NGAY TRÊN file
+   đang sửa, không cần đổi bề mặt nào.
+3. **Chú giải nhiều dòng đọc sai chỗ.** Nhiều file FBO thật có nhiều thứ trên cùng một dòng với
+   entity — `]]>&Name;<![CDATA[` (đóng CDATA, chèn Include, mở CDATA lại) — và chú giải neo ở
+   CUỐI DÒNG (`layoutAnnotations`) làm mũi tên trông như thuộc về cả dòng `]]>&Name;<![CDATA[`
+   chứ không phải riêng `&Name;`.
+
+Sửa cả ba bằng một thay đổi: **bỏ hẳn công tắc, bỏ hẳn bản clear text, chú giải LUÔN MỘT DÒNG
+neo NGAY SAU `&Name;`**.
+
+- `registerInsight` không còn `on`/`toggle`/`setMode` — vẽ NGAY lúc đăng ký (`paintAll()`) và mỗi
+  khi editor active đổi/file lưu/gõ chữ (debounce cũ giữ nguyên). Không có gì để tắt.
+- Gỡ TOÀN BỘ cơ chế bản clear text: `CLEAR_SCHEME`, `clearUriFor`/`sourceOfClearUri`,
+  `contentProvider` (`TextDocumentContentProvider`), `definitionProvider` riêng cho scheme ấy,
+  `openInsight`/`closeInsight`/`closeTextTab`/`restoreTextTab`, `tabsFor`/`needsTextTab`, bảng
+  `insights` (fsPath → tab đang mở), và toàn bộ tô khối (`blockDecorationTypes`, `blockHover`,
+  `paintBlocks`/`collectBlocks`). Lệnh `fboDesigner.toggleInsight` và phím `Ctrl+Alt+E` gỡ khỏi
+  `package.json`.
+- `layoutAnnotations` (`core/src/insight.mjs`) — cả hệ thống xếp chú giải nhiều dòng (không lấn
+  tham chiếu kế tiếp, căn cột, giữ thụt lề) — gỡ khỏi core: chú giải giờ chỉ là MỘT decoration
+  mang `ref.inline` (đã cắt sẵn ở `inlineMax`), neo vào một dải RỖNG NGAY SAU `ref.end` — không
+  còn multi-decoration-mỗi-dòng, không còn tính cột, không còn trần `maxLines`.
+- Hover (Path/copy/Content, đệ quy vào Include lồng — mục ngay trên) vẫn y nguyên, chỉ đổi chỗ
+  neo giống annotation: dải `&Name;`, không phải khối clear text.
+- `language-host.js` (`registerLanguageFeatures`) không còn tự hover `&Name;` (`entityHover` gỡ
+  hẳn) — chế độ soi giờ LUÔN chạy nên hover của nó đã đủ (và đầy hơn: Path/copy/Content). Hai
+  provider cùng trả lời một chỗ trước đây xếp CHỒNG lên nhau thành hai thẻ nói cùng một chuyện
+  ("Path hover đang bị lặp lại") — `provideHover` giờ chỉ còn trả lời `field`.
+
+### Thêm — hover chế độ soi: Path, nút copy, Content — đệ quy vào Include lồng
+
+Hover của một `&Name;` (trên file XML) và của một khối (trên bản clear text) nay dựng theo cùng
+MỘT cấu trúc: **Path** (nguồn), hai nút copy, rồi **Content**. Dùng chung một hàm (`appendNode`
+trong `insight-host.js`) cho cả hai bề mặt, nên sửa một chỗ là cả hai cùng đổi.
+
+Hai nút chép **hai thứ khác nhau**:
+
+- **XML gốc** (`raw`, mới thêm vào `buildEntityInsight`) — nguyên văn khai báo TRƯỚC khi entity
+  con của nó được thay: `&Name;` con còn nguyên văn. Với SYSTEM là nguyên văn file trước khi bung
+  tiếp; với inline là chính chuỗi trong nháy.
+- **Đã phân giải** (`value`, đã có sẵn) — bản bung hết, đúng thứ runtime nhận.
+
+Bấm nút chạy lệnh MỚI `fboDesigner.insightCopy` qua `command:` link trong Markdown (`isTrusted`).
+Link chỉ mang **địa chỉ** — `{hostFile, refIndex, path, kind}` — không nhồi nguyên văn nội dung
+vào URI: nội dung đọc LẠI đúng lúc bấm (qua `insightFor`, có nhớ), nên luôn khớp với file hiện
+tại thay vì một bản chép sẵn từ lúc vẽ hover.
+
+Nếu nội dung một `&Name;` **lại chứa `&Name;` khác** (Include lồng trong Include) — hover xử lý
+tương tự như ở ngoài XML, đệ quy: `core/src/insight.mjs` nay dựng thêm `children` trên mỗi
+tham chiếu (và trên mỗi node lồng), tìm bằng cách DUYỆT `segments` như một phép duyệt trước —
+đoạn nào đổi `file` là một lần NHẢY, vào một Include chưa từng gặp ở tầng ngoài (`ancestors`)
+thì là con mới, gặp lại một file đã ở tầng ngoài thì là QUAY VỀ chứ không phải lồng thêm. Tên
+entity của mỗi lần nhảy dò lại bằng regex tại đúng vị trí `cursor` trong văn bản file cha, vì
+`segments` không giữ tên ấy (khung ngoài ghi đè khung trong, xem `entities.mjs`). Con
+`unresolved`/`empty` (không gây một lần nhảy nào, vì không sinh chữ) dò riêng bằng cách quét lại
+chính văn bản đó, rồi GHÉP LẠI theo đúng thứ tự xuất hiện với con đã tìm bằng segments.
+
+`appendNode` đệ quy vào `children`, lùi mỗi tầng bằng một lớp blockquote (`> `) — VS Code vẽ nó
+thành khung viền trái, nên Include càng lồng sâu càng thụt vào, đúng hình cây. Trần 4 tầng.
+
+Trên bản clear text, mỗi Include lồng còn được tô MỘT KHỐI RIÊNG (`paintBlocks`/`collectBlocks`
+đệ quy vào `node.children`), mang màu riêng — dùng lại đúng bảng màu/`groupFor` của tham chiếu
+ngoài XML (file trùng thì màu trùng), nhưng KHÔNG cộng vào bộ đếm `groups[i].refs` của nó: đếm đó
+là đếm tham chiếu NGOÀI XML, một luật khác không được lẫn với việc gán màu cho include lồng.
+
+### Thêm — chú giải NHIỀU DÒNG vẽ đè lên chính file gốc
+
+`&SharedFields;` bung ra bốn chục dòng, mà chú giải của editor chỉ vẽ được một dòng — VS Code cắt
+`contentText` ở dòng đầu trước cả khi dựng CSS. Đó là hằng số, không lách được.
+
+Lách được là chuyện khác: dùng NHIỀU decoration, mỗi dòng một cái. Dòng thứ nhất của bản bung treo
+lên chính dòng có `&Name;`, dòng thứ hai treo lên dòng KẾ TIẾP của file, và cứ thế. Không chèn
+dòng nào vào file, không sửa gì — chỉ vẽ vào phần trống bên phải. File vẫn gõ được, vẫn `Ctrl+F`
+được; tắt chế độ là chữ vẽ biến mất.
+
+Phần xếp chỗ nằm ở `layoutAnnotations` (`core/src/insight.mjs`) — thuần, nên ba luật dễ sai nhất
+kiểm được bằng node trần:
+
+1. **Không lấn sang tham chiếu kế tiếp.** Trần dưới của một khối là dòng của `&Name;` KẾ TIẾP —
+   kể cả một tham chiếu một dòng chen giữa, vì nó cũng cần chỗ của nó. Hết chỗ thì cắt và nói ra
+   `… (+N dòng)`: một khối im lặng dừng giữa chừng trông y hệt một khối đủ.
+2. **Căn thành cột.** Chú giải bắt đầu ngay sau chữ của dòng, mà các dòng dài ngắn khác nhau, nên
+   không đệm thì khối răng cưa và đọc không ra là một khối. Đệm tính theo dòng DÀI NHẤT của khối.
+   Kéo theo: tầng vỏ phải bật `white-space: pre` (qua `textDecoration`, khoá duy nhất VS Code chép
+   nguyên văn vào CSS), nếu không CSS gộp khoảng đệm về một dấu cách.
+3. **Giữ thụt lề tương đối.** Bỏ đúng phần lề CHUNG của bản bung, giữ phần còn lại — cắt sạch là
+   mất cấu trúc lồng nhau, thứ người ta mở chế độ soi ra để nhìn.
+
+Trần 40 dòng cho một tham chiếu: một Include bốn trăm dòng mà vẽ hết là phủ kín cả file, và phần
+còn lại đã có bản clear text.
+
+Tầng vỏ nay vẽ HAI lượt trên file XML — vệt neo vào dải `&Name;` (có viền, nền, hover), chú giải
+neo vào CUỐI từng dòng bằng một dải RỖNG (không viền không nền, chỉ chữ). Chú giải dùng MỘT kiểu
+trang trí duy nhất cho mọi màu: màu khai được ở từng mục (`renderOptions.after.color`), khác viền
+và nền vốn chỉ khai được ở tầng kiểu.
+
+
+### Đổi — bản clear text mang ĐÚNG tên file gốc (`SOTran.xml`, không phải `SOTran.cleartext.xml`)
+
+Tab nay đọc đúng `SOTran.xml`, breadcrumb đúng thư mục: uri của bản clear text giữ y nguyên đường
+dẫn của file gốc và chỉ đổi `scheme` (`fbo-insight:` thay `file:`).
+
+Vì sao không dùng thẳng `file:` — ghi lại một lần cho khỏi phải hỏi lại: trong VS Code URI CHÍNH
+LÀ danh tính của nội dung, và `file:` đã có chủ (đúng dãy byte trên đĩa). Không có API nào bảo
+editor «mở file này nhưng hiện chữ khác»: `TextDocumentContentProvider` và `FileSystemProvider`
+đều chỉ đăng ký được cho scheme riêng; decoration không chèn được dòng; `CustomTextEditorProvider`
+gắn được vào chính `file:` nhưng là webview, tức mất Ctrl+F, mất chỉ đọc có thông báo, mất
+Ctrl+click. Đường duy nhất để chữ nằm TRONG file gốc là GHI vào nó — việc ấy đã có sẵn ở
+`entityEditTarget: inline`, và nó là một phép SỬA chứ không phải một chế độ xem.
+
+Kéo theo: ngôn ngữ phải khai bằng `languages.setTextDocumentLanguage(doc, 'xml')` chứ không trông
+vào đuôi file nữa. Một nửa số controller FBO là `Dir/X.f` — bản chuẩn sản phẩm — mà VS Code không
+biết `.f` là gì, nên thiếu chốt này thì bản đã bung của chúng hiện ra một khối chữ xám.
+
+Và `tabsFor` nay phải so CẢ SCHEME, không chỉ đường dẫn: hai tab của cùng một file giờ chỉ khác
+nhau ở đó.
+
+
+### Đổi — bản clear text là TÀI LIỆU VĂN BẢN, không phải webview
+
+Webview vẽ đúng hình nhưng mất ba thứ mà một bản để ĐỌC không được phép thiếu:
+
+  `Ctrl+F`     webview không có tìm-trong-file của editor. Đây là lý do quyết định: một bản bung
+               bốn trăm dòng mà không tìm được thì mở ra chỉ để cuộn.
+  chỉ đọc      webview không cho gõ, nhưng cũng không NÓI RA rằng nó là bản phái sinh; tài liệu
+               ảo thì VS Code tự chặn và nói thẳng «cannot edit in read-only editor».
+  `Ctrl+click` cần một `DefinitionProvider`, mà provider chỉ gắn được vào tài liệu văn bản.
+
+Nay bản clear text là một `TextDocumentContentProvider` với scheme `fbo-insight:`, đuôi
+`.cleartext.xml`. Đuôi ấy không phải trang trí: VS Code chọn ngôn ngữ theo ĐUÔI, nên bản đã bung
+được tô cú pháp XML, gập được, có minimap, có mục lục — miễn phí, và tên tab đọc ra ngay rằng đây
+không phải file thật.
+
+Thêm `Ctrl+click` / F12 trên bản đã bung → file nguồn thật của DÒNG đang bấm. Nó không hỏi
+«entity nào» mà hỏi «chữ này của file nào»: `sourceRange` đi qua bản đồ đoạn, nên một dòng do
+entity LỒNG kéo vào cũng về đúng file cuối cùng chứ không dừng ở file trung gian. `buildEntityInsight`
+vì thế trả kèm `segments`. Đích lấy theo DÒNG chứ không theo ký tự dưới con trỏ — bôi đen trọn
+dòng là thứ người ta cần thấy sau cú nhảy.
+
+Tô màu chuyển sang `isWholeLine`: khối bung ra thường thụt lề khác hẳn chữ quanh nó (nội dung
+Include có lề riêng), nên tô theo chữ cho ra một hình răng cưa đọc không ra khối. Thêm dấu trên
+thanh tổng quan — với bản bung vài trăm dòng thì đó là bản đồ duy nhất cho biết khối nào ở đâu mà
+không phải cuộn hết.
+
+Đã GỠ `renderInsightHtml` và bộ tách token XML của nó khỏi `core/src/insight.mjs`: editor tự tô
+cú pháp, nên cả bộ ấy thành mã chết. Giữ lại là giữ một bản vẽ thứ hai cho một bề mặt không còn.
+
+Bộ test của tầng vỏ nay dùng một `vscode` RIÊNG (`window`/`workspace` nhân bản). Bản trước né
+chuyện ESM cho module anh em chạy xen kẽ ở mỗi `await` bằng cách CẤM `await` trong file test —
+trả giá bằng việc không kiểm được đúng phần async quan trọng nhất: mở tài liệu, đóng tab, mở lại
+tab. Cô lập `vscode` thì `await` bao nhiêu cũng không ai đụng vào ai.
+
+
+### Đổi — chế độ soi giờ ĐỔI CHÍNH TAB ĐANG MỞ sang bản clear text
+
+Ba vòng trước lần lượt thử: chú giải trên dòng (cắt ở dòng đầu), tab clear text bên cạnh (phải
+liếc qua liếc lại), ô peek (một khối một lúc). Yêu cầu cuối cùng gọn hơn cả ba: bật lên thì TOÀN
+BỘ hiện dưới dạng clear text, ngay trên file gốc, không thao tác thêm, không cửa sổ thêm.
+
+Nay `Ctrl+Alt+E` mở một `WebviewPanel` ở ĐÚNG CỘT của editor văn bản đang xem, mang cả file đã
+phân giải hết. Bấm lại — hoặc tự đóng tab ấy — là tắt chế độ và tab văn bản hiện lại ngay dưới nó.
+
+Đã GỠ, vì chúng chính là những «thao tác thêm» bị phàn nàn: scheme `fbo-insight:` và tab clear
+text bên cạnh, phép cuộn theo con trỏ, và lệnh `fboDesigner.peekEntity` (`Ctrl+Alt+P`).
+
+Ba điều đáng ghi lại:
+
+1. **Webview là chỗ duy nhất còn lại, không phải một lựa chọn thẩm mỹ.** `&SharedFields;` chiếm
+   MỘT dòng trong file gốc, bản bung bốn chục dòng; editor văn bản không chèn được dòng ảo, và
+   `after.contentText` bị cắt ở dòng đầu trước cả khi dựng CSS. Đường «ghi thẳng vào file» đúng
+   nghĩa «hiện trên file gốc» nhất nhưng lỡ `Ctrl+S` là controller mang bản đã bung — với Include
+   dùng chung thì đó là đổi cho MỌI program.
+2. **Panel CHIẾM CHỖ tab văn bản, không cộng thêm.** `createWebviewPanel` chỉ đẩy một tab mới
+   vào nhóm — tab văn bản vẫn nằm đó, và người dùng đếm được HAI tab cho một file. Nên mở panel
+   xong là đóng tab văn bản của file ấy trong đúng nhóm đó; đóng panel thì mở lại, đúng cột,
+   đúng vị trí con trỏ. Ngoại lệ duy nhất: tài liệu đang SỬA DỞ thì không đóng — `tabGroups.close`
+   sẽ dựng hộp thoại «lưu không?» ngay giữa lúc người ta chỉ định nhìn một cái; khi ấy chấp nhận
+   hai tab và nói ra lý do. Câu hỏi «có phải mở lại tab văn bản không» hỏi bảng tab NGAY LÚC ĐÓNG
+   chứ không nhớ từ lúc mở: giữa hai thời điểm ấy người dùng có thể tự mở lại file, và một cái cờ
+   nhớ sẵn sẽ mở chồng thêm một tab thứ hai — đúng lỗi đang sửa, chỉ là ở đầu kia.
+3. **Tooltip đặt trên TỪNG DÒNG, không phải chỉ dòng đầu khối.** Người đọc dừng chuột ở dòng nào
+   thì hỏi về dòng ấy — bắt họ lần lên đầu khối để biết nó từ đâu là bắt họ làm việc của tooltip.
+   Nhãn nổi `&Name; ← File.ent` thì ngược lại, chỉ đặt ở dòng đầu: lặp nó bốn chục lần là bốn chục
+   lần cùng một chữ.
+
+Phần vẽ nằm ở `core/src/insight.mjs` (`renderInsightHtml`) chứ không ở tầng vỏ — nó thuần, nên
+chỗ dễ sai nhất (cắt chữ theo DÒNG và theo VÙNG cùng lúc, cộng escape) kiểm được bằng node trần.
+Bộ tách token XML cố ý KHÔNG dựng cây: bản clear text hay có mảnh không cân thẻ, và một bộ phân
+tích thật sẽ từ chối vẽ đúng những file cần nhìn nhất.
+
+
+### Thêm — chế độ soi entity trên XML (`Ctrl+Alt+E`, bản dev)
+
+Một chế độ XEM mới trong editor văn bản: bật lên thì mọi `&Name;` được gạch chân, tô nền theo
+FILE NGUỒN, và đi kèm ĐOẠN CHỮ NÓ BUNG RA vẽ ngay trên dòng ấy. Rê chuột lên `&Name;` hiện file
+Include tương ứng, kích thước, các file khác đã góp chữ, và nguyên văn bản đã bung.
+
+Phần thuần nằm ở [`core/src/insight.mjs`](core/src/insight.mjs) (`buildEntityInsight`), phần vẽ
+ở [`extension/src/insight-host.js`](extension/src/insight-host.js). Đăng ký trong khối
+`devFeaturesEnabled` cùng nhóm với chẩn đoán / mục lục / F12 / hover.
+
+Ba điều đáng ghi lại, vì cả ba đều là chỗ một bản làm vội sẽ sai:
+
+1. **Bung HẾT, không dừng ở chuỗi trong nháy.** Giá trị một entity thường lại chứa `&Name;`
+   khác, nên bản đọc từ `declarations` là bản dở dang. Lấy từ `clearText`: `expand` đã đóng dấu
+   lên mỗi đoạn cái tham chiếu NGOÀI CÙNG đã kéo nó vào (`seg.ref`), nên gom đoạn theo đồng nhất
+   `ref` là ra đúng dải của từng `&Name;` ở file chủ.
+2. **`(rỗng)` là một câu trả lời, không phải một chỗ trống.** Entity bung ra chuỗi rỗng chính là
+   CÔNG TẮC TẮT của FBO — `<![%Cond;[ … ]]>` IGNORE rồi rơi xuống bản rỗng nhờ luật first-wins.
+   Nên ba kiểu «không có đoạn nào» được tách hẳn ra: `empty` (nhánh đang tắt), `unresolved` vì
+   chưa khai, và `unresolved` vì khai SYSTEM mà không đọc được — cái sau nhận diện bằng chính
+   dải của cảnh báo `entity.unread_system`, không phải đọc lại đĩa để đoán.
+3. **`&Name;` KHÔNG bị giấu đi.** Cách «thay hẳn» (`display:none` rồi vẽ bản đã bung vào chỗ
+   trống) nghe đúng ý hơn nhưng tự cắt mất một nửa tính năng: dải bị ẩn có bề rộng bằng không
+   nên không rê chuột lên được, mà rê chuột lên `&Name;` để đọc file Include mới là thứ dùng
+   nhiều nhất.
+
+### Thêm — tab clear text tự đi theo con trỏ, và `Ctrl+Alt+P` xem ngay dưới dòng
+
+Bản bung đầy đủ có rồi thì vẫn còn một khoảng cách: người dùng đứng ở dòng 345 (`&…Category;`),
+còn khối nó đẻ ra nằm ở dòng 523 của tab clear text — với một controller thật thì đó là vài trăm
+dòng, và mỗi lần bấm sang entity khác lại dò lại từ đầu. Bản bung chỉ đáng giá khi nó tự đến chỗ
+đang hỏi.
+
+Nay `onDidChangeTextEditorSelection` đưa tab clear text tới đúng khối của `&Name;` dưới con trỏ
+và bôi đen trọn khối (`revealRange` + `selection`, KHÔNG `showTextDocument` — tab kia không được
+cướp con trỏ khỏi file đang sửa).
+
+Thêm `fboDesigner.peekEntity` (`Ctrl+Alt+P`): mở khối đã bung NGAY DƯỚI DÒNG đang đứng, trong một
+ô peek, không phải đổi tab. Ô peek là bề mặt duy nhất của VS Code hiện được văn bản nhiều dòng
+xen vào giữa một file đang mở.
+
+`refAt` nhận cả hai đầu mút của `&Name;` — con trỏ đặt ngay sau dấu `;` vẫn là «đang đứng trên
+entity này» với người dùng, và bắt họ lùi một ký tự để lệnh chịu chạy là một quy tắc không ai
+đoán ra.
+
+### Thêm — tab clear text: bản bung ĐẦY ĐỦ, không giới hạn số dòng
+
+Chú giải trên dòng không hiện được văn bản nhiều dòng, và đây không phải chuyện gắng thêm là
+được: VS Code cắt `contentText` ở DÒNG ĐẦU trước khi dựng CSS (`abstractCodeEditorService`,
+`opts.contentText.match(/^.*$/m)[0]`), và không có API nào chèn dòng ảo vào giữa văn bản. Nên bản
+bung đầy đủ chuyển sang một TÀI LIỆU THẬT: scheme chỉ đọc `fbo-insight:`, tab
+`<tên file>.cleartext.xml` mở kèm bên cạnh, chứa cả file đã phân giải hết — bao nhiêu dòng cũng
+bung, Include lồng trong Include cũng bung, không cắt ở đâu.
+
+Đuôi `.cleartext.xml` không phải trang trí: VS Code chọn ngôn ngữ theo đuôi, nên có nó thì bản
+clear text được tô cú pháp XML như file thật.
+
+Ở tab ấy, mỗi VÙNG chữ do một `&Name;` đẻ ra vẫn mang màu của file nguồn, và rê chuột lên nói
+entity nào đã kéo khối ấy vào — câu hỏi duy nhất mà một bản đã bung hết không tự trả lời được.
+Vùng lấy từ `outStart`/`outEnd` mà `buildEntityInsight` nay trả kèm, không phải dò lại bằng cách
+so nội dung.
+
+Trên chính file XML, chú giải đổi theo: giá trị MỘT dòng giữ nguyên (hiện nguyên văn), giá trị
+NHIỀU dòng nay hiện DÒNG ĐẦU của bản đã bung rồi `…` thay cho thẻ tóm tắt `42 dòng ← File.ent`.
+Thẻ ấy nói đặc điểm của bản bung chứ không cho đọc một chữ nào của nó; dòng đầu là chữ thật, và
+với đa số Include thì dòng đầu đã đủ nhận ra khối ấy là khối gì.
+
+Hover vẫn có trần (20 000 ký tự) và nói thẳng ra là còn nữa. Không phải vì bản bung bị giới hạn:
+`hoverMessage` được dựng SẴN cho mọi tham chiếu ở mỗi lượt vẽ (API nhận giá trị, không nhận hàm),
+nên bỏ trần ở đó là nối vài trăm KB markdown cho những hover không ai mở, mỗi lần gõ một phím.
+«Không giới hạn» được trả ở chỗ nó không tốn gì — tab clear text, nơi văn bản chỉ dựng khi người
+dùng thật sự mở nó.
+
+Lệnh này là lệnh ẩn ĐẦU TIÊN, nên nó kéo theo một khoá ngữ cảnh mới: bốn provider trước không
+góp gì vào `package.json` nên bản không có cờ tự khắc không thấy chúng, còn một LỆNH thì phải
+khai trong `contributes` mới có tên trong Command Palette và có phím tắt — khai rồi thì bản
+không có cờ cũng thấy tên lệnh, bấm vào là «command not found». `activate()` vì thế bật
+`fboDesigner.devFeatures`, và cả mục lệnh lẫn phím tắt đều gác sau `when` của khoá ấy.
+
+
 ### Thêm — Phase #1/#2 thành TÍNH NĂNG ẨN, chỉ bật khi đóng `.vsix` bằng `--dev`
 
 Chẩn đoán (Problems panel), mục lục (`Ctrl+Shift+O`), F12, rê chuột và gợi ý — bốn provider đăng

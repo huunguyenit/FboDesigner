@@ -366,6 +366,12 @@ async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
     return handleRegionColumns(msg, core, hostDocument, output, rebuild);
   }
 
+  // Kéo cạnh MỘT cột của vùng form (không tách/gộp) — số cột không đổi, nên khác `colSplit`/
+  // `colMerge` nó chỉ là một splice trên list px, cùng blast radius với `colWidth` của lưới.
+  if (msg.op === 'colWidthRegion') {
+    return handleRegionColumnWidth(msg, core, hostDocument, output, rebuild);
+  }
+
   // Kéo chiều cao: `view@height` cho cả vùng main, `field@rows` cho một tab có lưới.
   if (msg.op === 'viewHeight' || msg.op === 'fieldRows') {
     const b = rebuild();
@@ -1113,39 +1119,46 @@ async function handleColumnEdit(msg, core, hostDocument, output, rebuild) {
 }
 
 /**
- * Hỏi bề rộng hai nửa khi tách một cột.
+ * Kéo cạnh MỘT cột của vùng form — không tách/gộp, chỉ đổi một con số trong list px dùng chung.
  *
- * Điền sẵn chia đôi, và chấp nhận cả `"30"` lẫn `"30, 30"`: gõ một số thì nửa phải lấy phần
- * còn lại, tức tổng bề rộng của vùng không đổi và không có gì bên phải chỗ tách bị dịch chỗ —
- * ca thường gặp nhất. Gõ hai số thì theo hai số, kể cả khi tổng khác đi; đó là quyết định của
- * người dùng, và họ vừa nói ra nó bằng cách gõ số thứ hai.
- *
- * KHÔNG có mặc định câm: form FBO không có đường nào khác để sửa px của một cột (px nằm ở list
- * cột dùng chung, không ở từng ô), nên tách xong mà không hỏi là để lại hai cột không chỉnh
- * được bằng chuột.
- *
- * @returns {Promise<{left:number, right:number}|null>} `null` = người dùng bỏ (Esc)
+ * Không hỏi trước khi ghi, khác hẳn `handleRegionColumns` bên dưới: số cột không đổi nên đây
+ * luôn là MỘT splice trên MỘT file, cùng blast radius với `colWidth` của lưới
+ * (`handleColumnEdit`). Vẫn hỏi khi file đích KHÁC file đang mở — cùng `confirmForeign` mọi
+ * phép sửa khác dùng, qua `applySplice`.
  */
-async function askSplitWidths(width, col) {
-  const half = Math.floor(width / 2);
-  const answer = await vscode.window.showInputBox({
-    title: `Tách cột ${col + 1} (${width}px) — bề rộng hai nửa`,
-    value: `${half}, ${width - half}`,
-    prompt: 'Một số = nửa trái, phần còn lại cho nửa phải (tổng giữ nguyên). Hai số = lấy đúng hai số đó.',
-    validateInput: (v) => {
-      const parts = String(v).split(',').map((t) => t.trim()).filter((t) => t !== '');
-      if (parts.length < 1 || parts.length > 2) return 'Gõ một số, hoặc hai số ngăn bằng dấu phẩy';
-      if (!parts.every((t) => /^\d+$/.test(t))) return 'Bề rộng là số nguyên px ≥ 0, ví dụ 30 hoặc 30, 30';
-      if (parts.length === 1 && Number(parts[0]) > width) {
-        return `Nửa trái ${parts[0]}px lớn hơn cả cột (${width}px) — gõ thêm số thứ hai nếu muốn nới rộng vùng`;
-      }
-      return null;
-    },
+async function handleRegionColumnWidth(msg, core, hostDocument, output, rebuild) {
+  const built = rebuild();
+  if (!built || !built.model || built.mode !== 'form') {
+    vscode.window.showWarningMessage(toast('extension.col_ops_form_only'));
+    return false;
+  }
+  const model = built.model;
+
+  const plan = core.planRegionColumnWidth(model, {
+    region: msg.region,
+    col: Number(msg.col),
+    width: Number(msg.width),
   });
-  if (answer === undefined) return null; // Esc
-  const parts = String(answer).split(',').map((t) => Number(t.trim())).filter((n) => Number.isFinite(n));
-  const left = parts[0];
-  return { left, right: parts.length > 1 ? parts[1] : width - left };
+  if (!plan.ok) {
+    warnReason(plan.reason);
+    return false;
+  }
+
+  // `plan` tính trên model dựng lúc `rebuild()` — đọc lại file THẬT ngay trước khi ghi và so
+  // nguyên văn, phòng file đã đổi dưới chân từ lúc đó (`planRegionColumns` cũng so kiểu này).
+  const target = await openTarget(plan.file, hostDocument);
+  const actual = target.getText().slice(plan.splice.start, plan.splice.end);
+  if (actual !== plan.expect) {
+    vscode.window.showWarningMessage(toast('edit.patch_expect_mismatch_file', { file: plan.file, actual, expect: plan.expect }));
+    return false;
+  }
+
+  return applySplice(
+    { ...plan, warning: samePath(plan.file, hostDocument.uri.fsPath) ? null : plan.file },
+    hostDocument,
+    output,
+    `kéo cột ${Number(msg.col) + 1} của ${msg.region}`,
+  );
 }
 
 /**
@@ -1186,10 +1199,10 @@ async function handleRegionColumns(msg, core, hostDocument, output, rebuild) {
       vscode.window.showWarningMessage(toast('extension.col_width_unread', { col: col + 1 }));
       return false;
     }
-    const halves = await askSplitWidths(width, col);
-    if (!halves) return false;
-    op.left = halves.left;
-    op.right = halves.right;
+    // Bề rộng hai nửa đến sẵn từ webview (nút + hover) — cột đang bấm giữ nguyên bề rộng, cột
+    // mới chèn vào lấy bề rộng mặc định. Không còn hộp thoại hỏi px riêng cho từng lần bấm.
+    op.left = Number.isFinite(Number(msg.left)) ? Math.trunc(Number(msg.left)) : Math.floor(width / 2);
+    op.right = Number.isFinite(Number(msg.right)) ? Math.trunc(Number(msg.right)) : width - op.left;
   }
 
   /*
@@ -1226,7 +1239,7 @@ async function handleRegionColumns(msg, core, hostDocument, output, rebuild) {
 
   const answer = await dialogs().ask({
     type: 'warning',
-    title: split ? `Tách cột ${col + 1} thành hai?` : `Gộp cột ${col + 1} với cột ${col + 2}?`,
+    title: split ? `Thêm cột sau cột ${col + 1}?` : `Gộp cột ${col + 1} với cột ${col + 2}?`,
     subtitle: msg.region,
     size: 'small',
     body: [
@@ -1240,7 +1253,7 @@ async function handleRegionColumns(msg, core, hostDocument, output, rebuild) {
     ],
     buttons: [
       { id: 'cancel', label: t('dialog.btn.cancel'), variant: 'secondary', action: 'cancel' },
-      { id: 'go', label: split ? 'Tách cột' : 'Gộp cột', variant: foreign.length > 0 ? 'danger' : 'primary' },
+      { id: 'go', label: split ? 'Thêm cột' : 'Gộp cột', variant: foreign.length > 0 ? 'danger' : 'primary' },
     ],
   });
   if (answer !== 'go') return false;
@@ -1251,7 +1264,7 @@ async function handleRegionColumns(msg, core, hostDocument, output, rebuild) {
     { edits: plan.edits, warning: null },
     hostDocument,
     output,
-    `${split ? 'tách' : 'gộp'} cột ${col + 1} của ${msg.region}`,
+    `${split ? 'thêm' : 'gộp'} cột ${col + 1} của ${msg.region}`,
   );
 }
 

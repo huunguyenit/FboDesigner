@@ -163,3 +163,24 @@ export function mergeWidthsAt(value, colIndex) {
   raw.splice(i, j - i + 1, `${lead(raw[i])}${sum}${tail(raw[j])}`);
   return { ok: true, value: raw.join(',') };
 }
+
+/**
+ * SỬA BỀ RỘNG của MỘT cột trong VĂN BẢN list px, không đụng cột nào khác.
+ *
+ * Khác hẳn tách/gộp: số cột không đổi, nên không có pattern/anchor/split nào phải dồn theo —
+ * đây thuần là kéo cạnh một cột, giống hệt `colWidth` của lưới nhưng ở tầng list px dùng chung.
+ */
+export function resizeWidthAt(value, colIndex, newPx) {
+  const { raw, cols } = rawPieces(value);
+  if (colIndex < 0 || colIndex >= cols.length) {
+    return { ok: false, reason: msg('columns.col_missing', { p0: colIndex + 1, length: cols.length }) };
+  }
+  if (!Number.isFinite(newPx) || newPx < 0 || !Number.isInteger(newPx)) {
+    return { ok: false, reason: msg('edit.width_invalid') };
+  }
+
+  const i = cols[colIndex];
+  const piece = raw[i];
+  raw.splice(i, 1, `${lead(piece)}${newPx}${tail(piece)}`);
+  return { ok: true, value: raw.join(',') };
+}

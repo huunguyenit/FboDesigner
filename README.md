@@ -14,19 +14,15 @@ FBO Designer là extension cho Cursor giúp thiết kế form FBO ngay trong IDE
 **Đọc và sửa XML** *(mới ở 1.0.2)*
 
 - **Gạch đỏ ngay trong editor** cho 26 luật — và lỗi hiện ở **đúng file phải sửa**, kể cả khi
-  hàng ấy khai trong `Include` *(bản dev)*
-- **Mục lục** (`Ctrl+Shift+O`), **F12** tới chỗ khai, **rê chuột** đọc thông số field, **gợi ý**
-  tên field và entity — chạy trên mọi file dưới `App_Data\Controllers`, không cần license
-  *(bản dev)*
+  hàng ấy khai trong `Include`
+- **Gợi ý** tên field và entity, lấy từ bản đã bung cả cây Include — chạy trên mọi file dưới
+  `App_Data\Controllers`, không cần license
+- **Chế độ soi entity**: mỗi `&Name;` gạch chân, tô màu theo file nguồn, hiện ngay nội dung nó
+  bung ra bên cạnh — bật/tắt qua cấu hình, không cần bấm gì (xem §6)
 - **Xem dữ liệu thật trên lưới** (`Ctrl+Alt+D`): vài dòng thật đổ vào đúng bề rộng cột, để biết
   cột 60px có cắt mất tên khách hay không. Che dữ liệu mặc định, giữ nguyên độ dài. Danh mục,
   chứng từ, lưới chi tiết và báo cáo — mỗi loại lấy dữ liệu theo đúng cách runtime lấy
-- Ctrl+click (hoặc double click) nhảy đúng file / dòng khai báo entity và Include
-
-> **`*(bản dev)*`** đánh dấu tính năng **ẩn** trong bản `.vsix` tải về bình thường — chỉ có khi
-> gói được đóng bằng `node tools/package-vsix.mjs --dev`, hoặc khi chạy trực tiếp bằng F5 từ mã
-> nguồn. Đây là các mục §3, §5, §6, §7 bên dưới. §4 (xem dữ liệu thật) không nằm trong nhóm này —
-> luôn có mặt.
+- Ctrl+click (hoặc double click) nhảy đúng file / dòng khai báo entity và Include trên designer
 
 ## Tính năng chính
 
@@ -67,6 +63,7 @@ dò sẵn; nối không được thì `Ctrl+Alt+C` vẫn chạy và hỏi tay.
 | **Khai báo lọc nhanh cho lưới này**    | `Ctrl+Alt+F` | Bật `allowFilter` / `<query>` trên XML lưới (nếu thiếu), sinh SQL xoá–nạp lại `sysfilterdeclares` |
 | **Sinh script thêm cột cho field mới** | `Ctrl+Alt+C` | So field trên form với schema, sinh SQL thêm cột cho field chưa có trên bảng                      |
 | **Xem dữ liệu thật trên lưới**         | `Ctrl+Alt+D` | Lấy vài dòng thật đổ vào lưới để đo bề rộng cột; bấm lại để bỏ đi (xem §4)                       |
+| **Chế độ soi entity**                  | *(mặc định bật)* | Không có phím tắt — tắt/bật qua `fboDesigner.showInsight`, xem §6                            |
 
 
 ![Commands](docs/images/Command.png)
@@ -99,7 +96,7 @@ Chạy **Sinh script thêm cột cho field mới** trên form/lưới: extension
 
 
 
-### 3. Chẩn đoán trong Problems panel *(bản dev)*
+### 3. Chẩn đoán trong Problems panel
 
 Mở một file trong `Dir` / `Filter` / `Grid` là extension quét ngay và đẩy lỗi vào **Problems**
 (`Ctrl+Shift+M`) — không cần mở designer, không cần license.
@@ -224,73 +221,14 @@ Cần `sqlcmd` trên máy (khai đường dẫn ở `fboDesigner.sqlcmdPath` n�
 của program đọc được.
 
 
-### 5. Mục lục file (`Ctrl+Shift+O`) *(bản dev)*
+### 5. Gợi ý
 
-Controller thật dài vài nghìn dòng. `Ctrl+Shift+O` (hoặc panel **Outline**) cho cây cấu trúc và
-nhảy thẳng tới chỗ khai:
+> Mục lục file, F12/Ctrl+click trong editor văn bản, và hover đọc thông số field/dữ liệu thật đã
+> **gỡ khỏi extension này** — một extension XML khác đã đảm nhận việc đó tốt hơn cho file XML nói
+> chung. Chỉ giữ lại gợi ý, vì field/entity của FBO đến từ cây Include đã bung, thứ không
+> extension XML chung nào biết.
 
-```
-fields (24)
-  ma_kh          Mã khách hàng · 80px
-  ten_kh%l       Tên khách · 150px
-view "Dir"       height="302"
-  cột: 100, 60, 90, 120
-  [ma_kh].Label, [ma_kh]          110-
-  &BI.Rows.Customer;              hàng đến từ file khác
-  categories (3)
-    tab 1 — Thông tin chung
-toolbar (7)
-  New            Thêm
-```
-
-- Chạy trên **mọi** file dưới `App_Data\Controllers`, kể cả `Include\` — không cần license
-- Hàng hiện **danh sách token** (thứ người ta đi tìm), pattern xuống dòng mô tả
-- Cột lưới hiện `aliasName` — nhìn là biết cột lấy dữ liệu từ bảng nào
-- Đọc **văn bản thô, không bung entity**: mục lục là của *file đang mở*. Một view mà mọi hàng
-  đến từ `&Rows;` hiện đúng một nút `&Rows;` — vừa thành thật, vừa nói luôn phải sang file nào
-  để sửa
-- Thứ đã comment thì không có trong mục lục, cùng luật với designer
-
-
-### 6. Đi tới định nghĩa (`F12` / `Ctrl+click` trong editor) *(bản dev)*
-
-Ba thứ nhảy được ngay trong file XML, không cần mở designer:
-
-| Con trỏ đang trên | `F12` đi tới |
-| --- | --- |
-| `&Rows;` | **nội dung** entity — file Include, hoặc giá trị trong nháy nếu khai inline |
-| `SYSTEM "..\Include\X.ent"` | chính file ấy |
-| `[ma_kh]` hoặc `<field name="ma_kh"/>` trong view | thẻ `<field>` khai nó |
-
-Điểm đáng kể: field khai trong `Include` thì nhảy sang **đúng file ấy**, không phải một chỗ tình
-cờ trong file đang mở. Entity trỏ file thì nhảy tới **nội dung**, không dừng lại ở dòng
-`<!ENTITY … SYSTEM …>` — tấm biển chỉ đường không phải đích đến.
-
-Đứng trên chính khai báo (`<field name="ma_kh">` trong `<fields>`) thì không nhảy đi đâu: đó đã
-là định nghĩa rồi. Thứ đã comment cũng không nhảy, cùng luật với designer.
-
-Chạy trên mọi file dưới `App_Data\Controllers`, không cần license.
-
-
-### 7. Rê chuột và gợi ý *(bản dev)*
-
-**Rê chuột** lên một field — trong `<fields>`, trong `[token]`, hay trong danh sách cột — hiện
-nhãn, kiểu, `maxLength`, bề rộng, `aliasName`, và **file khai nó** nếu đó không phải file đang
-mở. Rê lên `&Name;` hiện nó trỏ tới file nào, hoặc chính giá trị nếu khai inline.
-
-Sau khi bấm `Ctrl+Alt+D`, hover còn kèm **thống kê dữ liệu thật**:
-
-```
-ten_kh — Tên khách
-String · width 60px · aliasName="b"
-khai ở Include/SVTran-SharedFields.xml
-dữ liệu thật: dài nhất 32 ký tự / 10 dòng (đã che, độ dài giữ nguyên)
-```
-
-`width 60px` và `dài nhất 32 ký tự` đứng cạnh nhau — đó là toàn bộ câu trả lời cho «cột này có
-đủ rộng không». Hover **không** hiện giá trị nào, chỉ độ dài.
-
-**Gợi ý** bật bằng chính ký tự mở:
+Bật bằng chính ký tự mở:
 
 - gõ `[` trong một `<item value>` → danh sách field, chèn cả cặp ngoặc
 - gõ `&` → danh sách entity đã khai, kèm file nó trỏ tới
@@ -298,6 +236,41 @@ dữ liệu thật: dài nhất 32 ký tự / 10 dòng (đã che, độ dài gi�
 Danh sách field lấy từ bản **đã bung entity**, nên field đến từ `Include` cũng được gợi ý — đó
 lại đúng là phần lớn danh sách ở những program dùng Include nhiều.
 
+Chạy trên mọi file dưới `App_Data\Controllers`, không cần license.
+
+
+### 6. Chế độ soi entity
+
+Mặc định **bật**, không có phím tắt — tắt/bật qua cấu hình `fboDesigner.showInsight` (đổi trong
+Settings thấy hiệu quả ngay, không cần mở lại file). Mở bất kỳ file nào dưới
+`App_Data\Controllers` (`.xml` hay `.f`) là thấy ngay, không mở tab hay webview nào khác.
+
+Mỗi `&Name;` được gạch chân, tô nền theo file nguồn, và **ngay sau nó** là một dòng chữ NGẮN,
+CHỈ MỘT DÒNG, nói nội dung nó bung ra:
+
+```xml
+  <h>&Nhan;</h> ⇢ Mã khách
+  <rows>&Rows;</rows> ⇢ <item value="11: [ma_vung].Label, [ma_vung]"/> <item value="12: …
+  <off>&Off;</off> ⇢ (rỗng)
+  <chua>&Chua;</chua> ⚠
+```
+
+- **Dài thì cắt, kèm `…`** — chữ nuốt hết xuống dòng/khoảng trắng thừa, không bao giờ tràn ra
+  dòng khác.
+- **`(rỗng)`** là **công tắc TẮT** của FBO (`<![%Cond;[ … ]]>` IGNORE rồi rơi xuống bản rỗng nhờ
+  luật first-wins) — nói thẳng rằng nhánh ấy đang tắt, thứ nhìn file gốc không thấy được.
+- **`⚠`** là tham chiếu chưa khai, hoặc khai trỏ tới file không đọc được — runtime sẽ giữ nguyên
+  văn `&Name;`, và đây nói trước điều đó.
+- **Không sửa file, không chèn dòng nào** — chỉ vẽ vào phần trống bên phải. File vẫn gõ được, vẫn
+  `Ctrl+F` được như thường.
+- **Neo ngay sau `&Name;`**, không phải cuối dòng — nhiều file FBO thật có nhiều thứ trên cùng
+  một dòng với entity (`]]>&Name;<![CDATA[` — đóng CDATA, chèn Include, mở CDATA lại), và neo ở
+  cuối dòng sẽ làm mũi tên trông như thuộc về cả dòng chứ không phải riêng `&Name;`.
+
+Tham chiếu trong `<!-- … -->` và trong khối `<!DOCTYPE …>` không được vẽ: chúng không phải chỗ
+dùng. Không có hover — extension khác đã đảm nhận việc đó.
+
+Chạy trên mọi file dưới `App_Data\Controllers`, không cần license.
 
 ## Kích hoạt License
 

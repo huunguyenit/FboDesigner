@@ -21,7 +21,7 @@ eq('[f] → input', parseToken('[ma_kh]').kind, 'input');
 eq('[f].Label → label', parseToken('[ma_kh].Label').kind, 'label');
 eq('[f].Description → description', parseToken('[status].Description').kind, 'description');
 eq('.Footer KHÔNG đẩy xuống vùng footer, vẫn là một kind riêng', parseToken('[ma_so_thue].Footer').kind, 'footer');
-eq('chấm rỗng "[f]." đọc như Input, không phải footer', parseToken('[ma_kh].').kind, 'input');
+eq('chấm rỗng "[f]." đọc như Description (giống .Footer)', parseToken('[ma_kh].').kind, 'description');
 eq('hậu tố %l là một phần của TÊN', parseToken('[ten_tk%l]').field, 'ten_tk%l');
 eq('entity là chính tên field, không expand', parseToken('[&k;].Label').field, '&k;');
 ok('typo .Desciption (95 lần trong corpus) KHÔNG hợp lệ', parseToken('[a].Desciption').valid === false);

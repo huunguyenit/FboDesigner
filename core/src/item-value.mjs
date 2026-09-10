@@ -110,8 +110,8 @@ export function parseToken(raw) {
   if (!rest.startsWith('.')) return { raw: text, field, kind: 'unknown', kindRaw: rest, valid: false };
 
   const kindRaw = rest.slice(1);
-  // `[field].` chấm rỗng KHÔNG phải biến thể footer — đọc như ô Input.
-  if (kindRaw === '') return { raw: text, field, kind: 'input', kindRaw: '', valid: true };
+  // `[field].` chấm rỗng — tương đương `.Description` (giống `.Footer`, xem KINDS).
+  if (kindRaw === '') return { raw: text, field, kind: 'description', kindRaw: '', valid: true };
 
   const kind = KINDS.get(kindRaw.toLowerCase());
   if (!kind) return { raw: text, field, kind: 'unknown', kindRaw, valid: false };

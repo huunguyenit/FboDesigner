@@ -20,10 +20,8 @@ const { postToActiveDesigner } = require('./designer-webview');
 const { toast } = require('./locale');
 const { initLicenseSettings, withLicense, ensureLicense } = require('./license');
 const { registerDiagnostics } = require('./diagnostic-host');
-const { registerSymbols } = require('./symbol-host');
-const { registerDefinitions } = require('./definition-host');
 const { registerLanguageFeatures } = require('./language-host');
-const { devFeaturesEnabled } = require('./dev-features');
+const { registerInsight } = require('./insight-host');
 
 /**
  * Core nằm ở hai chỗ khác nhau tuỳ cách chạy, và đó là chuyện cố ý:
@@ -63,31 +61,26 @@ async function activate(context) {
   context.subscriptions.push(FboDesignerProvider.register(context, core, output));
 
   /*
-   * Phase #1 (chẩn đoán) và Phase #2 (mục lục, F12, rê chuột, gợi ý) là TÍNH NĂNG ẨN — xem
-   * `dev-features.js`. Mặc định KHÔNG đăng ký bốn provider dưới đây: bản `.vsix` đóng gói bình
-   * thường không mang chúng, chỉ bản đóng bằng `--dev` (hoặc chạy F5 từ mã nguồn) mới có.
-   *
-   * Bên trong khối này KHÔNG có lệnh nào gate license — nếu sau này bật cho khách thật, giữ
-   * nguyên lý do đã ghi ở từng provider: chúng là thứ editor tự hỏi (Problems, Outline, F12,
-   * hover), không phải lệnh người ta chủ động bấm, nên khoá license ở đây là im lặng đúng chỗ
-   * cần một lời giải thích nhất.
+   * Ba provider chạy nền — không phải lệnh người ta chủ động bấm, nên không có lệnh nào gate
+   * license ở đây: khoá license chỉ đứng trước lệnh CHẠM DỮ LIỆU KHÁCH (xem cụm `withLicense`
+   * phía dưới). Trước đây ba thứ này (cộng mục lục/F12/hover, nay đã gỡ hẳn — extension khác
+   * đảm nhận) núp sau một cờ "tính năng ẩn" (`dev-features.js`, cũng đã gỡ); giờ luôn đăng ký.
    */
-  if (devFeaturesEnabled(context)) {
-    // Gạch đỏ trên file là thứ chạy nền, không phải một lệnh người dùng bấm.
-    registerDiagnostics(context, core, output);
 
-    // Phạm vi rộng hơn designer — mọi file dưới `App_Data\Controllers`, kể cả `Include\` —
-    // vì mục lục không cần vẽ được màn hình mới hữu ích. Xem `symbol-host.js`.
-    registerSymbols(context, core, output);
+  // Gạch đỏ trên file.
+  registerDiagnostics(context, core, output);
 
-    // F12 / Ctrl+click TRONG EDITOR VĂN BẢN — khác Ctrl+click trên designer, vốn đi qua
-    // `revealSource` và còn quyết mở ở cột nào. Ở đây provider chỉ trả một `Location`.
-    registerDefinitions(context, core, output);
+  // Gợi ý (completion) — field/entity của FBO đến từ cây Include đã bung, không extension XML
+  // chung nào biết. Hover đã gỡ khỏi file này, xem `language-host.js`.
+  registerLanguageFeatures(context, core, output);
 
-    // Hover đọc được cả DỮ LIỆU THẬT khi người dùng đã bấm `Ctrl+Alt+D` — chỗ `width="60"` và
-    // «dài nhất 38 ký tự» đứng cạnh nhau đủ gần để thấy con số nào sai.
-    registerLanguageFeatures(context, core, output);
-  }
+  /*
+   * Chế độ soi — annotation trên mọi file `App_Data\Controllers`, bật/tắt qua cấu hình
+   * `fboDesigner.showInsight` (không phải lệnh, không phím tắt). Đăng ký ở đây, không phải cụm
+   * `withLicense` phía dưới, vì nó không chạm dữ liệu khách và cũng không ghi gì — chỉ đọc lại
+   * đúng cây Include mà chẩn đoán đã đọc, rồi vẽ ra.
+   */
+  registerInsight(context, core, output);
 
   // Mọi lệnh nghiệp vụ đều qua withLicense — Settings (machineId / dán key) vẫn dùng được.
   context.subscriptions.push(
