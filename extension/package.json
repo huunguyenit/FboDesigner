@@ -131,7 +131,7 @@
       {
         "command": "fboDesigner.deleteSelection",
         "key": "delete",
-        "when": "activeWebviewPanelId == 'fboDesigner.preview' || activeCustomEditorId == 'fboDesigner.form'"
+        "when": "activeWebviewPanelId == 'fboDesigner.preview' || activeCustomEditorId == 'fboDesigner.form' || activeCustomEditorId == 'fboDesigner.mail'"
       },
       {
         "command": "fboDesigner.deleteSelection",
@@ -139,7 +139,7 @@
         "args": {
           "shift": true
         },
-        "when": "activeWebviewPanelId == 'fboDesigner.preview' || activeCustomEditorId == 'fboDesigner.form'"
+        "when": "activeWebviewPanelId == 'fboDesigner.preview' || activeCustomEditorId == 'fboDesigner.form' || activeCustomEditorId == 'fboDesigner.mail'"
       },
       {
         "command": "fboDesigner.previewData",

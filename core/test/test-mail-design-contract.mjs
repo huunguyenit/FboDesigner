@@ -123,6 +123,19 @@ ok('alt có dấu nháy kép bị chặn', !edit({ op: 'setAttr', name: 'alt', v
 section('mail contract — move / insert / phép bảng');
 
 ok('move up', edit({ op: 'moveElement', direction: 'up' }).ok);
+{
+  const r = edit({
+    op: 'moveElement', targetId: 'e8', position: 'append', direction: undefined, junk: 1,
+  });
+  ok('move kéo thả: targetId + position', r.ok, r.reason);
+  eq('chỉ giữ trường của hình dạng kéo thả', Object.keys(r.message).sort(), ['elementId', 'op', 'position', 'rev', 'targetId', 'type']);
+}
+ok('move thiếu cả direction lẫn targetId bị chặn', !edit({ op: 'moveElement' }).ok);
+ok('move targetId sai dạng bị chặn', !edit({ op: 'moveElement', targetId: 'x', position: 'after' }).ok);
+ok('move position lạ bị chặn', !edit({ op: 'moveElement', targetId: 'e2', position: 'inside' }).ok);
+ok('wrapLink href hợp lệ', edit({ op: 'wrapLink', href: '{!alink}' }).ok);
+ok('wrapLink href rỗng bị chặn', !edit({ op: 'wrapLink', href: '' }).ok);
+ok('wrapLink href javascript: bị chặn', !edit({ op: 'wrapLink', href: 'javascript:x()' }).ok);
 ok('move left bị chặn', !edit({ op: 'moveElement', direction: 'left' }).ok);
 ok('insert button trước phần tử', edit({ op: 'insertComponent', position: 'before', component: 'button' }).ok);
 ok('insert position lạ bị chặn', !edit({ op: 'insertComponent', position: 'inside', component: 'text' }).ok);

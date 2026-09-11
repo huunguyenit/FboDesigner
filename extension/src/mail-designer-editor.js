@@ -15,9 +15,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const {
-  cachedReadFile, samePath, nonce, assetUri,
+  cachedReadFile, samePath, nonce, assetUri, config,
 } = require('./render-host');
 const { applySplice } = require('./edit-host');
+const { dialogs } = require('./dialog/dialog-service');
 const { history } = require('./edit-history');
 const { trackDesignerWebview } = require('./designer-webview');
 const { toSourcePlan, revealSpan } = require('./mail-apply');
@@ -167,6 +168,7 @@ class MailDesignSession {
       styleProperties: this.core.STYLE_PROPERTIES,
       componentPanels: this.core.COMPONENT_PANELS,
       attributeEnums: this.core.ATTRIBUTE_ENUMS,
+      components: this.core.INSERTABLE_COMPONENTS,
       selectId,
       warnings: index.warnings,
     });
@@ -244,6 +246,10 @@ class MailDesignSession {
       setText: this.core.planMailText,
       setStyle: this.core.planMailStyle,
       setAttr: this.core.planMailAttr,
+      removeElement: this.core.planMailRemove,
+      moveElement: this.core.planMailMove,
+      insertComponent: this.core.planMailInsert,
+      wrapLink: this.core.planMailWrapLink,
     }[msg.op];
     if (!planner) {
       warn(`"${msg.op}" chưa hỗ trợ ở bản này của Email Designer.`);
@@ -252,6 +258,16 @@ class MailDesignSession {
 
     const built = this.build();
     if (!built.ok) { warn(built.idle || built.error); return false; }
+
+    // Kéo thả chạm HAI phần tử — đích cũng phải đúng là cái webview đã thấy, không riêng phần tử kéo.
+    if (msg.targetId) {
+      const expected = this.rendered.fingerprints.get(msg.targetId);
+      if (!expected || built.index.byId.get(msg.targetId)?.fingerprint !== expected) {
+        warn(`không còn phần tử đích ${msg.targetId} như lúc vẽ — thả lại giúp.`);
+        this.renderPending = true;
+        return false;
+      }
+    }
 
     const fingerprint = this.rendered.fingerprints.get(msg.elementId) ?? '';
     const plan = planner(built.view, built.index, { ...msg, fingerprint });
@@ -262,7 +278,23 @@ class MailDesignSession {
     const mapped = toSourcePlan(this.core, built.expanded.segments, plan, this.document.uri.fsPath);
     if (!mapped.ok) { warn(mapped.reason); return false; }
 
-    this.selectAfter = msg.elementId;
+    // Cùng thiết lập và cùng hình dạng hộp thoại với phép xoá control của designer form (`edit-host.js`).
+    if (msg.op === 'removeElement' && config().confirmDelete) {
+      const answer = await dialogs().ask({
+        type: 'warning',
+        title: `Xoá ${plan.label.replace(/^mail: xoá /, '')}?`,
+        size: 'small',
+        body: [{ type: 'text', content: 'Xoá cả phần tử lẫn mọi thứ nằm bên trong nó. Ctrl+Z trong designer để hoàn tác.' }],
+        buttons: [
+          { id: 'cancel', label: t('dialog.btn.cancel'), variant: 'secondary', action: 'cancel' },
+          { id: 'delete', label: t('dialog.btn.delete'), variant: 'danger', action: 'confirm' },
+        ],
+      });
+      if (answer !== 'delete') return false;
+    }
+
+    // Phép cấu trúc làm dồn số id — plan tính sẵn id MỚI của phần tử người dùng đang cầm.
+    this.selectAfter = plan.selectId !== undefined ? plan.selectId : msg.elementId;
     const wrote = await applySplice({ edits: mapped.edits, warning: mapped.foreignFile }, this.document, this.output, plan.label);
     if (!wrote) this.selectAfter = null;
     return wrote;

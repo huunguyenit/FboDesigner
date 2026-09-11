@@ -39,6 +39,7 @@
     styleProperties: {},
     componentPanels: {},
     attributeEnums: {},
+    components: [],
     selectedId: null,
     hoverId: null,
     templateKey: '',
@@ -53,8 +54,28 @@
     const msg = event.data || {};
     if (msg.type === 'render') onRender(msg);
     else if (msg.type === 'idle' || msg.type === 'error') showMessage(msg.message, msg.type === 'error');
-    // `hotkey` (Delete) có nghĩa khi có phép xoá — Phase 5.
+    // Delete do host bắt (VS Code nuốt phím trước webview) — xem `designer-webview.js`.
+    else if (msg.type === 'hotkey' && (msg.key === 'Delete' || msg.key === 'Del')) onDeleteHotkey();
   });
+
+  /**
+   * Phím tắt Delete của VS Code chặn phím ở MỌI chỗ trong editor này, kể cả trong ô nhập của bảng
+   * thuộc tính. Con trỏ đang ở ô chữ thì làm đúng việc phím Delete lẽ ra làm ở đó — xoá ký tự /
+   * vùng chọn — thay vì xoá phần tử người dùng đang gõ dở thuộc tính.
+   */
+  function onDeleteHotkey() {
+    const field = document.activeElement;
+    if (field instanceof HTMLTextAreaElement || (field instanceof HTMLInputElement && field.type === 'text')) {
+      const s = field.selectionStart;
+      const e = field.selectionEnd;
+      if (s === null) return;
+      field.setRangeText('', s, s === e ? Math.min(s + 1, field.value.length) : e, 'end');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+    if (field instanceof HTMLSelectElement) return;
+    removeSelected();
+  }
 
   function onRender(msg) {
     message.hidden = true;
@@ -65,6 +86,8 @@
     state.styleProperties = msg.styleProperties || {};
     state.componentPanels = msg.componentPanels || {};
     state.attributeEnums = msg.attributeEnums || {};
+    state.components = msg.components || [];
+    renderPalette();
     $('md-file').textContent = msg.file || '';
 
     const key = `${msg.template.actionId}::${msg.template.body}`;
@@ -153,9 +176,15 @@
   hit.addEventListener('mousemove', (e) => {
     const id = idAt(e);
     if (id !== state.hoverId) { state.hoverId = id; drawBoxes(); }
+    const el = id && id === state.selectedId ? state.elements.get(id) : null;
+    hit.classList.toggle('md-can-drag', !!el && el.caps.moveElement === true);
   });
   hit.addEventListener('mouseleave', () => { state.hoverId = null; drawBoxes(); });
-  hit.addEventListener('click', (e) => select(idAt(e), { reveal: e.ctrlKey || e.metaKey }));
+  hit.addEventListener('click', (e) => {
+    // `click` nổ ra sau `mouseup` của một lần KÉO — thao tác vừa rồi không phải bấm chọn.
+    if (suppressClick) { suppressClick = false; return; }
+    select(idAt(e), { reveal: e.ctrlKey || e.metaKey });
+  });
   hit.addEventListener('dblclick', (e) => { const id = idAt(e); if (id) select(id, { reveal: true }); });
   // Lớp phủ nuốt bánh xe — cuộn hộ iframe rồi vẽ lại khung chọn cho khớp.
   hit.addEventListener('wheel', (e) => {
@@ -218,6 +247,7 @@
     textApply.disabled = !textOk;
     showReason($('md-text-reason'), textOk ? null : el.caps.setText);
 
+    renderStructure(el);
     renderAttrFields(el);
     renderStyleFields(el);
   }
@@ -367,6 +397,228 @@
     }
   }
 
+  // ─── Cấu trúc: xoá / di chuyển / chèn / bọc liên kết (Phase 5) ──────────────────────────────
+  //
+  // Webview không tự quyết chỗ nào hợp lệ: mọi nút/ô chọn/vạch thả đọc `caps`, `moveTargets`,
+  // `insertPositions` do core tính. Host kiểm lại lần nữa trên văn bản hiện tại trước khi ghi.
+
+  const POSITION_LABEL = { before: 'trước', after: 'sau', append: 'vào cuối' };
+  const GROUP_LABEL = { content: 'Nội dung', layout: 'Bố cục', dynamic: 'Động' };
+  let drag = null;          // kéo từ palette: { component }
+  let press = null;         // nhấn giữ trên phần tử đang chọn: { id, x, y, dragging, drop }
+  let suppressClick = false;
+
+  const selected = () => (state.selectedId ? state.elements.get(state.selectedId) : null);
+
+  function editSelected(fields) {
+    const el = selected();
+    if (el) post({ type: 'edit', rev: state.rev, elementId: el.id, ...fields });
+  }
+
+  function removeSelected() {
+    const el = selected();
+    if (el && el.caps.removeElement === true) editSelected({ op: 'removeElement' });
+  }
+
+  function renderStructure(el) {
+    const up = $('md-move-up');
+    const down = $('md-move-down');
+    up.disabled = !el.moveTargets.up;
+    down.disabled = !el.moveTargets.down;
+    up.title = el.moveTargets.up ? 'Đổi chỗ với phần tử liền trên' : 'Không có phần tử anh em phía trên đổi chỗ được';
+    down.title = el.moveTargets.down ? 'Đổi chỗ với phần tử liền dưới' : 'Không có phần tử anh em phía dưới đổi chỗ được';
+    $('md-remove').disabled = el.caps.removeElement !== true;
+    $('md-wrap-row').hidden = el.caps.wrapLink !== true;
+
+    const pos = $('md-insert-pos');
+    for (const opt of pos.options) {
+      const cap = el.insertPositions[opt.value];
+      opt.disabled = cap !== true;
+      opt.title = cap === true ? '' : cap;
+    }
+    if (pos.selectedOptions[0] && pos.selectedOptions[0].disabled) {
+      const firstOk = [...pos.options].find((o) => !o.disabled);
+      if (firstOk) pos.value = firstOk.value;
+    }
+    const canInsert = el.caps.insertComponent === true;
+    $('md-insert-kind').disabled = !canInsert;
+    pos.disabled = !canInsert;
+    $('md-insert-apply').disabled = !canInsert;
+
+    const reasons = [el.caps.removeElement, canInsert ? true : el.caps.insertComponent].filter((r) => r !== true);
+    showReason($('md-struct-reason'), reasons.length ? reasons.join(' · ') : null);
+  }
+
+  $('md-move-up').addEventListener('click', () => editSelected({ op: 'moveElement', direction: 'up' }));
+  $('md-move-down').addEventListener('click', () => editSelected({ op: 'moveElement', direction: 'down' }));
+  $('md-remove').addEventListener('click', removeSelected);
+  $('md-wrap-apply').addEventListener('click', () => {
+    const href = $('md-wrap-href').value.trim();
+    if (href) editSelected({ op: 'wrapLink', href });
+  });
+  $('md-insert-apply').addEventListener('click', () => editSelected({
+    op: 'insertComponent', position: $('md-insert-pos').value, component: $('md-insert-kind').value,
+  }));
+
+  /** Palette + ô chọn component — dựng MỘT lần từ danh sách host gửi (core quyết loại nào có bộ sinh). */
+  function renderPalette() {
+    const box = $('md-palette-items');
+    if (box.childElementCount > 0 || state.components.length === 0) return;
+    const kindSelect = $('md-insert-kind');
+    let group = null;
+    for (const c of state.components) {
+      if (c.group !== group) {
+        group = c.group;
+        const head = document.createElement('div');
+        head.className = 'md-palette-group';
+        head.textContent = GROUP_LABEL[group] || group;
+        box.appendChild(head);
+      }
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'md-palette-item';
+      item.textContent = c.label;
+      item.draggable = true;
+      item.addEventListener('dragstart', (e) => {
+        drag = { component: c.kind };
+        e.dataTransfer.setData('text/plain', c.kind);
+        e.dataTransfer.effectAllowed = 'copy';
+      });
+      item.addEventListener('dragend', () => { drag = null; showDrop(null); });
+      item.addEventListener('click', () => insertNearSelection(c.kind));
+      box.appendChild(item);
+
+      const opt = document.createElement('option');
+      opt.value = c.kind;
+      opt.textContent = c.label;
+      kindSelect.appendChild(opt);
+    }
+  }
+
+  /** Bấm palette: chèn sau phần tử đang chọn; ô chứa thì chèn vào cuối; không thì trước. */
+  function insertNearSelection(component) {
+    const el = selected();
+    if (!el) { showMessageBriefly('Chọn một phần tử trên mẫu trước, rồi bấm component để chèn cạnh nó — hoặc kéo component thả vào mẫu.'); return; }
+    const position = ['after', 'append', 'before'].find((p) => el.insertPositions[p] === true);
+    if (!position) { showMessageBriefly(`<${el.tag}>: ${el.caps.insertComponent}`); return; }
+    editSelected({ op: 'insertComponent', position, component });
+  }
+
+  function showMessageBriefly(text) {
+    const status = $('md-status');
+    const original = status.dataset.original || status.innerHTML;
+    status.dataset.original = original;
+    status.textContent = text;
+    clearTimeout(showMessageBriefly.timer);
+    showMessageBriefly.timer = setTimeout(() => { status.innerHTML = original; }, 4000);
+  }
+
+  function isInside(el, ancestor) {
+    for (let cur = el; cur; cur = cur.parentId ? state.elements.get(cur.parentId) : null) if (cur.id === ancestor.id) return true;
+    return false;
+  }
+
+  /**
+   * Chỗ thả dưới con trỏ. Từ phần tử dưới chuột đi NGƯỢC lên cha cho tới khi gặp một vị trí core
+   * cho phép: nửa trên → trước, nửa dưới → sau, dải giữa của khung chứa → vào cuối. Kéo một phần tử
+   * thì bỏ qua chính nó và con của nó, và không nhận đích ở part khác.
+   */
+  function dropAt(event, movingId) {
+    const doc = frameDoc();
+    if (!doc) return null;
+    const hr = hit.getBoundingClientRect();
+    const y = event.clientY - hr.top;
+    const moving = movingId ? state.elements.get(movingId) : null;
+    let id = idOf(doc.elementFromPoint(event.clientX - hr.left, y));
+    while (id) {
+      const el = state.elements.get(id);
+      const node = nodeOf(id);
+      if (!el || !node) return null;
+      if (moving && isInside(el, moving)) return null;
+      const rect = node.getBoundingClientRect();
+      const rel = (y - rect.top) / Math.max(rect.height, 1);
+      const order = [];
+      if (rel > 0.25 && rel < 0.75) order.push('append');
+      order.push(rel < 0.5 ? 'before' : 'after', rel < 0.5 ? 'after' : 'before', 'append');
+      if (!moving || el.part === moving.part) {
+        const position = order.find((p) => el.insertPositions[p] === true);
+        if (position) return { targetId: el.id, position, rect };
+      }
+      id = el.parentId;
+    }
+    return null;
+  }
+
+  function showDrop(drop) {
+    const box = $('md-drop');
+    if (!drop) { box.hidden = true; return; }
+    const r = drop.rect;
+    const el = state.elements.get(drop.targetId);
+    box.hidden = false;
+    box.className = `md-drop ${drop.position === 'append' ? 'md-inside' : 'md-line'}`;
+    box.style.left = `${r.left}px`;
+    box.style.width = `${Math.max(r.width, 20)}px`;
+    box.style.top = `${drop.position === 'after' ? r.bottom : r.top}px`;
+    box.style.height = drop.position === 'append' ? `${Math.max(r.height, 4)}px` : '0px';
+    box.querySelector('.md-tag').textContent = `${POSITION_LABEL[drop.position]} <${el.tag}> ${el.id}`;
+  }
+
+  // Kéo từ palette (HTML5 drag & drop — palette và lớp phủ cùng một trang).
+  hit.addEventListener('dragover', (e) => {
+    if (!drag) return;
+    const d = dropAt(e, null);
+    showDrop(d);
+    if (d) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }
+  });
+  hit.addEventListener('dragleave', () => showDrop(null));
+  hit.addEventListener('drop', (e) => {
+    if (!drag) return;
+    e.preventDefault();
+    const d = dropAt(e, null);
+    const { component } = drag;
+    drag = null;
+    showDrop(null);
+    if (d) {
+      post({
+        type: 'edit', op: 'insertComponent', rev: state.rev, elementId: d.targetId, position: d.position, component,
+      });
+    }
+  });
+
+  // Kéo phần tử ĐANG CHỌN để di chuyển — nhấn giữ trên nó rồi rê quá 5px.
+  hit.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const id = idAt(e);
+    const el = id && id === state.selectedId ? state.elements.get(id) : null;
+    if (el && el.caps.moveElement === true) {
+      press = {
+        id, x: e.clientX, y: e.clientY, dragging: false, drop: null,
+      };
+    }
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!press) return;
+    if (!press.dragging && Math.hypot(e.clientX - press.x, e.clientY - press.y) < 5) return;
+    press.dragging = true;
+    document.body.classList.add('md-dragging');
+    press.drop = dropAt(e, press.id);
+    showDrop(press.drop);
+  });
+  window.addEventListener('mouseup', () => {
+    if (!press) return;
+    const p = press;
+    press = null;
+    document.body.classList.remove('md-dragging');
+    showDrop(null);
+    if (!p.dragging) return;
+    suppressClick = true;
+    if (p.drop) {
+      post({
+        type: 'edit', op: 'moveElement', rev: state.rev, elementId: p.id, targetId: p.drop.targetId, position: p.drop.position,
+      });
+    }
+  });
+
   function applyText() {
     const el = state.selectedId ? state.elements.get(state.selectedId) : null;
     if (!el || el.caps.setText !== true || textArea.value === el.text) return;
@@ -473,6 +725,7 @@
   document.addEventListener('keydown', (e) => {
     const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement;
     if (e.key === 'Escape' && !typing) { select(null); return; }
+    if (e.key === 'Delete' && !typing) { e.preventDefault(); removeSelected(); return; }
     if (typing || !(e.ctrlKey || e.metaKey) || e.altKey) return;
     const k = e.key.toLowerCase();
     if (k === 'z' && !e.shiftKey) { e.preventDefault(); post({ type: 'undo' }); }

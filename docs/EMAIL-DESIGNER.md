@@ -1,6 +1,6 @@
 # Email Designer — Phase 0 (baseline) và Phase 2 (kiến trúc)
 
-> Trạng thái: **Phase 0 · 2 · 3 (MVP) · 4 (Component) xong** — xem hai mục cuối file. Ghi ngày
+> Trạng thái: **Phase 0 · 2 · 3 (MVP) · 4 (Component) · 5 (Thêm/xoá/di chuyển) xong** — xem các mục cuối file. Ghi ngày
 > 2026-09-11. Hợp đồng dạng mã: [`core/src/mail-design-contract.mjs`](../core/src/mail-design-contract.mjs),
 > test: [`core/test/test-mail-design-contract.mjs`](../core/test/test-mail-design-contract.mjs).
 
@@ -562,5 +562,84 @@ Bảng thuộc tính đổi theo LOẠI component, và thêm phép `setAttr`.
 - Corpus FBISP24 là mail duyệt chứng từ (bảng) — hầu như không có ảnh/nút/khoảng trống; ba loại đó mới
   kiểm trên fixture.
 - Nút dựng bằng `<td bgcolor>` + `<a>` trơn được nhận là **liên kết** (vẫn sửa được `href` và căn lề ô).
-- Ảnh chưa bọc link không thêm link được (Phase 5).
+- ~~Ảnh chưa bọc link không thêm link được~~ — `wrapLink` ở Phase 5.
 - Chưa chạy trong VS Code thật.
+
+Commit: **`1a664c6`** trên `feat/email-designer` (kiểm trong worktree tạm: core 2302/2302, extension 350/350).
+
+---
+
+## Phase 5 — Thêm / xoá / di chuyển
+
+### Đã làm
+
+| Thao tác | Trên webview | Kế hoạch (core) | Ghi |
+| --- | --- | --- | --- |
+| Xoá | nút **Xoá**, phím **Delete** | `planMailRemove` — trọn cây; phần tử đứng một mình trên dòng thì bỏ cả dòng | 1 edit · hỏi xác nhận theo `fboDesigner.confirmDelete` |
+| Lên / xuống | nút **▲ Lên** / **▼ Xuống** | `planMailMove {direction}` — đổi chỗ với anh em liền kề, chữ ở giữa đứng yên | 1 splice |
+| Kéo thả phần tử | nhấn giữ phần tử ĐANG CHỌN, rê > 5px, vạch chỉ chỗ thả | `planMailMove {targetId, position}` | 2 edit, 1 mục hoàn tác |
+| Chèn component | palette bên trái (kéo thả hoặc bấm) + ô chọn «Chèn … trước/sau/vào cuối» | `planMailInsert` + `componentHtml` | 1 edit |
+| Bọc liên kết cho ảnh | ô href + **Bọc liên kết** | `planMailWrapLink` | 2 điểm chèn |
+
+Mọi kế hoạch cấu trúc trả thêm **`selectId`** — id MỚI của phần tử người dùng đang cầm (id là số thứ
+tự thẻ mở, chèn/xoá/di chuyển làm dồn số). Host đưa nó vào bản vẽ kế tiếp nên khung chọn đi theo đúng
+phần tử: xoá → anh em đứng trước (không có thì cha), chèn → phần tử vừa chèn, di chuyển → chính nó,
+bọc liên kết → chính ảnh.
+
+Caps mới do core tính, webview chỉ đọc: `caps.removeElement`/`moveElement`/`insertComponent`/`wrapLink`,
+`moveTargets {up, down}`, `insertPositions {before, after, append}` (mỗi ô `true` hoặc lý do).
+
+### Component chèn được (`core/src/mail-components.mjs`)
+
+| Loại | HTML sinh ra |
+| --- | --- |
+| Chữ / Tiêu đề | `<p>` / `<h2>` style inline (font, cỡ, dòng, màu, lề) |
+| Ảnh | `<img src="" alt width style="display:block;border:0;">` |
+| Liên kết | `<a href="#" style>` |
+| Nút | «bulletproof button»: `<table role="presentation"><tr><td align bgcolor style="border-radius"><a style="display:inline-block;padding">` |
+| Đường kẻ | `<hr style="border:0;border-top:1px solid">` |
+| Khoảng trống | `<div style="height;line-height;font-size:0">&#160;</div>` |
+| Khung chứa / Phần | bảng layout một ô có đệm / có nền |
+| Hai cột | bảng layout hai ô `width="50%" valign="top"` |
+| Bảng | bảng dữ liệu 2×2 `border-collapse` |
+
+`variable`, `condition`, `dynamicTable` khai trong hợp đồng nhưng CHƯA có bộ sinh — chèn bị từ chối (Phase 6+).
+
+### Quyết định
+
+1. **`<table>` nằm trọn trong một part là KHỐI** (trước: chỉ khi lồng trong ô/khối). Khối người dùng
+   vừa chèn — nút kiểu bảng, hai cột — phải xoá/di chuyển được; hàng/ô bên trong vẫn là cấu trúc.
+2. **Chỗ chèn:** trước/sau chỉ quanh khối và nội tuyến (không cạnh `tr`/`td`); vào cuối chỉ `td`,
+   `th`, `div`, `center`, `li` — không `p` (khối trong `<p>` là HTML sai); thẻ đóng phải cùng part.
+3. **Kéo thả không vượt part** và **không giữa hai file nguồn** (Message.xml ↔ Include) — cả hai là
+   ranh giới của mẫu; muốn thì cắt dán trong XML.
+4. **Đích kéo thả cũng được so dấu vân tay** ở host, không riêng phần tử bị kéo.
+5. **Phím Delete:** `when` của `fboDesigner.deleteSelection` thêm `fboDesigner.mail`. Phím tắt ấy chặn
+   Delete cả trong ô nhập của bảng thuộc tính, nên webview đang focus ô chữ thì tự xoá ký tự thay vì
+   xoá phần tử.
+6. **Mảnh HTML dùng `&#160;`**, không `&nbsp;` (bộ bung entity báo `&nbsp;` trong CDATA là chưa khai);
+   không mảnh nào chứa `]]>`.
+7. Phép bảng của «Xem mail» (`addColumn`/`resizeColumn`/`addRow`) CHƯA nối vào designer — báo chưa hỗ trợ.
+
+### Kiểm chứng
+
+- `node core/test/run.mjs` **2376/2376** · `node extension/test/run.mjs` **365/365**.
+- `core/test/test-mail-structure.mjs` (sửa khứ hồi): xoá (cả cây, không dòng trắng, ô bảng/khung/entity
+  bị chặn, action từ Include), lên/xuống (`selectId` tính cả cây anh em), kéo thả (trước h2, vào cuối ô,
+  vào chính nó / sang part khác / cạnh ô bị chặn, đúng chỗ cũ → noop), chèn đủ 11 component (dựng lại
+  sạch, chọn đúng gốc), bọc liên kết. Host: hỏi/huỷ/tắt xác nhận xoá, `selectId`, chèn, kéo thả hai
+  edit, đích cũ bị chặn.
+- Corpus FBISP24 (39 biến thể): khứ hồi xoá **68/68**, lên **64/64**, chèn chữ vào cuối **68/68**, chèn nút
+  **34/34**, kéo thả vào cuối **31/31**. Một ca xoá đổi số cảnh báo tokenizer 1 → 0 — đúng: khối bị xoá
+  chính là chỗ chứa HTML sai `<p><div></div></p>` sinh ra cảnh báo.
+- Webview trong trình duyệt: palette 11 mục; nút Lên/Xuống/Xoá bật/tắt theo caps; ô vị trí tự chọn
+  «vào cuối» khi chọn ô bảng; Delete trong ô nhập xoá ký tự (`abc` → `ac`), ngoài ô nhập gửi
+  `removeElement`; kéo từ palette vào ô hiện «vào cuối `<td>`» rồi gửi `insertComponent`; kéo `<hr>`
+  lên h2 hiện «trước `<h2>`» rồi gửi `moveElement`; cú click ngay sau khi kéo bị bỏ qua.
+
+### Giới hạn
+
+- Chỉ kéo được phần tử ĐANG CHỌN, một phần tử mỗi lần.
+- Mảnh chèn và phần tử di chuyển không tự xuống dòng/thụt lề — XML nguồn nối liền trên dòng đích.
+- Ảnh mới chèn có `src=""` — đặt ảnh ở ô `src`.
+- Chưa chạy trong VS Code thật: phím Delete qua keybinding, kéo thả HTML5 trong webview thật.

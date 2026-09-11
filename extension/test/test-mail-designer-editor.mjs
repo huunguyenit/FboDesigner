@@ -31,6 +31,12 @@ const fakeHistory = {
   undo() { fakeHistory.calls.push('undo'); return true; },
   redo() { fakeHistory.calls.push('redo'); return true; },
 };
+const fakeDialog = {
+  shown: [],
+  answer: 'delete',
+  reset() { fakeDialog.shown = []; fakeDialog.answer = 'delete'; },
+  async ask(options) { fakeDialog.shown.push(options); return fakeDialog.answer; },
+};
 const fakeLicense = {
   active: true,
   async ensureLicense() { return fakeLicense.active ? { active: true } : null; },
@@ -43,6 +49,7 @@ Module._load = function load(request, ...rest) {
   if (request === './edit-host') return fakeEditHost;
   if (request === './edit-history') return { history: () => fakeHistory };
   if (request === './license') return fakeLicense;
+  if (request === './dialog/dialog-service') return { dialogs: () => fakeDialog };
   return previousLoad.call(this, request, ...rest);
 };
 
@@ -108,6 +115,7 @@ function reset() {
   fakeVscode.workspace.changeListeners = [];
   fakeEditHost.reset();
   fakeHistory.calls = [];
+  fakeDialog.reset();
   fakeLicense.active = true;
   output.lines = [];
   resetForTests();
@@ -208,10 +216,10 @@ section('email designer — từ chối có lý do, noop im lặng');
   eq('gõ lại y nguyên → không cảnh báo', fakeVscode.window.asked.warning.length, before);
 
   await t.send({
-    type: 'edit', op: 'removeElement', rev: t.last().rev, elementId: idOf(r, 'h2'),
+    type: 'edit', op: 'addColumn', rev: t.last().rev, columnIndex: 0,
   });
-  ok('op của phase sau → báo chưa hỗ trợ', fakeVscode.window.asked.warning.some((w) => w.includes('chưa hỗ trợ')));
-  eq('op của phase sau → không ghi', fakeEditHost.calls.length, 0);
+  ok('phép bảng của «Xem mail» chưa nối vào designer → báo chưa hỗ trợ', fakeVscode.window.asked.warning.some((w) => w.includes('chưa hỗ trợ')));
+  eq('… và không ghi', fakeEditHost.calls.length, 0);
 
   await t.send({ type: 'undo' });
   await t.send({ type: 'redo' });
@@ -250,6 +258,64 @@ section('email designer — setAttr và dữ liệu bảng thuộc tính (Phase 
   });
   ok('thẻ không có thuộc tính cho sửa → cảnh báo, không ghi',
     fakeEditHost.calls.length === 1 && fakeVscode.window.asked.warning.some((w) => w.includes('không có thuộc tính')));
+}
+
+section('email designer — xoá / chèn / di chuyển (Phase 5)');
+{
+  reset();
+  const t = await open();
+  await t.send({ type: 'ready' });
+  const r = t.last();
+  ok('render mang danh sách component chèn được', r.components.some((c) => c.kind === 'button') && r.components.every((c) => c.label));
+  const h2 = r.elements.find((e) => e.tag === 'h2');
+  const body = r.elements.find((e) => e.tag === 'body');
+  const td = r.elements.find((e) => e.tag === 'td');
+  eq('phần tử mang moveTargets + insertPositions', [h2.moveTargets.up, h2.insertPositions.after], [null, true]);
+
+  fakeDialog.answer = 'cancel';
+  await t.send({
+    type: 'edit', op: 'removeElement', rev: r.rev, elementId: h2.id,
+  });
+  ok('xoá → hỏi xác nhận, nêu tên thẻ', fakeDialog.shown.length === 1 && fakeDialog.shown[0].title.includes('<h2>'));
+  eq('huỷ ở hộp thoại → không ghi', fakeEditHost.calls.length, 0);
+
+  fakeDialog.answer = 'delete';
+  await t.send({
+    type: 'edit', op: 'removeElement', rev: r.rev, elementId: h2.id,
+  });
+  eq('đồng ý → ghi', fakeEditHost.calls.length, 1);
+  eq('nhãn hoàn tác', fakeEditHost.calls[0].label, 'mail: xoá <h2>');
+  eq('chọn lại theo selectId của plan (h2 là con đầu → cha <body>)', t.session.selectAfter, body.id);
+
+  fakeVscode.workspace.settings['fboDesigner.confirmDelete'] = false;
+  await t.send({
+    type: 'edit', op: 'removeElement', rev: r.rev, elementId: h2.id,
+  });
+  eq('tắt fboDesigner.confirmDelete → không hỏi thêm', fakeDialog.shown.length, 2);
+  eq('… và ghi ngay', fakeEditHost.calls.length, 2);
+
+  await t.send({
+    type: 'edit', op: 'insertComponent', rev: r.rev, elementId: h2.id, position: 'after', component: 'divider',
+  });
+  eq('chèn → ghi', fakeEditHost.calls.length, 3);
+  const e = fakeEditHost.calls[2].plan.edits[0];
+  ok('đường kẻ chèn ngay sau </h2>', (SOURCE.slice(0, e.start) + e.text + SOURCE.slice(e.end)).includes('</h2><hr style="border:0;'));
+  eq('chọn phần tử vừa chèn (id mới)', t.session.selectAfter, 'e4');
+
+  await t.send({
+    type: 'edit', op: 'moveElement', rev: r.rev, elementId: h2.id, targetId: td.id, position: 'append',
+  });
+  eq('kéo thả h2 vào cuối ô → hai edit trong một lần ghi', [fakeEditHost.calls.length, fakeEditHost.calls[3].plan.edits.length], [4, 2]);
+
+  await t.send({
+    type: 'edit', op: 'moveElement', rev: r.rev, elementId: h2.id, targetId: 'e99', position: 'before',
+  });
+  ok('đích không còn như lúc vẽ → cảnh báo, không ghi', fakeEditHost.calls.length === 4 && fakeVscode.window.asked.warning.some((w) => w.includes('đích')));
+
+  await t.send({
+    type: 'edit', op: 'moveElement', rev: r.rev, elementId: h2.id, direction: 'up',
+  });
+  ok('không có anh em phía trên → cảnh báo, không ghi', fakeEditHost.calls.length === 4 && fakeVscode.window.asked.warning.some((w) => w.includes('phía trên')));
 }
 
 section('email designer — đổi biến thể, nhớ lựa chọn theo file');

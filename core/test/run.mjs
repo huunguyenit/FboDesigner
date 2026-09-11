@@ -35,6 +35,7 @@ import './test-mail-design-contract.mjs';
 import './test-mail-html.mjs';
 import './test-mail-edit.mjs';
 import './test-mail-components.mjs';
+import './test-mail-structure.mjs';
 import { summary } from './harness.mjs';
 
 summary();

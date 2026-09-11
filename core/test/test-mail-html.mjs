@@ -126,7 +126,8 @@ section('mail html — chỉ mục phần tử và vai trò');
   eq('h2 sửa style được', nth(index, 'h2').caps.setStyle, true);
   eq('img chưa có style vẫn sửa style được (chèn thuộc tính)', nth(index, 'img').caps.setStyle, true);
   ok('html (frame) không sửa style', nth(index, 'html').caps.setStyle !== true);
-  ok('op phase sau ghi rõ chưa hỗ trợ', String(nth(index, 'h2').caps.removeElement).includes('chưa hỗ trợ'));
+  eq('h2 xoá/di chuyển được (Phase 5)', [nth(index, 'h2').caps.removeElement, nth(index, 'h2').caps.moveElement], [true, true]);
+  ok('ô bảng không xoá bằng phép phần tử', String(nth(index, 'td').caps.removeElement).includes('hàng/ô bảng'));
 }
 
 section('mail html — loại component và thuộc tính (Phase 4)');

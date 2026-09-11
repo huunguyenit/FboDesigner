@@ -30,7 +30,8 @@ const RAW_TEXT = new Set(['style', 'script', 'title', 'textarea']);
 /** Thẻ khối mở ra thì `<p>` đang mở đóng ngầm — luật của trình duyệt, mail client theo đúng nó. */
 const CLOSES_P = new Set(['address', 'article', 'blockquote', 'center', 'div', 'dl', 'fieldset', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'hr', 'ol', 'p', 'pre', 'section', 'table', 'ul']);
 
-const NOT_YET = 'chưa hỗ trợ ở bản này';
+/** Khung nhận chèn VÀO TRONG (cuối nội dung). `p` cố tình vắng: khối trong `<p>` là HTML sai. */
+const APPEND_TAGS = new Set(['td', 'th', 'div', 'center', 'li']);
 const ENTITY_REASON = 'có phần do entity (&…;) sinh ra — dùng chung cho nhiều mẫu, sửa trong XML';
 
 // ─── Dòng HTML ────────────────────────────────────────────────────────────────────────────────
@@ -105,7 +106,7 @@ export function partAt(view, h) {
 /** Dải KHÔNG RỖNG `[hs, he)` của dòng HTML → dải clearText, chỉ khi nằm trọn trong MỘT mảnh cdata. */
 export function cdataRange(view, hs, he) {
   const p = view.pieces.find((x) => x.kind === 'cdata' && hs >= x.htmlStart && he <= x.htmlEnd);
-  return p ? { start: p.clearStart + (hs - p.htmlStart), end: p.clearStart + (he - p.htmlStart) } : null;
+  return p ? { start: p.clearStart + (hs - p.htmlStart), end: p.clearStart + (he - p.htmlStart), file: p.file } : null;
 }
 
 /**
@@ -120,7 +121,7 @@ export function cdataPoint(view, h, bias = 'left') {
   for (const b of tries) {
     const p = view.pieces.find((x) => x.kind === 'cdata'
       && (b === 'left' ? h > x.htmlStart && h <= x.htmlEnd : h >= x.htmlStart && h < x.htmlEnd));
-    if (p) return { offset: p.clearStart + (h - p.htmlStart), bias: b };
+    if (p) return { offset: p.clearStart + (h - p.htmlStart), bias: b, file: p.file };
   }
   return null;
 }
@@ -274,21 +275,26 @@ export function indexMailElements(view) {
     el.part = partAt(view, el.openStart);
     el.openTag = html.slice(el.openStart, el.openEnd);
     el.fingerprint = elementFingerprint({ part: el.part, tag: el.tag, openTag: el.openTag });
-    const parent = el.parentId ? byId.get(el.parentId) : null;
     let role = roleOfTag(el.tag);
     const closePart = el.closeEnd === null ? null : partAt(view, Math.max(el.openStart, el.closeEnd - 1));
     if (!el.void && (el.closeEnd === null || closePart !== el.part)) role = ELEMENT_ROLES.FRAME;
-    else if (el.tag === 'table' && parent && ['td', 'th', 'div', 'center'].includes(parent.tag)) role = ELEMENT_ROLES.BLOCK;
+    // Bảng TRỌN trong một part là một khối (bảng layout, nút kiểu bảng) — xoá/di chuyển được cả khối.
+    else if (el.tag === 'table') role = ELEMENT_ROLES.BLOCK;
     el.role = role;
   }
+  const roots = elements.filter((e) => e.parentId === null).map((e) => e.id);
   for (const el of elements) {
+    const structural = structuralCapability(view, el);
+    el.insertPositions = insertPositions(view, el);
+    el.moveTargets = structural === true ? moveTargets(view, el, byId, roots) : { up: null, down: null };
     el.caps = {
       setText: textCapability(view, el),
       setStyle: styleCapability(view, el),
       setAttr: attrCapability(el),
-      removeElement: NOT_YET,
-      moveElement: NOT_YET,
-      insertComponent: NOT_YET,
+      removeElement: structural,
+      moveElement: structural,
+      insertComponent: Object.values(el.insertPositions).includes(true) ? true : 'không có chỗ chèn quanh hay trong phần tử này',
+      wrapLink: wrapLinkCapability(el, byId, structural),
     };
     el.attrLocks = el.caps.setAttr === true ? attributeLocks(view, el) : {};
     el.kind = componentKindOf({
@@ -362,6 +368,60 @@ export function decodeMailText(raw) {
     const code = k[1] === 'x' ? Number.parseInt(k.slice(2), 16) : Number.parseInt(k.slice(1), 10);
     return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : m;
   });
+}
+
+// ─── Cấu trúc: xoá / di chuyển / chèn (Phase 5) ────────────────────────────────────────────────
+
+/**
+ * Trọn phần tử `[openStart, closeEnd)` xoá/di chuyển được không. Chỉ khối và nội tuyến: hàng/ô bảng
+ * đổi hình học bảng (có phép cột/dòng riêng), khung tài liệu mở/đóng ở hai part khác nhau.
+ */
+function structuralCapability(view, el) {
+  if (el.role === ELEMENT_ROLES.FRAME) return 'khung tài liệu (html/head/body, hoặc mở và đóng ở hai part khác nhau) — không xoá/di chuyển';
+  if (el.role === ELEMENT_ROLES.STRUCTURE) return 'hàng/ô bảng — thêm/bớt dùng thao tác cột/dòng của bảng';
+  if (el.role === ELEMENT_ROLES.UNKNOWN) return 'thẻ lạ — sửa trong XML';
+  if (!el.explicitClose || el.closeEnd === null) return 'thẻ không đóng tường minh — sửa trong XML';
+  return cdataRange(view, el.openStart, el.closeEnd) ? true : `phần tử ${ENTITY_REASON}`;
+}
+
+const NOT_FLOW = 'chỉ chèn cạnh khối/nội tuyến — không chèn cạnh hàng/ô bảng hay khung tài liệu';
+
+/** Ba chỗ chèn quanh một phần tử: trước thẻ mở, sau thẻ đóng, cuối nội dung (chỉ khung chứa). */
+function insertPositions(view, el) {
+  const flow = el.role === ELEMENT_ROLES.BLOCK || el.role === ELEMENT_ROLES.INLINE;
+  let before = NOT_FLOW;
+  let after = NOT_FLOW;
+  if (flow) {
+    before = cdataPoint(view, el.openStart, 'right') ? true : `thẻ mở ${ENTITY_REASON}`;
+    if (!el.explicitClose || el.closeEnd === null) after = 'thẻ không đóng tường minh';
+    else after = cdataPoint(view, el.closeEnd, 'left') ? true : `thẻ đóng ${ENTITY_REASON}`;
+  }
+  let append;
+  if (!APPEND_TAGS.has(el.tag)) append = `không chèn vào trong <${el.tag}>`;
+  else if (el.void || !el.explicitClose || el.closeStart === null) append = 'thẻ không đóng tường minh — không chèn vào trong được';
+  else if (partAt(view, el.closeStart) !== el.part) append = 'thẻ đóng nằm ở part khác — không chèn vào trong được';
+  else append = cdataPoint(view, el.closeStart, 'right') ? true : `thẻ đóng ${ENTITY_REASON}`;
+  return { before, after, append };
+}
+
+/**
+ * Anh em LIỀN KỀ đổi chỗ được: cũng xoá/di chuyển được, và cả dải từ đầu phần tử trước tới cuối
+ * phần tử sau (kể cả chữ ở giữa) nằm trọn trong một mảnh cdata — phép đổi chỗ là MỘT splice.
+ */
+function moveTargets(view, el, byId, roots) {
+  const siblings = el.parentId ? byId.get(el.parentId).children : roots;
+  const i = siblings.indexOf(el.id);
+  const pick = (other, first, second) => (other && structuralCapability(view, other) === true
+    && cdataRange(view, first.openStart, second.closeEnd) ? other.id : null);
+  const prev = i > 0 ? byId.get(siblings[i - 1]) : null;
+  const next = i >= 0 && i < siblings.length - 1 ? byId.get(siblings[i + 1]) : null;
+  return { up: pick(prev, prev, el), down: pick(next, el, next) };
+}
+
+function wrapLinkCapability(el, byId, structural) {
+  if (el.tag !== 'img') return 'chỉ bọc liên kết cho ảnh';
+  if (el.parentId && byId.get(el.parentId).tag === 'a') return 'ảnh đã nằm trong một liên kết — sửa href của thẻ <a> bao ngoài';
+  return structural;
 }
 
 function textCapability(view, el) {
@@ -512,6 +572,8 @@ export function wireMailElements(view, index) {
       kind: el.kind,
       attrNames: allowed,
       attrLocks: el.attrLocks,
+      moveTargets: el.moveTargets,
+      insertPositions: el.insertPositions,
       style: parseStyleDeclarations(style?.value ?? '').map((d) => [d.property, d.value]),
       attrs,
       text,

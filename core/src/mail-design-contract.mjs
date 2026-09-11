@@ -92,7 +92,8 @@ const TAG_ROLE = new Map([
 /**
  * Vai trò MẶC ĐỊNH theo tên thẻ. Chỉ mục phần tử (Phase 3) còn áp luật VỊ TRÍ lên trên:
  *   - hạ về FRAME: phần tử mở/đóng ở hai part khác nhau, hoặc không tìm được thẻ đóng;
- *   - nâng `table` lên BLOCK: bảng nằm TRỌN trong một part, lồng trong một ô/khối khác.
+ *   - nâng `table` lên BLOCK: bảng nằm TRỌN trong một part — bảng layout của mail, nút kiểu bảng,
+ *     khối người dùng vừa chèn. Hàng/ô bên trong vẫn là STRUCTURE.
  */
 export function roleOfTag(tag) {
   return TAG_ROLE.get(String(tag ?? '').toLowerCase()) ?? ELEMENT_ROLES.UNKNOWN;
@@ -113,6 +114,8 @@ export const MAIL_OPS = Object.freeze({
   removeElement: Object.freeze({ phase: 5, effect: 'delete', target: 'element' }),
   moveElement: Object.freeze({ phase: 5, effect: 'replace', target: 'element' }),
   insertComponent: Object.freeze({ phase: 5, effect: 'insert', target: 'element' }),
+  // Bọc một ảnh trong `<a href>` — hai điểm chèn, một phép sửa, một mục hoàn tác.
+  wrapLink: Object.freeze({ phase: 5, effect: 'insert', target: 'element' }),
   resizeColumn: Object.freeze({ phase: 0, effect: 'replace', target: 'template' }),
   addColumn: Object.freeze({ phase: 0, effect: 'insert', target: 'template' }),
   addRow: Object.freeze({ phase: 0, effect: 'insert', target: 'template' }),
@@ -317,9 +320,19 @@ function validateEdit(msg) {
     case 'removeElement':
       return ok(base);
 
+    // Hai hình dạng: `direction` (đổi chỗ với anh em liền kề) hoặc `targetId` + `position` (kéo thả).
     case 'moveElement':
-      if (!MOVE_DIRECTIONS.includes(msg.direction)) return bad('moveElement: direction phải là up | down');
-      return ok({ ...base, direction: msg.direction });
+      if (msg.direction !== undefined) {
+        if (!MOVE_DIRECTIONS.includes(msg.direction)) return bad('moveElement: direction phải là up | down');
+        return ok({ ...base, direction: msg.direction });
+      }
+      if (parseElementId(msg.targetId) === null) return bad('moveElement: cần direction, hoặc targetId + position');
+      if (!INSERT_POSITIONS.includes(msg.position)) return bad('moveElement: position phải là before | after | append');
+      return ok({ ...base, targetId: msg.targetId, position: msg.position });
+
+    case 'wrapLink':
+      if (typeof msg.href !== 'string' || msg.href === '' || !isSafeUrl(msg.href)) return bad('wrapLink: href không hợp lệ hoặc không an toàn');
+      return ok({ ...base, href: msg.href });
 
     case 'insertComponent': {
       if (!INSERT_POSITIONS.includes(msg.position)) return bad('insertComponent: position phải là before | after | append');
@@ -436,6 +449,8 @@ export function validateMailMessage(msg) {
  * @property {string} kind                      loại component (`mail-components.mjs#componentKindOf`)
  * @property {string[]} attrNames               = ATTRIBUTES[tag]
  * @property {Record<string, string>} attrLocks thuộc tính KHÔNG sửa được → lý do (vd do entity sinh ra)
+ * @property {{up:string|null, down:string|null}} moveTargets  anh em liền kề đổi chỗ được (Phase 5)
+ * @property {{before:true|string, after:true|string, append:true|string}} insertPositions  chỗ chèn/thả quanh phần tử
  * @property {Array<[string, string]>} style   khai báo inline theo đúng thứ tự trong nguồn
  * @property {Record<string, string>} attrs     chỉ các thuộc tính trong ATTRIBUTES[tag]
  * @property {string|null} text                 chỉ khi `caps.setText === true`
@@ -451,9 +466,11 @@ export function validateMailMessage(msg) {
  * @property {Record<string, string[]>} styleProperties  = STYLE_PROPERTIES — webview không chép lại whitelist
  * @property {Record<string, object>} componentPanels     = COMPONENT_PANELS (`mail-components.mjs`)
  * @property {Record<string, string[]>} attributeEnums    = ATTRIBUTE_ENUMS
+ * @property {Array<{kind:string, label:string, group:string}>} components  = INSERTABLE_COMPONENTS
  * @property {string|null} selectId             host chọn hộ sau một phép sửa (vd phần tử vừa di chuyển)
  * @property {string[]} warnings
  *
- * @typedef {{ok:true, edits:Array<{start:number,end:number,text:string}>, notes?:string[], label:string}
+ * @typedef {{ok:true, edits:Array<{start:number,end:number,text:string,bias?:'left'|'right'}>, notes?:string[], label:string,
+ *            selectId?:string|null}
  *          | {ok:false, reason:string}} MailEditPlan  toạ độ `clearText`, cùng khuôn `planResizeMailColumn`
  */

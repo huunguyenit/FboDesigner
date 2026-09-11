@@ -4,6 +4,21 @@
 
 ## [Chưa phát hành]
 
+### Thêm — Email Designer: chèn component, xoá, di chuyển, kéo thả
+
+- **Palette** bên trái: Chữ, Tiêu đề, Ảnh, Liên kết, Nút, Đường kẻ, Khoảng trống, Khung chứa, Phần,
+  Hai cột, Bảng — kéo thả vào mẫu hoặc bấm để chèn cạnh phần tử đang chọn. HTML sinh ra theo luật
+  mail: style inline, bố cục bằng bảng, nút «bulletproof» (`core/src/mail-components.mjs#componentHtml`).
+- **Cấu trúc** trong bảng thuộc tính: ▲ Lên / ▼ Xuống (đổi chỗ với anh em liền kề), **Xoá** (cả phím
+  Delete; hỏi xác nhận theo `fboDesigner.confirmDelete`), chèn trước/sau/vào cuối, **bọc liên kết** cho ảnh.
+- **Kéo phần tử đang chọn** để di chuyển — vạch chỉ chỗ thả; không vượt part (header/detail/footer),
+  không giữa hai file nguồn.
+- `core/src/mail-structure.mjs`: `planMailRemove`, `planMailMove`, `planMailInsert`, `planMailWrapLink` —
+  mỗi kế hoạch trả `selectId` để khung chọn đi theo đúng phần tử sau khi id dồn số.
+- `<table>` nằm trọn trong một part giờ là khối (xoá/di chuyển được cả bảng).
+- Phím Delete trong ô nhập của bảng thuộc tính xoá ký tự, không xoá phần tử.
+- Corpus FBISP24: khứ hồi xoá 68/68, lên 64/64, chèn chữ 68/68, chèn nút 34/34, kéo thả 31/31.
+
 ### Thêm — Email Designer: bảng thuộc tính theo loại component, sửa thuộc tính HTML
 
 Bấm một phần tử là bảng thuộc tính hiện đúng nhóm ô của **loại** nó — ảnh (`src`, `alt`, `width`,

@@ -57,6 +57,28 @@ button:disabled, input:disabled, textarea:disabled { opacity: 0.5; cursor: defau
 
 .md-main { flex: 1 1 auto; min-height: 0; display: flex; }
 
+.md-palette {
+  flex: 0 0 120px;
+  overflow: auto;
+  padding: 8px;
+  border-right: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+.md-palette h3 { margin: 0 0 6px; font-size: 0.9em; text-transform: uppercase; opacity: 0.75; }
+.md-palette-group { margin: 8px 0 3px; font-size: 0.8em; opacity: 0.6; }
+.md-palette-item { display: block; width: 100%; margin-bottom: 3px; text-align: left; cursor: grab; }
+
+.md-drop { position: absolute; box-sizing: border-box; pointer-events: none; z-index: 2; }
+.md-drop[hidden] { display: none; }
+.md-drop.md-line { height: 0; border-top: 3px solid var(--vscode-focusBorder, #0a63c2); }
+.md-drop.md-inside { border: 2px dashed var(--vscode-focusBorder, #0a63c2); background: rgba(10, 99, 194, 0.08); }
+.md-hit.md-can-drag { cursor: grab; }
+body.md-dragging, body.md-dragging * { cursor: grabbing !important; }
+
+.md-struct-buttons button { flex: 1; }
+.md-insert-row select, #md-wrap-href { flex: 1; min-width: 0; }
+.md-row[hidden] { display: none; }
+
 .md-canvas {
   flex: 1 1 auto;
   min-width: 0;

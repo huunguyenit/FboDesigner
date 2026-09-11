@@ -117,7 +117,12 @@ export {
   INSERT_POSITIONS, MOVE_DIRECTIONS, MAX_TEXT_LENGTH, isSafeCssValue, isSafeAttrValue, isSafeUrl, validateMailMessage,
   ATTRIBUTE_ENUMS, isValidAttrValue,
 } from './mail-design-contract.mjs';
-export { COMPONENT_PANELS, componentKindOf } from './mail-components.mjs';
+export {
+  COMPONENT_PANELS, componentKindOf, componentHtml, INSERTABLE_COMPONENTS,
+} from './mail-components.mjs';
+export {
+  planMailRemove, planMailMove, planMailInsert, planMailWrapLink,
+} from './mail-structure.mjs';
 export {
   buildMailView, indexMailElements, renderMailDesign, wireMailElements, mapMailEdits, mailElementClearRange,
   parseStyleDeclarations,

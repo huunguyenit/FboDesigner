@@ -20,12 +20,18 @@
   </select>
 </header>
 <main class="md-main">
+  <aside class="md-palette" aria-label="Component">
+    <h3>Thêm</h3>
+    <div id="md-palette-items"></div>
+    <p class="md-note">Kéo vào mẫu mail, hoặc bấm để chèn cạnh phần tử đang chọn.</p>
+  </aside>
   <section class="md-canvas">
     <div class="md-frame-wrap" id="md-frame-wrap">
       <iframe id="md-frame" sandbox="allow-same-origin" title="Mẫu mail"></iframe>
       <div class="md-hit" id="md-hit">
         <div class="md-box md-hover" id="md-hover" hidden><span class="md-tag"></span></div>
         <div class="md-box md-selected" id="md-selected" hidden><span class="md-tag"></span></div>
+        <div class="md-drop" id="md-drop" hidden><span class="md-tag"></span></div>
       </div>
     </div>
     <div class="md-message" id="md-message" hidden></div>
@@ -35,6 +41,28 @@
     <div id="md-props-body" hidden>
       <nav class="md-crumbs" id="md-crumbs"></nav>
       <div class="md-el-head"><code id="md-el-tag"></code> <span id="md-el-meta"></span></div>
+      <section class="md-group">
+        <h3>Cấu trúc</h3>
+        <div class="md-row md-struct-buttons">
+          <button type="button" id="md-move-up">▲ Lên</button>
+          <button type="button" id="md-move-down">▼ Xuống</button>
+          <button type="button" id="md-remove" title="Xoá phần tử (Del)">Xoá</button>
+        </div>
+        <div class="md-row" id="md-wrap-row" hidden>
+          <input type="text" id="md-wrap-href" placeholder="https://… hoặc {!link}" spellcheck="false">
+          <button type="button" id="md-wrap-apply">Bọc liên kết</button>
+        </div>
+        <div class="md-row md-insert-row">
+          <select id="md-insert-kind" title="Component cần chèn"></select>
+          <select id="md-insert-pos" title="Vị trí so với phần tử đang chọn">
+            <option value="after">sau</option>
+            <option value="before">trước</option>
+            <option value="append">vào cuối</option>
+          </select>
+          <button type="button" id="md-insert-apply">Chèn</button>
+        </div>
+        <p class="md-reason" id="md-struct-reason" hidden></p>
+      </section>
       <section class="md-group">
         <h3>Chữ</h3>
         <textarea id="md-text" rows="4" spellcheck="false"></textarea>
@@ -57,4 +85,4 @@
     </div>
   </aside>
 </main>
-<footer class="md-status" id="md-status"><b>Click</b> = chọn · <b>Ctrl+click</b> / <b>bấm đúp</b> = mở XML · <b>Esc</b> = bỏ chọn · <b>Ctrl+Z</b> / <b>Ctrl+Y</b> = hoàn tác / làm lại · lăn chuột = cuộn mẫu</footer>
+<footer class="md-status" id="md-status"><b>Click</b> = chọn · <b>Ctrl+click</b> / <b>bấm đúp</b> = mở XML · <b>Esc</b> = bỏ chọn · <b>Del</b> = xoá · kéo phần tử đang chọn = di chuyển · <b>Ctrl+Z</b> / <b>Ctrl+Y</b> = hoàn tác / làm lại · lăn chuột = cuộn mẫu</footer>
