@@ -4,6 +4,18 @@
 
 ## [Chưa phát hành]
 
+### Thêm — Email Designer: biến `{!tên}` và dữ liệu mẫu
+
+- **Ba chế độ hiện biến** trên bản vẽ — nhãn (như runtime), `{!tên}` (chip), dữ liệu mẫu. Chỉ đổi bản
+  vẽ; Message.xml giữ nguyên `{!tên}`. Token trong thuộc tính (`href="{!alink}&n=1"`) chỉ thay bằng chữ,
+  không bao giờ thành thẻ.
+- **Biến trong mẫu**: danh sách nhãn/dữ liệu kèm số lần; bấm để chèn `{!tên}` vào ô Chữ hoặc
+  `href`/`src`/`alt`/`title` đang soạn.
+- **Dữ liệu mẫu** JSON phẳng + `detail: [...]`, lưu ở workspace state theo file × mẫu — không bao giờ ghi
+  vào mẫu. «Tạo khung từ biến», JSON sai hiện lý do ngay dưới ô.
+- `core/src/mail-variables.mjs`: quét token theo ngữ cảnh, gom biến, kiểm dữ liệu mẫu, patch bản vẽ.
+- Corpus FBISP24: 1528 biến; ba chế độ không lệch phần tử; điền đủ khung → không còn chip nào.
+
 ### Thêm — Email Designer: chèn component, xoá, di chuyển, kéo thả
 
 - **Palette** bên trái: Chữ, Tiêu đề, Ảnh, Liên kết, Nút, Đường kẻ, Khoảng trống, Khung chứa, Phần,

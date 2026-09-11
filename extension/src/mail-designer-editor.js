@@ -40,6 +40,15 @@ const NOT_MAIL = 'Email Designer chỉ mở file khai <message xmlns="urn:schema
  */
 const lastSelection = new Map();
 
+/** Chế độ hiện biến (`PREVIEW_MODES`) gần nhất THEO FILE — sống suốt phiên. */
+const lastPreview = new Map();
+
+/**
+ * Dữ liệu mẫu khi không có `workspaceState` (chạy test). Bản thật sống ở workspace state của VS Code:
+ * theo workspace, không vào repo, và TUYỆT ĐỐI không vào Message.xml — dữ liệu mẫu chỉ để xem.
+ */
+const memorySamples = new Map();
+
 /**
  * Shell riêng: KHÔNG nạp CSS form FBO (base pack, CSS program) như `render-host.js#shellHtml` — mẫu
  * mail tự mang `<style>` của nó và vẽ trong iframe cô lập. CSP: script chỉ theo nonce; ảnh
@@ -80,13 +89,15 @@ function liveReadFile(core) {
 const warn = (reason) => vscode.window.showWarningMessage(`FBO Designer: ${reason}`);
 
 class MailDesignSession {
-  constructor(core, output, document, panel) {
+  constructor(core, output, document, panel, store = null) {
     this.core = core;
     this.output = output;
     this.document = document;
     this.panel = panel;
+    this.store = store && typeof store.get === 'function' && typeof store.update === 'function' ? store : null;
     this.key = document.uri.fsPath.toLowerCase();
     this.selection = lastSelection.get(this.key) ?? { actionId: null, body: null, lang: 'vi' };
+    this.previewMode = lastPreview.get(this.key) ?? 'label';
     this.rev = 0;
     this.rendered = null;       // { rev, fingerprints: Map<id, fingerprint> } của lần vẽ gần nhất
     this.sourceFiles = [];      // mọi file góp nội dung vào lần vẽ gần nhất (Message.xml + Include)
@@ -156,19 +167,30 @@ class MailDesignSession {
     const selectId = this.selectAfter;
     this.selectAfter = null;
     const labels = this.core.mailActionLabels(expanded.clearText, view.actionId);
+    const variables = this.core.mailVariables(view, index, labels);
+    const sampleText = this.readSampleText(view.actionId);
+    const parsedSample = this.core.parseMailSample(sampleText);
     this.post({
       type: 'render',
       rev: this.rev,
       file: path.basename(this.document.uri.fsPath),
       template: { ...this.selection },
       actions: actions.map((a) => ({ id: a.id, label: a.v || a.e || a.id, bodies: a.bodies })),
-      html: this.core.renderMailDesign(view, index, { labels, vi: this.selection.lang !== 'en' }),
+      html: this.core.renderMailDesign(view, index, {
+        labels,
+        vi: this.selection.lang !== 'en',
+        mode: this.previewMode,
+        sample: parsedSample.ok ? parsedSample.data : null,
+      }),
       elements: this.core.wireMailElements(view, index),
       // Danh sách thuộc tính cho sửa đi KÈM bản vẽ — webview không chép lại whitelist của hợp đồng.
       styleProperties: this.core.STYLE_PROPERTIES,
       componentPanels: this.core.COMPONENT_PANELS,
       attributeEnums: this.core.ATTRIBUTE_ENUMS,
       components: this.core.INSERTABLE_COMPONENTS,
+      preview: { mode: this.previewMode },
+      variables,
+      sample: { text: sampleText, skeleton: JSON.stringify(this.core.sampleSkeleton(variables), null, 2) },
       selectId,
       warnings: index.warnings,
     });
@@ -176,6 +198,46 @@ class MailDesignSession {
 
   post(msg) {
     Promise.resolve(this.panel.webview.postMessage(msg)).catch(() => {});
+  }
+
+  /** Khoá dữ liệu mẫu: theo FILE × ACTION — mỗi mẫu mail có bộ cột dữ liệu riêng. */
+  sampleKey(actionId) {
+    return `fboDesigner.mailSample:${this.key}:${actionId}`;
+  }
+
+  readSampleText(actionId) {
+    const key = this.sampleKey(actionId);
+    const value = this.store ? this.store.get(key) : memorySamples.get(key);
+    return typeof value === 'string' ? value : '';
+  }
+
+  async writeSampleText(actionId, text) {
+    const key = this.sampleKey(actionId);
+    if (this.store) await this.store.update(key, text === '' ? undefined : text);
+    else if (text === '') memorySamples.delete(key);
+    else memorySamples.set(key, text);
+  }
+
+  /**
+   * Dữ liệu mẫu người dùng gõ: kiểm hình dạng ở core, lưu dạng JSON đã chuẩn hoá, bật chế độ xem dữ liệu
+   * mẫu và vẽ lại. Sai thì trả lý do về webview (không toast — người dùng đang nhìn đúng ô nhập ấy).
+   */
+  async applySample(text) {
+    const parsed = this.core.parseMailSample(text);
+    if (!parsed.ok) {
+      this.post({ type: 'sampleError', reason: parsed.reason });
+      return false;
+    }
+    const { actionId } = this.selection;
+    if (!actionId) return false;
+    const normalized = Object.keys(parsed.data).length === 0 ? '' : JSON.stringify(parsed.data, null, 2);
+    await this.writeSampleText(actionId, normalized);
+    if (normalized !== '') {
+      this.previewMode = 'sample';
+      lastPreview.set(this.key, 'sample');
+    }
+    this.render();
+    return true;
   }
 
   /** Gộp các nhịp đổi văn bản dồn dập — xem `PreviewPanel.renderSoon`. */
@@ -223,6 +285,12 @@ class MailDesignSession {
         return this.render();
       case 'gotoSource':
         return this.revealSection(msg.section);
+      case 'setPreview':
+        this.previewMode = msg.mode;
+        lastPreview.set(this.key, msg.mode);
+        return this.render();
+      case 'setSampleData':
+        return this.applySample(msg.text);
       case 'select':
         return msg.reveal ? this.revealElement(msg) : undefined;
       case 'undo':
@@ -367,7 +435,7 @@ class MailDesignerProvider {
       localResourceRoots: [vscode.Uri.file(path.join(this.context.extensionUri.fsPath, 'media'))],
     };
     trackDesignerWebview(panel.webview, panel);
-    const session = new MailDesignSession(this.core, this.output, document, panel);
+    const session = new MailDesignSession(this.core, this.output, document, panel, this.context.workspaceState);
     panel.webview.html = mailShellHtml(this.context, panel.webview);
     return session;
   }
@@ -390,6 +458,8 @@ async function openMailDesigner(core) {
 /** Chỉ dùng cho test: mỗi kịch bản bắt đầu từ "chưa nhớ lựa chọn nào". */
 function resetForTests() {
   lastSelection.clear();
+  lastPreview.clear();
+  memorySamples.clear();
 }
 
 module.exports = {

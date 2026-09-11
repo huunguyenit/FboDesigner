@@ -115,8 +115,11 @@ export {
   DESIGN_ATTR, ELEMENT_ID_RE, formatElementId, parseElementId, elementFingerprint, MAIL_PARTS, ELEMENT_ROLES,
   roleOfTag, MAIL_OPS, STYLE_PROPERTIES, isStyleProperty, ATTRIBUTES, isAttributeAllowed, COMPONENT_KINDS,
   INSERT_POSITIONS, MOVE_DIRECTIONS, MAX_TEXT_LENGTH, isSafeCssValue, isSafeAttrValue, isSafeUrl, validateMailMessage,
-  ATTRIBUTE_ENUMS, isValidAttrValue,
+  ATTRIBUTE_ENUMS, isValidAttrValue, PREVIEW_MODES, MAX_SAMPLE_LENGTH,
 } from './mail-design-contract.mjs';
+export {
+  scanMailTokens, mailVariables, parseMailSample, formatSampleScalar, sampleValueOf, sampleSkeleton, tokenPatches,
+} from './mail-variables.mjs';
 export {
   COMPONENT_PANELS, componentKindOf, componentHtml, INSERTABLE_COMPONENTS,
 } from './mail-components.mjs';

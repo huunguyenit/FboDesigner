@@ -79,6 +79,14 @@ body.md-dragging, body.md-dragging * { cursor: grabbing !important; }
 .md-insert-row select, #md-wrap-href { flex: 1; min-width: 0; }
 .md-row[hidden] { display: none; }
 
+.md-vars { display: flex; flex-direction: column; gap: 1px; }
+.md-var { display: flex; gap: 6px; align-items: baseline; min-width: 0; padding: 2px 4px; border: 0; text-align: left; }
+.md-var code { color: var(--vscode-textLink-foreground, #0a63c2); white-space: nowrap; }
+.md-var span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9em; opacity: 0.75; }
+.md-var-label code { color: var(--vscode-descriptionForeground, #777777); }
+details.md-group summary { margin-bottom: 6px; cursor: pointer; font-size: 0.9em; opacity: 0.8; }
+#md-sample { width: 100%; box-sizing: border-box; resize: vertical; font-family: var(--vscode-editor-font-family, monospace); }
+
 .md-canvas {
   flex: 1 1 auto;
   min-width: 0;

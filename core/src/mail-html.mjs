@@ -17,7 +17,8 @@
 // HTML của mail thật (đo trên FBISP24: 1874 phần tử, 58 thuộc tính không nháy, 4 `<p>` đóng
 // ngầm). Chỗ nào không chắc thì ghi lý do vào `caps` và designer TỪ CHỐI, không đoán.
 
-import { locateMailText, substituteFieldTokens } from './mail-template.mjs';
+import { locateMailText } from './mail-template.mjs';
+import { tokenPatches } from './mail-variables.mjs';
 import { segmentAt } from './entities.mjs';
 import { decodeXmlText } from './render.mjs';
 import {
@@ -507,10 +508,13 @@ function dangerousUrl(value) {
 }
 
 /**
- * HTML gửi sang webview: BẢN SAO đã làm sạch, mỗi phần tử mang `data-fbo-el`, `{!h_…}` thay bằng
- * nhãn như «Xem mail». Nguồn không bị đụng — mọi thay đổi ở đây chỉ sống trong chuỗi trả về.
+ * HTML gửi sang webview: BẢN SAO đã làm sạch, mỗi phần tử mang `data-fbo-el`, `{!tên}` hiện theo
+ * `mode` (`mail-variables.mjs#tokenPatches`): nhãn / chip / dữ liệu mẫu. Nguồn không bị đụng — mọi
+ * thay đổi ở đây chỉ sống trong chuỗi trả về.
  */
-export function renderMailDesign(view, index, { labels = new Map(), vi = true } = {}) {
+export function renderMailDesign(view, index, {
+  labels = new Map(), vi = true, mode = 'label', sample = null,
+} = {}) {
   const { html } = view;
   const patches = [];
   const dropped = [];
@@ -542,11 +546,23 @@ export function renderMailDesign(view, index, { labels = new Map(), vi = true } 
 
   const inside = (p) => dropped.some(([s, e]) => p.start >= s && p.end <= e && !(p.start === s && p.end === e));
   const live = patches.filter((p) => !inside(p));
+
+  // Token đi SAU làm sạch: bỏ token nằm trong dải đã bị gỡ/thay (phần tử bị bỏ, `on*`, URL chạy mã)
+  // — patch chồng lên nhau là cắt nát chuỗi.
+  const blocked = live.filter((p) => p.end > p.start);
+  for (const t of tokenPatches(view, index, {
+    labels, vi, mode, sample,
+  })) {
+    if (dropped.some(([s, e]) => t.start >= s && t.end <= e)) continue;
+    if (blocked.some((b) => t.start >= b.start && t.end <= b.end)) continue;
+    live.push(t);
+  }
+
   // Áp từ CUỐI lên đầu; cùng điểm bắt đầu thì phép CHÈN (rỗng) đi trước phép xoá kết thúc tại đó.
   live.sort((a, b) => (b.start - a.start) || ((a.end - a.start) - (b.end - b.start)));
   let out = html;
   for (const p of live) out = out.slice(0, p.start) + p.text + out.slice(p.end);
-  return substituteFieldTokens(out, labels, vi);
+  return out;
 }
 
 /** Phần tử theo hình dạng `MailElementWire` — không một mốc toạ độ nào đi sang webview. */

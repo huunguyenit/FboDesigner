@@ -318,6 +318,43 @@ section('email designer — xoá / chèn / di chuyển (Phase 5)');
   ok('không có anh em phía trên → cảnh báo, không ghi', fakeEditHost.calls.length === 4 && fakeVscode.window.asked.warning.some((w) => w.includes('phía trên')));
 }
 
+section('email designer — biến và dữ liệu mẫu (Phase 6)');
+{
+  reset();
+  const t = await open();
+  await t.send({ type: 'ready' });
+  const r = t.last();
+  eq('mặc định hiện nhãn', r.preview.mode, 'label');
+  eq('danh sách biến theo thứ tự xuất hiện', r.variables.map((v) => [v.name, v.kind]), [['ten_kh', 'data'], ['h_so_ct', 'label']]);
+  ok('biến dữ liệu hiện thành chip', r.html.includes('data-fbo-var="ten_kh"'));
+  const skeleton = JSON.parse(r.sample.skeleton);
+  ok('khung dữ liệu mẫu chỉ gồm biến dữ liệu', skeleton.ten_kh === '' && !('h_so_ct' in skeleton));
+
+  await t.send({ type: 'setPreview', mode: 'token' });
+  ok('chế độ token: cả nhãn cũng thành chip', t.last().preview.mode === 'token' && t.last().html.includes('data-fbo-var="h_so_ct"'));
+
+  const count = t.renders().length;
+  await t.send({ type: 'setSampleData', text: '{ "ten_kh": 5 ' });
+  const err = t.panel.webview.posted.at(-1);
+  ok('JSON hỏng → sampleError kèm lý do, không vẽ lại', err.type === 'sampleError' && err.reason.includes('JSON') && t.renders().length === count);
+
+  await t.send({ type: 'setSampleData', text: '{"ten_kh":"Nguyễn Văn <A>"}' });
+  const s = t.last();
+  eq('JSON đúng → chuyển sang xem dữ liệu mẫu', s.preview.mode, 'sample');
+  ok('giá trị mẫu thay vào chữ, đã escape', s.html.includes('Xin chào Nguyễn Văn &lt;A&gt;'));
+  ok('lưu dạng JSON đã chuẩn hoá', s.sample.text.includes('"ten_kh": "Nguyễn Văn <A>"'));
+  eq('dữ liệu mẫu không đi qua phép ghi nào', fakeEditHost.calls.length, 0);
+  t.panel.dispose();
+
+  const again = await open();
+  await again.send({ type: 'ready' });
+  ok('mở lại cùng file → nhớ chế độ và dữ liệu mẫu', again.last().preview.mode === 'sample' && again.last().html.includes('Nguyễn Văn &lt;A&gt;'));
+  await again.send({ type: 'setSampleData', text: '' });
+  ok('xoá dữ liệu mẫu → biến trở lại chip', again.last().sample.text === '' && again.last().html.includes('data-fbo-var="ten_kh"'));
+  await again.send({ type: 'setPreview', mode: 'bogus' });
+  ok('mode lạ bị bỏ ở cửa vào', output.lines.some((l) => l.includes('setPreview')));
+}
+
 section('email designer — đổi biến thể, nhớ lựa chọn theo file');
 {
   reset();

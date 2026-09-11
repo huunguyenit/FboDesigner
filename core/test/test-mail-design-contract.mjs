@@ -8,7 +8,7 @@ import { section, eq, ok } from './harness.mjs';
 import {
   DESIGN_ATTR, formatElementId, parseElementId, elementFingerprint, roleOfTag, MAIL_OPS,
   MAIL_PARTS, isAttributeAllowed, isSafeCssValue, isSafeUrl, validateMailMessage, MAX_TEXT_LENGTH,
-  isValidAttrValue, ATTRIBUTE_ENUMS, isStyleProperty,
+  isValidAttrValue, ATTRIBUTE_ENUMS, isStyleProperty, PREVIEW_MODES, MAX_SAMPLE_LENGTH,
 } from '../src/mail-design-contract.mjs';
 
 const edit = (fields) => validateMailMessage({ type: 'edit', rev: 1, elementId: 'e3', ...fields });
@@ -152,6 +152,15 @@ ok('insert __proto__ bị chặn', !edit({ op: 'insertComponent', position: 'aft
 ok('resizeColumn width 9 bị chặn', !validateMailMessage({ type: 'edit', op: 'resizeColumn', rev: 2, columnIndex: 0, width: 9 }).ok);
 ok('addRow ở detail bị chặn', !validateMailMessage({ type: 'edit', op: 'addRow', rev: 2, part: 'detail', rowIndex: 0 }).ok);
 ok('addRow ở footer', validateMailMessage({ type: 'edit', op: 'addRow', rev: 2, part: 'footer', rowIndex: 0 }).ok);
+
+section('mail contract — chế độ biến và dữ liệu mẫu (Phase 6)');
+
+eq('ba chế độ hiện biến', PREVIEW_MODES, ['label', 'token', 'sample']);
+eq('setPreview: chỉ giữ mode', validateMailMessage({ type: 'setPreview', mode: 'token', html: '<x>' }), { ok: true, message: { type: 'setPreview', mode: 'token' } });
+ok('setPreview: mode lạ bị chặn', !validateMailMessage({ type: 'setPreview', mode: 'raw' }).ok);
+eq('setSampleData: chỉ giữ text', validateMailMessage({ type: 'setSampleData', text: '{}', file: 'C:/x' }).message, { type: 'setSampleData', text: '{}' });
+ok('setSampleData: không phải chuỗi bị chặn', !validateMailMessage({ type: 'setSampleData', text: { so_ct: 1 } }).ok);
+ok('setSampleData: quá dài bị chặn', !validateMailMessage({ type: 'setSampleData', text: 'x'.repeat(MAX_SAMPLE_LENGTH + 1) }).ok);
 
 section('mail contract — thuộc tính kiểm theo kiểu (Phase 4)');
 

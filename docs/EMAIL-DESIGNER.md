@@ -1,6 +1,6 @@
 # Email Designer — Phase 0 (baseline) và Phase 2 (kiến trúc)
 
-> Trạng thái: **Phase 0 · 2 · 3 (MVP) · 4 (Component) · 5 (Thêm/xoá/di chuyển) xong** — xem các mục cuối file. Ghi ngày
+> Trạng thái: **Phase 0 · 2 · 3 (MVP) · 4 (Component) · 5 (Thêm/xoá/di chuyển) · 6 (Biến) xong** — xem các mục cuối file. Ghi ngày
 > 2026-09-11. Hợp đồng dạng mã: [`core/src/mail-design-contract.mjs`](../core/src/mail-design-contract.mjs),
 > test: [`core/test/test-mail-design-contract.mjs`](../core/test/test-mail-design-contract.mjs).
 
@@ -643,3 +643,77 @@ Caps mới do core tính, webview chỉ đọc: `caps.removeElement`/`moveElemen
 - Mảnh chèn và phần tử di chuyển không tự xuống dòng/thụt lề — XML nguồn nối liền trên dòng đích.
 - Ảnh mới chèn có `src=""` — đặt ảnh ở ô `src`.
 - Chưa chạy trong VS Code thật: phím Delete qua keybinding, kéo thả HTML5 trong webview thật.
+
+Commit: **`0f8a00b`** trên `feat/email-designer` (kiểm trong worktree tạm: core 2375/2375, extension 365/365).
+
+---
+
+## Phase 6 — Biến và dữ liệu mẫu
+
+### Đã làm
+
+**Ba chế độ hiện biến** (thanh công cụ «Biến: …») — CHỈ đổi bản vẽ, nguồn giữ nguyên `{!tên}`:
+
+| Chế độ | `{!h_so_ct}` (khai trong `<fields>`) | `{!so_ct}` (dữ liệu lúc gửi) |
+| --- | --- | --- |
+| nhãn (mặc định) | chữ «Số phiếu» — như runtime | chip `{!so_ct}` |
+| `{!tên}` | chip `{!h_so_ct}` | chip `{!so_ct}` |
+| dữ liệu mẫu | chữ «Số phiếu» | giá trị mẫu; thiếu thì chip, ghi rõ «chưa có trong dữ liệu mẫu» |
+
+- **Chip** là `<span data-fbo-var>` style inline, KHÔNG mang `data-fbo-el` — bấm chip là chọn phần tử
+  chứa nó; rê chuột thấy nhãn hoặc nguồn của biến.
+- **Theo ngữ cảnh** (`scanMailTokens`): token trong chữ → chip hoặc chữ đã escape; trong thuộc tính
+  (`href="{!alink}&n=1"`, `style="display:{!slink}"`) → chỉ chữ đã escape, không bao giờ chip; trong
+  `<style>`/`<title>` → chỉ chữ không mang `<>`. Token nằm trong phần bị gỡ khi làm sạch (`on*`, URL chạy
+  mã) bị bỏ qua.
+- **«Biến trong mẫu»**: mọi biến của (action, body) đang vẽ — nhãn hay dữ liệu, bao nhiêu lần, ở chữ hay
+  thuộc tính. Bấm để chèn `{!tên}` vào ô đang soạn: Chữ, `href`, `src`, `alt`, `title` (không `width`/
+  `height` — bộ kiểm theo kiểu chặn token ở đó). Ghi vẫn đi qua «Ghi chữ» / `setAttr` → một mục hoàn tác.
+- **Dữ liệu mẫu**: JSON `{ "so_ct": "PN0001", "t_tien": 12500000, "detail": [ { "ma_vt": "VT01" } ] }`.
+  «Tạo khung từ biến» ghép mọi biến dữ liệu còn thiếu, giữ giá trị đã gõ; «Áp dụng & xem» lưu và
+  chuyển sang chế độ dữ liệu mẫu; JSON sai → lý do hiện ngay dưới ô, bản vẽ mới không đè lên chữ đang gõ.
+- `core/src/mail-variables.mjs` — `scanMailTokens`, `mailVariables`, `parseMailSample`, `formatSampleScalar`,
+  `sampleValueOf`, `sampleSkeleton`, `tokenPatches`. Hợp đồng: `PREVIEW_MODES`, `setPreview`,
+  `setSampleData`, `sampleError`.
+
+### Quyết định
+
+1. **Dữ liệu mẫu sống ở `workspaceState`** của VS Code, theo file × action — không vào Message.xml, và
+   không thành file cạnh nó (một file lạ trong `Options\` là thứ dễ theo bản triển khai sang máy khách).
+2. **Object phẳng**: tên biến FBO là `\w+`, không có đường dẫn `a.b`.
+3. **Dòng lặp `<detail>`** đọc `detail[0]`: bản vẽ designer chỉ có một dòng mẫu — nhân dòng là nhân id
+   phần tử, khung chọn không còn biết trỏ vào bản nào. Xem nhiều dòng thuộc bản xem trước (Phase 8).
+4. **Nhãn thắng dữ liệu mẫu trùng tên** — runtime cũng thay `<fields>` trước.
+5. **Số hiện có phân nhóm nghìn** (`12500000` → `12,500,000`): mail không mang mặt nạ định dạng field như
+   Dir/Grid, nên đây là quy ước của bản xem.
+6. **Chèn biến là việc của ô soạn**, không phải một phép sửa mới. Component `variable` vẫn không có bộ
+   sinh: biến luôn nằm trong chữ hoặc thuộc tính của một phần tử khác.
+7. Chèn biến lấy ô ĐANG focus trước, rồi ô focus gần nhất — không dựa riêng vào sự kiện `focusin` (khung
+   webview chưa có focus hệ thống thì sự kiện không nổ; đo được khi kiểm trong trình duyệt).
+8. Không làm engine điều kiện/bảng động: mail FBO dùng `display:{!slink}` và `<detail>` cho việc đó — cả hai
+   đã hiện dưới dạng biến dữ liệu.
+
+### Kiểm chứng
+
+- `node core/test/run.mjs` **2426/2426** · `node extension/test/run.mjs` **378/378**.
+- `core/test/test-mail-variables.mjs`: ngữ cảnh chữ/thuộc tính/raw; nhãn vs dữ liệu; từ chối JSON sai
+  kèm lý do (JSON hỏng, mảng, giá trị lồng, tên sai, detail sai hình dạng, quá số dòng); định dạng số;
+  `detail[0]`; khung; ba chế độ (số dấu phần tử không đổi); giá trị mẫu không thoát khỏi thuộc tính;
+  `<title>`; token trong `onclick` bị gỡ không làm vỡ patch; nguồn giữ nguyên. Host: `setPreview`, JSON hỏng
+  → `sampleError` không vẽ lại, JSON đúng → chuyển chế độ + escape, không một phép ghi nào, nhớ chế độ và
+  dữ liệu khi mở lại, xoá dữ liệu mẫu.
+- Corpus FBISP24 (39 biến thể): 1528 biến (546 nhãn, 982 dữ liệu; 1273 trong chữ, 255 trong thuộc tính);
+  ba chế độ không lệch số dấu `data-fbo-el` ở biến thể nào; chế độ nhãn 737 chip; điền đủ khung dữ liệu
+  mẫu → 0 chip còn lại.
+- Webview trong trình duyệt: danh sách 8 biến (nhãn/dữ liệu, part), 4 chip dữ liệu trong bản vẽ, bấm chip
+  chọn `<h2>` chứa nó, đổi chế độ gửi `setPreview`, «Tạo khung» giữ giá trị đã gõ và thêm `detail`,
+  «Áp dụng» gửi `setSampleData`, `sampleError` hiện lý do, bản vẽ mới không đè ô đang gõ dở; bấm biến
+  chèn `{!so_ct}` vào ô Chữ đúng vị trí con trỏ (giữ focus) và `{!order_url}` vào đầu `href`, rồi gửi đúng
+  `setText`/`setAttr`; ô `width` không nhận biến. Lần kiểm đầu lộ lỗi chèn khi khung chưa có focus hệ
+  thống — sửa bằng quyết định 7 ở trên, kiểm lại đạt.
+
+### Giới hạn
+
+- Không xem nhiều dòng `<detail>` cùng lúc.
+- Không lấy dữ liệu thật từ query của action — dữ liệu mẫu nhập tay.
+- Chưa chạy trong VS Code thật.

@@ -114,6 +114,7 @@ const CONTENT = [
   ['core/src/mail-edit.mjs', 'extension/core/mail-edit.mjs'],
   ['core/src/mail-components.mjs', 'extension/core/mail-components.mjs'],
   ['core/src/mail-structure.mjs', 'extension/core/mail-structure.mjs'],
+  ['core/src/mail-variables.mjs', 'extension/core/mail-variables.mjs'],
 ];
 
 // Danh sách khai tay ở trên là chỗ dễ quên nhất khi thêm file mới: gói vẫn dựng xong, vẫn cài

@@ -222,6 +222,17 @@ export const INSERT_POSITIONS = Object.freeze(['before', 'after', 'append']);
 export const MOVE_DIRECTIONS = Object.freeze(['up', 'down']);
 
 export const MAX_TEXT_LENGTH = 4000;
+
+/**
+ * Cách bản vẽ hiện `{!tên}` (Phase 6) — CHỈ đổi bản vẽ, không bao giờ đổi nguồn:
+ *   label   nhãn khai trong `<fields>` (như runtime), biến dữ liệu hiện thành chip `{!tên}`
+ *   token   mọi biến hiện thành chip `{!tên}` — thấy nguyên cấu trúc biến của mẫu
+ *   sample  biến dữ liệu lấy từ dữ liệu mẫu người dùng nhập; thiếu thì vẫn là chip
+ */
+export const PREVIEW_MODES = Object.freeze(['label', 'token', 'sample']);
+
+/** Trần kích thước JSON dữ liệu mẫu gửi từ webview. */
+export const MAX_SAMPLE_LENGTH = 100000;
 const MAX_CSS_LENGTH = 200;
 const MAX_ATTR_LENGTH = 2000;
 
@@ -405,6 +416,17 @@ export function validateMailMessage(msg) {
         type: 'select', rev: msg.rev, elementId: msg.elementId, reveal: msg.reveal === true,
       });
 
+    case 'setPreview':
+      if (!PREVIEW_MODES.includes(msg.mode)) return bad('setPreview: mode phải là label | token | sample');
+      return ok({ type: 'setPreview', mode: msg.mode });
+
+    // Dữ liệu mẫu đi dạng CHUỖI — host tự parse và kiểm hình dạng (`mail-variables.mjs#parseMailSample`).
+    case 'setSampleData':
+      if (typeof msg.text !== 'string' || msg.text.length > MAX_SAMPLE_LENGTH) {
+        return bad(`setSampleData: text phải là chuỗi ≤ ${MAX_SAMPLE_LENGTH} ký tự`);
+      }
+      return ok({ type: 'setSampleData', text: msg.text });
+
     case 'edit':
       return validateEdit(msg);
 
@@ -467,6 +489,10 @@ export function validateMailMessage(msg) {
  * @property {Record<string, object>} componentPanels     = COMPONENT_PANELS (`mail-components.mjs`)
  * @property {Record<string, string[]>} attributeEnums    = ATTRIBUTE_ENUMS
  * @property {Array<{kind:string, label:string, group:string}>} components  = INSERTABLE_COMPONENTS
+ * @property {{mode:'label'|'token'|'sample'}} preview   cách bản vẽ đang hiện `{!tên}` (Phase 6)
+ * @property {Array<{name:string, kind:'label'|'data', label:{v:string,e:string}|null, count:number,
+ *            contexts:string[], parts:string[]}>} variables   biến có trong (action, body) đang vẽ
+ * @property {{text:string, skeleton:string}} sample     JSON dữ liệu mẫu đã lưu + khung rỗng dựng từ biến
  * @property {string|null} selectId             host chọn hộ sau một phép sửa (vd phần tử vừa di chuyển)
  * @property {string[]} warnings
  *

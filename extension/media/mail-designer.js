@@ -40,6 +40,10 @@
     componentPanels: {},
     attributeEnums: {},
     components: [],
+    variables: [],
+    skeleton: '{}',
+    lastField: null,      // ô chữ/thuộc tính nhận `{!tên}` được focus gần nhất
+    sampleDirty: false,   // ô dữ liệu mẫu đang gõ dở — bản vẽ mới không được đè lên
     selectedId: null,
     hoverId: null,
     templateKey: '',
@@ -56,6 +60,7 @@
     else if (msg.type === 'idle' || msg.type === 'error') showMessage(msg.message, msg.type === 'error');
     // Delete do host bắt (VS Code nuốt phím trước webview) — xem `designer-webview.js`.
     else if (msg.type === 'hotkey' && (msg.key === 'Delete' || msg.key === 'Del')) onDeleteHotkey();
+    else if (msg.type === 'sampleError') showSampleError(msg.reason);
   });
 
   /**
@@ -88,6 +93,14 @@
     state.attributeEnums = msg.attributeEnums || {};
     state.components = msg.components || [];
     renderPalette();
+    state.variables = msg.variables || [];
+    renderVariables();
+    $('md-preview').value = (msg.preview && msg.preview.mode) || 'label';
+    state.skeleton = (msg.sample && msg.sample.skeleton) || '{}';
+    if (!state.sampleDirty) {
+      $('md-sample').value = (msg.sample && msg.sample.text) || '';
+      $('md-sample-error').hidden = true;
+    }
     $('md-file').textContent = msg.file || '';
 
     const key = `${msg.template.actionId}::${msg.template.body}`;
@@ -267,7 +280,7 @@
    * sự kiện cho một ý định. Esc trả lại giá trị cũ. `options` → ô chọn; `color` → kèm ô chọn màu.
    */
   function fieldRow({
-    label, value, disabled, title, options, color, onCommit,
+    label, value, disabled, title, options, color, onCommit, acceptsToken = false,
   }) {
     const row = document.createElement('div');
     row.className = 'md-style-row';
@@ -294,6 +307,7 @@
     input.value = value;
     input.disabled = !!disabled;
     if (title) input.title = title;
+    if (acceptsToken && !options) input.dataset.acceptsToken = '1';
 
     let sent = value;
     const commit = () => {
@@ -390,6 +404,8 @@
         title: lock || '',
         options: state.attributeEnums[name],
         color: name === 'bgcolor' || name === 'color',
+        // Chỉ thuộc tính mà bộ kiểm nhận `{!tên}` — width/height kiểm theo số, chèn token vào đó là bị chặn.
+        acceptsToken: ['href', 'src', 'alt', 'title'].includes(name),
         onCommit: (next) => post({
           type: 'edit', op: 'setAttr', rev: state.rev, elementId: target.id, name, value: next,
         }),
@@ -618,6 +634,97 @@
       });
     }
   });
+
+  // ─── Biến và dữ liệu mẫu (Phase 6) ──────────────────────────────────────────────────────────
+  //
+  // Chế độ hiện biến và dữ liệu mẫu chỉ đổi BẢN VẼ — host vẽ lại, không có phép sửa nào đi ra.
+  // Chèn biến là việc của ô đang soạn: nó chỉ gõ `{!tên}` vào ô, ghi vẫn đi qua «Ghi chữ»/setAttr.
+
+  function renderVariables() {
+    const box = $('md-vars');
+    box.textContent = '';
+    $('md-vars-count').textContent = state.variables.length ? `(${state.variables.length})` : '';
+    if (state.variables.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'md-hint';
+      empty.textContent = 'Mẫu này chưa có biến {!tên} nào.';
+      box.appendChild(empty);
+      return;
+    }
+    for (const v of state.variables) {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = `md-var md-var-${v.kind}`;
+      const code = document.createElement('code');
+      code.textContent = `{!${v.name}}`;
+      const info = document.createElement('span');
+      info.textContent = v.label ? (v.label.v || v.label.e) : `dữ liệu · ${v.parts.join('/')}`;
+      item.append(code, info);
+      item.title = `${v.kind === 'label' ? 'Nhãn khai trong <fields>' : 'Dữ liệu lúc gửi (cột của câu query)'} · ${v.count} lần · ${v.contexts.join(', ')}`;
+      // mousedown không lấy focus → ô đang soạn giữ nguyên con trỏ và vùng chọn.
+      item.addEventListener('mousedown', (e) => e.preventDefault());
+      item.addEventListener('click', () => insertToken(v.name));
+      box.appendChild(item);
+    }
+  }
+
+  const acceptsToken = (node) => (node instanceof HTMLTextAreaElement || node instanceof HTMLInputElement) && node.dataset.acceptsToken === '1';
+
+  document.addEventListener('focusin', (e) => {
+    if (acceptsToken(e.target)) state.lastField = e.target;
+  });
+
+  /**
+   * Ô nhận `{!tên}`: ô ĐANG focus trước (nút biến chặn mousedown nên focus không rời ô), rồi mới tới ô
+   * focus gần nhất (người dùng Tab sang nút biến). Không dựa riêng vào `focusin`: khi khung webview
+   * chưa có focus hệ thống, trình duyệt không bắn sự kiện focus dù `activeElement` đã đổi.
+   */
+  function insertToken(name) {
+    const field = acceptsToken(document.activeElement) ? document.activeElement : state.lastField;
+    if (!field || !field.isConnected || field.disabled) {
+      showMessageBriefly('Đặt con trỏ vào ô Chữ (hoặc href/src/alt/title) của phần tử đang chọn, rồi bấm biến để chèn.');
+      return;
+    }
+    const start = field.selectionStart ?? field.value.length;
+    const end = field.selectionEnd ?? start;
+    field.setRangeText(`{!${name}}`, start, end, 'end');
+    field.focus();
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  $('md-preview').addEventListener('change', (e) => post({ type: 'setPreview', mode: e.target.value }));
+
+  const sampleArea = $('md-sample');
+  sampleArea.addEventListener('input', () => { state.sampleDirty = true; });
+  $('md-sample-apply').addEventListener('click', () => {
+    state.sampleDirty = false;
+    post({ type: 'setSampleData', text: sampleArea.value });
+  });
+  $('md-sample-skeleton').addEventListener('click', () => {
+    let current = {};
+    try {
+      current = sampleArea.value.trim() ? JSON.parse(sampleArea.value) : {};
+    } catch {
+      showSampleError('JSON đang gõ không hợp lệ — sửa trước rồi mới ghép khung được.');
+      return;
+    }
+    const skeleton = JSON.parse(state.skeleton || '{}');
+    const merged = { ...skeleton, ...current };
+    if (Array.isArray(skeleton.detail)) {
+      const rows = Array.isArray(current.detail) && current.detail.length ? current.detail : skeleton.detail;
+      merged.detail = rows.map((row) => ({ ...skeleton.detail[0], ...row }));
+    }
+    sampleArea.value = JSON.stringify(merged, null, 2);
+    state.sampleDirty = true;
+  });
+
+  function showSampleError(reason) {
+    const node = $('md-sample-error');
+    node.hidden = false;
+    node.textContent = reason;
+    $('md-sample-group').open = true;
+    state.sampleDirty = true;
+  }
 
   function applyText() {
     const el = state.selectedId ? state.elements.get(state.selectedId) : null;
