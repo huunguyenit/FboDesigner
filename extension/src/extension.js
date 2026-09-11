@@ -16,6 +16,7 @@ const { declareFilter } = require('./filter-host');
 const { addColumns } = require('./add-column-host');
 const { previewData } = require('./sample-host');
 const { viewMail } = require('./mail-preview-host');
+const { MailDesignerProvider, openMailDesigner } = require('./mail-designer-editor');
 const { initDialogs } = require('./dialog/dialog-service');
 const { postToActiveDesigner } = require('./designer-webview');
 const { toast } = require('./locale');
@@ -60,6 +61,8 @@ async function activate(context) {
   const dialogService = initDialogs(context);
 
   context.subscriptions.push(FboDesignerProvider.register(context, core, output));
+  // Email Designer cho Options/Message.xml — cùng khuôn custom text editor, license kiểm bên trong.
+  context.subscriptions.push(MailDesignerProvider.register(context, core, output));
 
   /*
    * Ba provider chạy nền — không phải lệnh người ta chủ động bấm, nên không có lệnh nào gate
@@ -143,6 +146,13 @@ async function activate(context) {
     vscode.commands.registerCommand(
       'fboDesigner.viewMail',
       withLicense(context, () => viewMail(core, output)),
+    ),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'fboDesigner.openMailDesigner',
+      withLicense(context, () => openMailDesigner(core)),
     ),
   );
 

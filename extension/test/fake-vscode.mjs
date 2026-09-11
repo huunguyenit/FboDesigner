@@ -234,7 +234,20 @@ export const workspace = {
     return { get: (key) => workspace.settings[`${prefix}${key}`] };
   },
   onDidOpenTextDocument: () => ({ dispose() {} }),
-  onDidChangeTextDocument: () => ({ dispose() {} }),
+
+  /*
+   * GIỮ LẠI listener thay vì bỏ qua — Email Designer vẽ lại khi document (hoặc Include) đổi, và
+   * không có điểm quan sát này thì không kiểm được «đổi một lần → vẽ đúng một lần». Test bắn sự
+   * kiện qua `fireDidChangeTextDocument`; test nào không bắn thì listener chỉ nằm im.
+   */
+  changeListeners: [],
+  onDidChangeTextDocument(fn) {
+    workspace.changeListeners.push(fn);
+    return { dispose() { workspace.changeListeners = workspace.changeListeners.filter((f) => f !== fn); } };
+  },
+  fireDidChangeTextDocument(e) {
+    for (const fn of [...workspace.changeListeners]) fn(e);
+  },
   onDidSaveTextDocument: () => ({ dispose() {} }),
   onDidCloseTextDocument: () => ({ dispose() {} }),
   onDidChangeConfiguration: () => ({ dispose() {} }),
@@ -426,6 +439,13 @@ export const window = {
     },
   },
 
+  /** Custom editor đã đăng ký — test đọc provider + tuỳ chọn đăng ký ra để kiểm. */
+  customEditors: new Map(),
+  registerCustomEditorProvider(viewType, provider, options) {
+    window.customEditors.set(viewType, { provider, options });
+    return { dispose() { window.customEditors.delete(viewType); } };
+  },
+
   panels: [],
   createWebviewPanel(viewType, title, showOptions, options) {
     const panel = {
@@ -443,6 +463,17 @@ export const window = {
        */
       webview: {
         html: '',
+        options: {},
+        cspSource: 'vscode-webview://fake',
+        /** Host → webview: GIỮ LẠI mọi tin gửi đi — điểm quan sát của Email Designer (`render`, `idle`…). */
+        posted: [],
+        postMessage(msg) {
+          panel.webview.posted.push(msg);
+          return Promise.resolve(true);
+        },
+        asWebviewUri(uri) {
+          return uri;
+        },
         messageHandler: null,
         onDidReceiveMessage(fn) {
           this.messageHandler = fn;

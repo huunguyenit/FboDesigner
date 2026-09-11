@@ -1,0 +1,55 @@
+<!-- mail-shell.html — thân webview của Email Designer (`extension/src/mail-designer-editor.js`).
+     Script: `mail-designer.js`. Mẫu mail vẽ trong iframe sandbox KHÔNG script; mọi thao tác chuột
+     bắt ở lớp `#md-hit` của trang cha rồi hỏi DOM con bằng `elementFromPoint`. -->
+<header class="md-bar">
+  <span class="md-file" id="md-file">—</span>
+  <div class="md-combo" id="md-combo">
+    <input id="md-action" type="text" autocomplete="off" spellcheck="false" placeholder="Mẫu mail — gõ để tìm theo tên hoặc id…" title="Mẫu mail">
+    <div id="md-action-list" class="md-combo-list" hidden></div>
+  </div>
+  <select id="md-body" title="Biến thể thân thư"></select>
+  <button type="button" id="md-lang" title="Nhãn field theo ngôn ngữ">Nhãn: VI</button>
+  <span class="md-spacer"></span>
+  <button type="button" id="md-undo" title="Hoàn tác (Ctrl+Z)">Hoàn tác</button>
+  <button type="button" id="md-redo" title="Làm lại (Ctrl+Y)">Làm lại</button>
+  <select id="md-goto" title="Mở XML của part">
+    <option value="">Đi tới XML…</option>
+    <option value="header">header</option>
+    <option value="detail">detail</option>
+    <option value="footer">footer</option>
+  </select>
+</header>
+<main class="md-main">
+  <section class="md-canvas">
+    <div class="md-frame-wrap" id="md-frame-wrap">
+      <iframe id="md-frame" sandbox="allow-same-origin" title="Mẫu mail"></iframe>
+      <div class="md-hit" id="md-hit">
+        <div class="md-box md-hover" id="md-hover" hidden><span class="md-tag"></span></div>
+        <div class="md-box md-selected" id="md-selected" hidden><span class="md-tag"></span></div>
+      </div>
+    </div>
+    <div class="md-message" id="md-message" hidden></div>
+  </section>
+  <aside class="md-props">
+    <p class="md-hint" id="md-props-empty">Bấm vào một phần tử trên mẫu mail để chọn. <b>Ctrl+click</b> hoặc <b>bấm đúp</b> để mở đúng chỗ trong XML.</p>
+    <div id="md-props-body" hidden>
+      <nav class="md-crumbs" id="md-crumbs"></nav>
+      <div class="md-el-head"><code id="md-el-tag"></code> <span id="md-el-meta"></span></div>
+      <section class="md-group">
+        <h3>Chữ</h3>
+        <textarea id="md-text" rows="4" spellcheck="false"></textarea>
+        <div class="md-row">
+          <button type="button" id="md-text-apply">Ghi chữ</button>
+          <span class="md-note">Ctrl+Enter · <code>{!token}</code> giữ nguyên</span>
+        </div>
+        <p class="md-reason" id="md-text-reason" hidden></p>
+      </section>
+      <section class="md-group">
+        <h3>Style inline</h3>
+        <p class="md-reason" id="md-style-reason" hidden></p>
+        <div id="md-style-fields"></div>
+      </section>
+    </div>
+  </aside>
+</main>
+<footer class="md-status" id="md-status"><b>Click</b> = chọn · <b>Ctrl+click</b> / <b>bấm đúp</b> = mở XML · <b>Esc</b> = bỏ chọn · <b>Ctrl+Z</b> / <b>Ctrl+Y</b> = hoàn tác / làm lại · lăn chuột = cuộn mẫu</footer>

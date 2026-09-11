@@ -36,6 +36,7 @@ await import('./test-sample-host.mjs');
 await import('./test-language-host.mjs');
 await import('./test-insight-host.mjs');
 await import('./test-mail-preview-host.mjs');
+await import('./test-mail-designer-editor.mjs');
 const { summary } = await import('../../core/test/harness.mjs');
 
 summary();

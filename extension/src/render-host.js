@@ -879,4 +879,8 @@ module.exports = {
   shellHtml,
   revealSource,
   samePath,
+  // Email Designer dựng shell riêng (không nạp CSS form FBO) nhưng phải cùng nonce + dấu phiên
+  // bản tài nguyên với shell này — xem `mail-designer-editor.js#mailShellHtml`.
+  nonce,
+  assetUri,
 };

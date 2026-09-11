@@ -60,6 +60,11 @@ const CONTENT = [
   ['extension/src/add-column-host.js', 'extension/src/add-column-host.js'],
   ['extension/src/sql-host.js', 'extension/src/sql-host.js'],
   ['extension/src/mail-preview-host.js', 'extension/src/mail-preview-host.js'],
+  ['extension/src/mail-apply.js', 'extension/src/mail-apply.js'],
+  ['extension/src/mail-designer-editor.js', 'extension/src/mail-designer-editor.js'],
+  ['extension/media/mail-designer.css', 'extension/media/mail-designer.css'],
+  ['extension/media/mail-designer.js', 'extension/media/mail-designer.js'],
+  ['extension/media/mail-shell.html', 'extension/media/mail-shell.html'],
   ['extension/src/locale.js', 'extension/src/locale.js'],
   ['extension/src/license/index.js', 'extension/src/license/index.js'],
   ['extension/src/license/public-key.js', 'extension/src/license/public-key.js'],
@@ -104,6 +109,9 @@ const CONTENT = [
   ['core/src/css-scope.mjs', 'extension/core/css-scope.mjs'],
   ['core/src/xml-comment.mjs', 'extension/core/xml-comment.mjs'],
   ['core/src/mail-template.mjs', 'extension/core/mail-template.mjs'],
+  ['core/src/mail-design-contract.mjs', 'extension/core/mail-design-contract.mjs'],
+  ['core/src/mail-html.mjs', 'extension/core/mail-html.mjs'],
+  ['core/src/mail-edit.mjs', 'extension/core/mail-edit.mjs'],
 ];
 
 // Danh sách khai tay ở trên là chỗ dễ quên nhất khi thêm file mới: gói vẫn dựng xong, vẫn cài

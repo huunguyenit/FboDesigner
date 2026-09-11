@@ -1,0 +1,138 @@
+/* mail-designer.css — khung của Email Designer. Không một luật nào ở đây chạm vào mẫu mail: mẫu
+ * vẽ trong iframe cô lập với CSS của chính nó, và lớp chọn/hover nằm ở trang cha, đè lên trên. */
+
+body {
+  margin: 0;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+button, select, input, textarea {
+  font: inherit;
+  color: var(--vscode-input-foreground, inherit);
+  background: var(--vscode-input-background, transparent);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 2px;
+  padding: 2px 6px;
+}
+button { cursor: pointer; background: var(--vscode-button-secondaryBackground, transparent); color: var(--vscode-button-secondaryForeground, inherit); }
+button:disabled, input:disabled, textarea:disabled { opacity: 0.5; cursor: default; }
+
+.md-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editorWidget-background);
+  flex: 0 0 auto;
+}
+.md-file { font-weight: 600; white-space: nowrap; }
+.md-spacer { flex: 1; }
+
+.md-combo { position: relative; }
+.md-combo input { width: 280px; }
+.md-combo-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  width: 380px;
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 2px;
+  background: var(--vscode-dropdown-background, var(--vscode-editorWidget-background));
+  border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.md-combo-list[hidden] { display: none; }
+.md-combo-item { padding: 4px 8px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.md-combo-item small { opacity: 0.65; margin-left: 6px; }
+.md-combo-item:hover, .md-combo-item.md-active { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+
+.md-main { flex: 1 1 auto; min-height: 0; display: flex; }
+
+.md-canvas {
+  flex: 1 1 auto;
+  min-width: 0;
+  position: relative;
+  background: var(--vscode-editorWidget-background);
+}
+.md-frame-wrap {
+  position: absolute;
+  inset: 12px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+#md-frame { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
+
+/* Lớp bắt chuột phủ đúng khung iframe. Hộp hover/chọn nằm TRONG nó, toạ độ theo khung nhìn iframe. */
+.md-hit { position: absolute; inset: 0; overflow: hidden; cursor: default; }
+.md-box { position: absolute; box-sizing: border-box; pointer-events: none; }
+.md-box[hidden] { display: none; }
+.md-hover { border: 1px dashed var(--vscode-focusBorder, #0a63c2); background: rgba(10, 99, 194, 0.04); }
+.md-selected { border: 2px solid var(--vscode-focusBorder, #0a63c2); }
+.md-tag {
+  position: absolute;
+  left: -2px;
+  top: -18px;
+  padding: 0 4px;
+  font: 11px/16px var(--vscode-font-family);
+  color: #fff;
+  background: var(--vscode-focusBorder, #0a63c2);
+  border-radius: 2px;
+  white-space: nowrap;
+}
+.md-hover .md-tag { opacity: 0.8; }
+.md-tag-inside .md-tag { top: 0; left: 0; }
+
+.md-message {
+  position: absolute;
+  inset: 12px;
+  padding: 16px;
+  background: var(--vscode-editor-background);
+  overflow: auto;
+}
+.md-message[hidden] { display: none; }
+.md-message.md-error { color: var(--vscode-errorForeground); }
+
+.md-props {
+  flex: 0 0 300px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-left: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+.md-hint { opacity: 0.8; }
+.md-crumbs { display: flex; flex-wrap: wrap; gap: 2px; margin-bottom: 6px; }
+.md-crumbs button { padding: 0 4px; font-size: 0.85em; border: 0; }
+.md-crumbs button.md-current { font-weight: 600; text-decoration: underline; }
+.md-el-head { margin-bottom: 8px; }
+.md-el-head span { opacity: 0.75; }
+.md-group { border-top: 1px solid var(--vscode-panel-border); padding: 6px 0 8px; }
+.md-group h3 { margin: 0 0 6px; font-size: 0.9em; text-transform: uppercase; opacity: 0.75; }
+.md-group textarea { width: 100%; box-sizing: border-box; resize: vertical; font-family: var(--vscode-editor-font-family, monospace); }
+.md-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.md-note { font-size: 0.85em; opacity: 0.7; }
+.md-reason { margin: 4px 0; font-size: 0.9em; color: var(--vscode-editorWarning-foreground); }
+.md-reason[hidden] { display: none; }
+
+.md-style-row { display: grid; grid-template-columns: 110px 1fr auto; gap: 4px; align-items: center; margin-bottom: 3px; }
+.md-style-row label { font-size: 0.9em; opacity: 0.85; overflow: hidden; text-overflow: ellipsis; }
+.md-style-row input[type="text"] { min-width: 0; }
+.md-style-row input[type="color"] { width: 26px; height: 22px; padding: 0; }
+.md-style-row.md-changed input[type="text"] { border-color: var(--vscode-focusBorder); }
+
+.md-status {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  font-size: 0.85em;
+  border-top: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editorWidget-background);
+  opacity: 0.85;
+}

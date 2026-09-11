@@ -4,6 +4,31 @@
 
 ## [Chưa phát hành]
 
+### Thêm — Email Designer cho `Options/Message.xml` (MVP)
+
+Mở mẫu mail bằng *Open With… → FBO Email Designer* hoặc lệnh **Mở Email Designer (Options/Message.xml)**:
+chọn mẫu/biến thể trên thanh công cụ, bấm phần tử trên bản xem để chọn, sửa **chữ** và **style
+inline** ở bảng thuộc tính. Ghi thẳng vào XML qua `applySplice`; Ctrl+Z trong designer lùi bằng
+chồng hoàn tác chung với designer form. Kiến trúc và số đo trên corpus: `docs/EMAIL-DESIGNER.md`.
+
+- `core/src/mail-design-contract.mjs` — hợp đồng webview ↔ host: vai trò phần tử, bảng op,
+  whitelist style/thuộc tính, `validateMailMessage` (bỏ mọi trường lạ — webview không gửi được toạ
+  độ nguồn), `isSafeCssValue`/`isSafeUrl`.
+- `core/src/mail-html.mjs` — dòng HTML ghép từ header/detail/footer theo MẢNH (`cdata` sửa được,
+  chữ do `&Entity;` bung ra thì chỉ đọc), tokenizer theo span, chỉ mục phần tử kèm `caps` (lý do khi
+  không sửa được), bản vẽ đã làm sạch (`script`/`on*`/URL `javascript:`/`data-fbo-*` giả) gắn
+  `data-fbo-el`, `mapMailEdits` quy edit về đúng file nguồn.
+- `core/src/mail-edit.mjs` — `planMailText` (HTML-escape, `{!token}` nguyên văn, giữ thụt lề),
+  `planMailStyle` (một khai báo trong `style="…"`, không bao giờ sửa class dùng chung).
+- `extension/src/mail-designer-editor.js` — custom text editor `fboDesigner.mail`: dựng lại từ văn
+  bản hiện tại mỗi lần sửa, so `rev` + dấu vân tay phần tử, vẽ lại một lần khi document/Include đổi.
+- `extension/src/mail-apply.js` — quy toạ độ và mở XML dùng chung với panel «Xem mail».
+- `extension/media/mail-designer.{js,css}`, `mail-shell.html` — mẫu vẽ trong iframe sandbox không
+  script; chọn/hover bắt ở lớp phủ trang cha qua `elementFromPoint`.
+- Chạy trên `FBISP24/…/Options/Message.xml`: 39 biến thể, 1874 phần tử, sửa khứ hồi chữ 68/68 và
+  style 68/68 (36 edit rơi vào file Include).
+- Chưa có: thuộc tính HTML (href/src…), thêm/xoá/di chuyển, biến và dữ liệu mẫu.
+
 ### Đổi — bỏ "tính năng ẩn" (dev mode), gỡ mục lục/F12/hover, chế độ soi bật/tắt qua cấu hình
 
 Ba tính năng dời sang extension XML khác đang đảm nhận: **mục lục** (`Ctrl+Shift+O`), **F12** /

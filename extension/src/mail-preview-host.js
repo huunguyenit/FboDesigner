@@ -3,7 +3,8 @@
 //
 // Panel này KHÔNG bám theo file đang mở như `preview-panel.js`: Message.xml không phải
 // Dir/Grid/Filter (`render-host.js#CONTROLLER_PATH` cố tình loại thư mục `Options\` ra), và mục
-// đích ở đây là XEM, không phải thiết kế. Không có kênh sửa nào giữa panel và file nguồn.
+// đích chính ở đây là XEM. Panel chỉ sửa CẤU TRÚC BẢNG (cột/dòng); sửa chữ và style từng phần tử
+// là việc của Email Designer (`mail-designer-editor.js`). Hai bên quy toạ độ chung ở `mail-apply.js`.
 //
 // Điều hướng (chọn mẫu, chọn biến thể, đổi ngôn ngữ, so sánh) chạy HẲN Ở PHÍA WEBVIEW, không
 // round-trip qua extension host: mọi bản HTML (action × body × ngôn ngữ) được dựng MỘT LẦN khi
@@ -18,6 +19,7 @@ const { toast } = require('./locale');
 const { cachedReadFile, samePath } = require('./render-host');
 const { dialogs } = require('./dialog/dialog-service');
 const { applySplice } = require('./edit-host');
+const { toSourcePlan, revealSpan } = require('./mail-apply');
 
 function nonce() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -658,27 +660,6 @@ let currentSource = null;
  * lại panel sau khi một thao tác sửa cấu trúc ghi thành công (`refreshPanelAfterEdit`). */
 let currentDocumentPath = null;
 
-/**
- * Mở (hoặc focus lại) đúng vị trí `[start,end)` của `file` trong một text editor.
- *
- * Ưu tiên editor ĐANG MỞ SẴN nhìn thấy được — không ép người dùng rời bố cục đang có; hết cách
- * mới mở file mới ở cột 1. Cùng tinh thần `render-host.js#revealIn`, viết lại gọn hơn vì ở đây
- * không có ngữ cảnh "file phụ" hay "alt-click" cần phân biệt.
- */
-async function revealSpan(file, start, end) {
-  const target = String(file).toLowerCase();
-  const visibleEditor = vscode.window.visibleTextEditors.find((e) => e.document.uri.fsPath.toLowerCase() === target);
-  const doc = visibleEditor ? visibleEditor.document : await vscode.workspace.openTextDocument(vscode.Uri.file(file));
-  const range = new vscode.Range(doc.positionAt(start), doc.positionAt(end));
-  const editor = await vscode.window.showTextDocument(doc, {
-    viewColumn: visibleEditor ? visibleEditor.viewColumn : vscode.ViewColumn.One,
-    preserveFocus: false,
-    preview: false,
-    selection: range,
-  });
-  editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
-}
-
 const GOTO_SECTIONS = new Set(['header', 'detail', 'footer']);
 
 /**
@@ -740,37 +721,21 @@ async function applyMailTablePlan(core, output, plan, description) {
   }
   if (!currentSource || !currentDocumentPath) return;
 
-  const sourceEdits = [];
-  for (const e of plan.edits) {
-    /*
-     * CHÈN (start === end) và THAY (start < end) phải quy về nguồn bằng HAI hàm khác nhau.
-     *
-     * `sourceRange` được viết cho việc REVEAL/CHỌN một dải chữ đã có (đi tới định nghĩa) — nó cố
-     * tình đệm tối thiểu 1 ký tự (`Math.max(to, from + 1)` trong entities.mjs) vì một dải rỗng
-     * không tô sáng được gì trên editor. Dùng nó cho một điểm CHÈN THUẦN TUÝ (như bản sao cột/
-     * dòng ở đây) là biến "chèn tại đây" thành "THAY 1 KÝ TỰ tại đây" — và ký tự bị thay chính là
-     * `<` của thẻ đứng ngay sau, một lỗi ĂN MẤT MỘT KÝ TỰ hoàn toàn im lặng (đo được thật khi thử
-     * `addColumn` trên file thật của HOATP: đẻ ra `td style=…` cụt mất dấu `<`). `mapToSource`
-     * không đệm gì cả — đúng thứ cần cho một điểm chèn.
-     */
-    const isInsert = e.start === e.end;
-    const src = isInsert
-      ? (() => {
-        const m = core.mapToSource(currentSource.segments, e.start);
-        return m ? { file: m.file, start: m.offset, end: m.offset } : null;
-      })()
-      : core.sourceRange(currentSource.segments, e.start, e.end);
-    if (!src) {
-      vscode.window.showErrorMessage('FBO Designer: không quy được vị trí sửa về file nguồn — huỷ thao tác.');
-      return;
-    }
-    sourceEdits.push({
-      file: src.file, start: src.start, end: src.end, text: e.text,
-    });
-  }
-
+  /*
+   * Quy về nguồn ở MỘT chỗ dùng chung với Email Designer (`mail-apply.js` → `core.mapMailEdits`).
+   *
+   * Bẫy đã gặp ở đây vẫn là lý do của luật bên đó: điểm CHÈN không được đi `sourceRange` — hàm ấy
+   * đệm tối thiểu 1 ký tự để tô sáng khi REVEAL, dùng cho một phép chèn là ăn mất `<` của thẻ
+   * đứng sau (đo thật khi `addColumn` trên file của HOATP).
+   */
   const hostDocument = await vscode.workspace.openTextDocument(vscode.Uri.file(currentDocumentPath));
-  const foreignFile = sourceEdits.find((e) => !samePath(e.file, hostDocument.uri.fsPath))?.file ?? null;
+  const mapped = toSourcePlan(core, currentSource.segments, plan, hostDocument.uri.fsPath);
+  if (!mapped.ok) {
+    vscode.window.showErrorMessage(`FBO Designer: không quy được vị trí sửa về file nguồn — huỷ thao tác. ${mapped.reason}`);
+    return;
+  }
+  const sourceEdits = mapped.edits;
+  const { foreignFile } = mapped;
 
   const body = [{ type: 'text', content: description }];
   if (foreignFile) {

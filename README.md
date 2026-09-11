@@ -50,7 +50,7 @@ Blueprint là lớp thiết kế mặc định trên form đang mở:
 
 ### 2. Lệnh và phím tắt
 
-Bốn lệnh, gọi từ chuột phải → **FBO Designer** hoặc Command Palette.
+Gọi từ chuột phải → **FBO Designer** hoặc Command Palette.
 
 `Ctrl+Alt+F` và `Ctrl+Alt+C` **sinh script SQL để bạn tự chạy** — extension không bao giờ chạy
 script thay bạn. `Ctrl+Alt+C` và `Ctrl+Alt+D` có **đọc** database khách (chỉ đọc, có hạn giờ) để
@@ -64,6 +64,8 @@ dò sẵn; nối không được thì `Ctrl+Alt+C` vẫn chạy và hỏi tay.
 | **Sinh script thêm cột cho field mới** | `Ctrl+Alt+C` | So field trên form với schema, sinh SQL thêm cột cho field chưa có trên bảng                      |
 | **Xem dữ liệu thật trên lưới**         | `Ctrl+Alt+D` | Lấy vài dòng thật đổ vào lưới để đo bề rộng cột; bấm lại để bỏ đi (xem §4)                       |
 | **Chế độ soi entity**                  | *(mặc định bật)* | Không có phím tắt — tắt/bật qua `fboDesigner.showInsight`, xem §6                            |
+| **Xem mail**                           | —            | Mở `Options/Message.xml`: xem mọi mẫu mail × biến thể × ngôn ngữ, so sánh biến thể, sửa cột/dòng bảng |
+| **Mở Email Designer**                  | —            | Mở `Options/Message.xml` bằng editor trực quan: chọn phần tử trên mẫu mail, sửa chữ và style inline — ghi thẳng XML, Ctrl+Z hoàn tác (xem `docs/EMAIL-DESIGNER.md`) |
 
 
 ![Commands](docs/images/Command.png)

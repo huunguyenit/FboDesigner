@@ -282,6 +282,30 @@ export function locateMailSection(clearText, { actionId, body, section }) {
 }
 
 /**
+ * Toạ độ tuyệt đối của NỘI DUNG `<text>` bên trong `<header>`/`<detail>`/`<footer>` — chỗ HTML
+ * thật của mail nằm (các mảnh CDATA xen với chữ entity đã bung). Email Designer
+ * (`mail-html.mjs`) dựng dòng HTML từ đúng dải này; tách khỏi `sectionText` vì bên đó cắt lát và
+ * bỏ dấu CDATA, còn designer cần toạ độ gốc để ghi ngược.
+ *
+ * @returns {{start:number, end:number}|null} `null` khi part vắng hoặc không có `<text>`
+ */
+export function locateMailText(clearText, { actionId, body, section }) {
+  const loc = locateMailSection(clearText, { actionId, body, section });
+  if (!loc) return null;
+  const text = findElement(clearText, 'text', loc.start, loc.end);
+  return text ? { start: text.contentStart, end: text.contentEnd } : null;
+}
+
+/** Bảng field → nhãn (`<fields>`) của một action, tìm theo toạ độ tuyệt đối — cho Email Designer
+ * thay `{!h_…}` bằng nhãn giống hệt bản «Xem mail». */
+export function mailActionLabels(clearText, actionId) {
+  const bounds = mailTemplateBounds(clearText);
+  if (!bounds) return new Map();
+  const action = findActionByIdAbs(clearText, actionId, bounds.start, bounds.end);
+  return action ? scanFieldLabels(clearText.slice(action.contentStart, action.contentEnd)) : new Map();
+}
+
+/**
  * Mọi `<action id="…">` ở tầng mail (bỏ qua `<sms>` — xem `mailTemplateScope`) — dùng để dựng
  * danh sách chọn mẫu mail.
  *
@@ -338,7 +362,7 @@ const TOKEN_RE = /\{!([A-Za-z_]\w*)\}/g;
  * khai trong Message.xml: `mail@action@fields@field.name=X` → thay bằng `header@v|header@e`.
  * Token không khai trong `<fields>` (dữ liệu thật lúc gửi, vd `{!so_ct}`, `{!ma_vt}`) GIỮ NGUYÊN
  * — bản xem này không chạy query, không có gì để điền vào đó. */
-function substituteFieldTokens(text, labels, vi) {
+export function substituteFieldTokens(text, labels, vi) {
   return text.replace(TOKEN_RE, (whole, name) => {
     const label = labels.get(name);
     if (!label) return whole;

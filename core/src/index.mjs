@@ -108,4 +108,16 @@ export {
 export {
   scanMailActions, renderMailPreview, isMailTemplateDoc, locateMailSection,
   analyzeMailColumns, planResizeMailColumn, listMailRows, planAddMailRow, planAddMailColumn,
+  locateMailText, mailActionLabels, substituteFieldTokens,
 } from './mail-template.mjs';
+// Email Designer — hợp đồng (`docs/EMAIL-DESIGNER.md`), dòng HTML + chỉ mục, kế hoạch sửa.
+export {
+  DESIGN_ATTR, ELEMENT_ID_RE, formatElementId, parseElementId, elementFingerprint, MAIL_PARTS, ELEMENT_ROLES,
+  roleOfTag, MAIL_OPS, STYLE_PROPERTIES, isStyleProperty, ATTRIBUTES, isAttributeAllowed, COMPONENT_KINDS,
+  INSERT_POSITIONS, MOVE_DIRECTIONS, MAX_TEXT_LENGTH, isSafeCssValue, isSafeAttrValue, isSafeUrl, validateMailMessage,
+} from './mail-design-contract.mjs';
+export {
+  buildMailView, indexMailElements, renderMailDesign, wireMailElements, mapMailEdits, mailElementClearRange,
+  parseStyleDeclarations,
+} from './mail-html.mjs';
+export { resolveMailElement, planMailText, planMailStyle } from './mail-edit.mjs';
