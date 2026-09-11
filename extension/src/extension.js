@@ -15,6 +15,7 @@ const { isControllerDocument, config, panelColumn } = require('./render-host');
 const { declareFilter } = require('./filter-host');
 const { addColumns } = require('./add-column-host');
 const { previewData } = require('./sample-host');
+const { viewMail } = require('./mail-preview-host');
 const { initDialogs } = require('./dialog/dialog-service');
 const { postToActiveDesigner } = require('./designer-webview');
 const { toast } = require('./locale');
@@ -135,6 +136,13 @@ async function activate(context) {
     vscode.commands.registerCommand(
       'fboDesigner.previewData',
       withLicense(context, () => previewData(core, output)),
+    ),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'fboDesigner.viewMail',
+      withLicense(context, () => viewMail(core, output)),
     ),
   );
 

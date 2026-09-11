@@ -53,6 +53,10 @@
         {
           "command": "fboDesigner.previewData",
           "group": "navigation@40"
+        },
+        {
+          "command": "fboDesigner.viewMail",
+          "group": "navigation@50"
         }
       ],
       "commandPalette": [
@@ -92,6 +96,11 @@
         "command": "fboDesigner.previewData",
         "category": "FBO Designer",
         "title": "%fboDesigner.previewData.title%"
+      },
+      {
+        "command": "fboDesigner.viewMail",
+        "category": "FBO Designer",
+        "title": "%fboDesigner.viewMail.title%"
       }
     ],
     "keybindings": [

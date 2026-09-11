@@ -59,6 +59,7 @@ const CONTENT = [
   ['extension/src/filter-host.js', 'extension/src/filter-host.js'],
   ['extension/src/add-column-host.js', 'extension/src/add-column-host.js'],
   ['extension/src/sql-host.js', 'extension/src/sql-host.js'],
+  ['extension/src/mail-preview-host.js', 'extension/src/mail-preview-host.js'],
   ['extension/src/locale.js', 'extension/src/locale.js'],
   ['extension/src/license/index.js', 'extension/src/license/index.js'],
   ['extension/src/license/public-key.js', 'extension/src/license/public-key.js'],
@@ -102,6 +103,7 @@ const CONTENT = [
   ['core/src/sql-config.mjs', 'extension/core/sql-config.mjs'],
   ['core/src/css-scope.mjs', 'extension/core/css-scope.mjs'],
   ['core/src/xml-comment.mjs', 'extension/core/xml-comment.mjs'],
+  ['core/src/mail-template.mjs', 'extension/core/mail-template.mjs'],
 ];
 
 // Danh sách khai tay ở trên là chỗ dễ quên nhất khi thêm file mới: gói vẫn dựng xong, vẫn cài

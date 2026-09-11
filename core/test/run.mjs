@@ -30,6 +30,7 @@ import './test-grid-body.mjs';
 import './test-outline.mjs';
 import './test-definition.mjs';
 import './test-insight.mjs';
+import './test-mail-template.mjs';
 import { summary } from './harness.mjs';
 
 summary();

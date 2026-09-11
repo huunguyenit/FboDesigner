@@ -105,3 +105,7 @@ export {
   existingColumnsSql,
   stringColumnLengthSql,
 } from './sql-config.mjs';
+export {
+  scanMailActions, renderMailPreview, isMailTemplateDoc, locateMailSection,
+  analyzeMailColumns, planResizeMailColumn, listMailRows, planAddMailRow, planAddMailColumn,
+} from './mail-template.mjs';

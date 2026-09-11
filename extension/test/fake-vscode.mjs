@@ -435,7 +435,23 @@ export const window = {
       options,
       disposed: false,
       revealed: 0,
-      webview: { html: '' },
+      /*
+       * `onDidReceiveMessage` GIỮ LẠI handler thay vì bỏ qua — điểm quan sát duy nhất cho kênh
+       * webview → host (`mail-preview-host.js` dùng nó để nhớ lựa chọn và «đi tới định nghĩa»).
+       * `postMessageFromWebview` là lối vào TEST dùng để giả một tin nhắn từ phía webview gửi
+       * lên, không phải API thật của VS Code.
+       */
+      webview: {
+        html: '',
+        messageHandler: null,
+        onDidReceiveMessage(fn) {
+          this.messageHandler = fn;
+          return { dispose() { panel.webview.messageHandler = null; } };
+        },
+        postMessageFromWebview(msg) {
+          return this.messageHandler ? this.messageHandler(msg) : undefined;
+        },
+      },
       onDidDispose(fn) {
         panel.disposeHandler = fn;
         return { dispose() {} };
