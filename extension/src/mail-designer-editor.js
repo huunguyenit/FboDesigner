@@ -165,6 +165,8 @@ class MailDesignSession {
       elements: this.core.wireMailElements(view, index),
       // Danh sách thuộc tính cho sửa đi KÈM bản vẽ — webview không chép lại whitelist của hợp đồng.
       styleProperties: this.core.STYLE_PROPERTIES,
+      componentPanels: this.core.COMPONENT_PANELS,
+      attributeEnums: this.core.ATTRIBUTE_ENUMS,
       selectId,
       warnings: index.warnings,
     });
@@ -238,7 +240,11 @@ class MailDesignSession {
       this.renderPending = true;
       return false;
     }
-    const planner = { setText: this.core.planMailText, setStyle: this.core.planMailStyle }[msg.op];
+    const planner = {
+      setText: this.core.planMailText,
+      setStyle: this.core.planMailStyle,
+      setAttr: this.core.planMailAttr,
+    }[msg.op];
     if (!planner) {
       warn(`"${msg.op}" chưa hỗ trợ ở bản này của Email Designer.`);
       return false;

@@ -124,7 +124,8 @@ button:disabled, input:disabled, textarea:disabled { opacity: 0.5; cursor: defau
 
 .md-style-row { display: grid; grid-template-columns: 110px 1fr auto; gap: 4px; align-items: center; margin-bottom: 3px; }
 .md-style-row label { font-size: 0.9em; opacity: 0.85; overflow: hidden; text-overflow: ellipsis; }
-.md-style-row input[type="text"] { min-width: 0; }
+.md-style-row input[type="text"], .md-style-row select { min-width: 0; }
+.md-group[hidden] { display: none; }
 .md-style-row input[type="color"] { width: 26px; height: 22px; padding: 0; }
 .md-style-row.md-changed input[type="text"] { border-color: var(--vscode-focusBorder); }
 

@@ -130,6 +130,10 @@ export const STYLE_PROPERTIES = Object.freeze({
   image: Object.freeze(['width', 'height', 'border']),
   button: Object.freeze(['color', 'background-color', 'font-size', 'font-weight', 'padding', 'border', 'border-radius', 'text-align', 'text-decoration']),
   container: Object.freeze(['width', 'padding', 'background-color', 'border', 'text-align', 'vertical-align']),
+  // Đường kẻ trong mail thật: `<hr>` hoặc một khối rỗng mang `border-top`/`height:1px;background-color`.
+  divider: Object.freeze(['border-top', 'border-bottom', 'height', 'background-color', 'margin', 'width']),
+  // Khoảng trống: khối rỗng cao cố định — Outlook cần cả `line-height`/`font-size` mới giữ đúng chiều cao.
+  spacer: Object.freeze(['height', 'line-height', 'font-size']),
 });
 
 const ALL_STYLE_PROPERTIES = new Set(Object.values(STYLE_PROPERTIES).flat());
@@ -138,13 +142,21 @@ export function isStyleProperty(name) {
   return typeof name === 'string' && ALL_STYLE_PROPERTIES.has(name);
 }
 
-/** Thuộc tính HTML sửa được, theo thẻ. `href`/`src` đi qua `isSafeUrl`, còn lại `isSafeAttrValue`. */
+/**
+ * Thuộc tính HTML sửa được, theo thẻ. Chỉ những thuộc tính trình mail cũ (Outlook bản Word) còn
+ * đọc — `width`/`height` trên `<img>`, `bgcolor`/`align`/`valign` trên ô bảng — chính là lý do mẫu
+ * mail còn dùng thuộc tính thay vì CSS. Giá trị kiểm theo kiểu ở `isValidAttrValue`.
+ */
 export const ATTRIBUTES = Object.freeze({
   a: Object.freeze(['href', 'target', 'title']),
-  img: Object.freeze(['src', 'alt', 'width', 'height', 'align', 'title']),
+  img: Object.freeze(['src', 'alt', 'width', 'height', 'align', 'border', 'title']),
   table: Object.freeze(['width', 'align', 'bgcolor', 'border', 'cellpadding', 'cellspacing']),
-  td: Object.freeze(['width', 'align', 'valign', 'bgcolor']),
-  th: Object.freeze(['width', 'align', 'valign', 'bgcolor']),
+  tr: Object.freeze(['align', 'valign', 'bgcolor']),
+  td: Object.freeze(['width', 'height', 'align', 'valign', 'bgcolor']),
+  th: Object.freeze(['width', 'height', 'align', 'valign', 'bgcolor']),
+  hr: Object.freeze(['width', 'size', 'align', 'color']),
+  div: Object.freeze(['align']),
+  p: Object.freeze(['align']),
 });
 
 const ALL_ATTRIBUTES = new Set(Object.values(ATTRIBUTES).flat());
@@ -153,6 +165,32 @@ const URL_ATTRIBUTES = new Set(['href', 'src']);
 export function isAttributeAllowed(tag, name) {
   const list = ATTRIBUTES[String(tag ?? '').toLowerCase()];
   return Array.isArray(list) && list.includes(name);
+}
+
+/** Thuộc tính mang giá trị liệt kê — webview vẽ thành ô chọn, bộ kiểm chỉ nhận đúng các giá trị này. */
+export const ATTRIBUTE_ENUMS = Object.freeze({
+  align: Object.freeze(['left', 'center', 'right']),
+  valign: Object.freeze(['top', 'middle', 'bottom']),
+  target: Object.freeze(['_blank', '_self']),
+});
+
+const LENGTH_ATTRIBUTES = new Set(['width', 'height', 'border', 'cellpadding', 'cellspacing', 'size']);
+const COLOR_ATTRIBUTES = new Set(['bgcolor', 'color']);
+
+/**
+ * Giá trị hợp lệ cho MỘT thuộc tính. Chuỗi rỗng = XOÁ thuộc tính (cùng quy ước `setStyle`).
+ *
+ * Kiểm theo KIỂU chứ không chỉ theo ký tự: `width="abc"` là dữ liệu hợp lệ về mặt HTML nhưng làm
+ * Outlook vẽ ảnh bằng kích thước gốc — thứ người dùng không nhìn thấy trên bản xem trình duyệt.
+ */
+export function isValidAttrValue(name, value) {
+  if (typeof value !== 'string') return false;
+  if (value === '') return true;
+  if (URL_ATTRIBUTES.has(name)) return isSafeUrl(value, { attr: name });
+  if (Object.hasOwn(ATTRIBUTE_ENUMS, name)) return ATTRIBUTE_ENUMS[name].includes(value);
+  if (LENGTH_ATTRIBUTES.has(name)) return /^\d{1,4}%?$/.test(value);
+  if (COLOR_ATTRIBUTES.has(name)) return /^(#[0-9a-f]{3}|#[0-9a-f]{6}|[a-z]{3,20})$/i.test(value);
+  return isSafeAttrValue(value);
 }
 
 /**
@@ -271,8 +309,8 @@ function validateEdit(msg) {
 
     case 'setAttr': {
       if (typeof msg.name !== 'string' || !ALL_ATTRIBUTES.has(msg.name)) return bad(`setAttr: thuộc tính không cho sửa: ${String(msg.name).slice(0, 40)}`);
-      const safe = URL_ATTRIBUTES.has(msg.name) ? isSafeUrl(msg.value, { attr: msg.name }) : isSafeAttrValue(msg.value);
-      if (!safe) return bad(`setAttr: giá trị ${msg.name} không an toàn`);
+      // Thẻ cụ thể có cho thuộc tính này không là việc của plan — ở đây host chưa biết `elementId` trỏ thẻ gì.
+      if (!isValidAttrValue(msg.name, msg.value)) return bad(`setAttr: giá trị ${msg.name} không hợp lệ hoặc không an toàn`);
       return ok({ ...base, name: msg.name, value: msg.value });
     }
 
@@ -395,6 +433,9 @@ export function validateMailMessage(msg) {
  * @property {MailPart} part
  * @property {string|null} parentId
  * @property {Record<string, true|string>} caps
+ * @property {string} kind                      loại component (`mail-components.mjs#componentKindOf`)
+ * @property {string[]} attrNames               = ATTRIBUTES[tag]
+ * @property {Record<string, string>} attrLocks thuộc tính KHÔNG sửa được → lý do (vd do entity sinh ra)
  * @property {Array<[string, string]>} style   khai báo inline theo đúng thứ tự trong nguồn
  * @property {Record<string, string>} attrs     chỉ các thuộc tính trong ATTRIBUTES[tag]
  * @property {string|null} text                 chỉ khi `caps.setText === true`
@@ -408,6 +449,8 @@ export function validateMailMessage(msg) {
  * @property {MailElementWire[]} elements
  * @property {string} file                       tên file (thanh công cụ)
  * @property {Record<string, string[]>} styleProperties  = STYLE_PROPERTIES — webview không chép lại whitelist
+ * @property {Record<string, object>} componentPanels     = COMPONENT_PANELS (`mail-components.mjs`)
+ * @property {Record<string, string[]>} attributeEnums    = ATTRIBUTE_ENUMS
  * @property {string|null} selectId             host chọn hộ sau một phép sửa (vd phần tử vừa di chuyển)
  * @property {string[]} warnings
  *

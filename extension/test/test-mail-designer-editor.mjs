@@ -218,6 +218,40 @@ section('email designer — từ chối có lý do, noop im lặng');
   eq('hoàn tác/làm lại đi qua chồng chung', fakeHistory.calls, ['undo', 'redo']);
 }
 
+section('email designer — setAttr và dữ liệu bảng thuộc tính (Phase 4)');
+{
+  reset();
+  const t = await open();
+  await t.send({ type: 'ready' });
+  const r = t.last();
+  ok('render mang bảng panel theo loại + giá trị liệt kê', !!r.componentPanels.image && r.attributeEnums.align.includes('center'));
+  const td = r.elements.find((e) => e.tag === 'td');
+  eq('phần tử mang kind / attrNames / attrLocks', [td.kind, td.attrNames.includes('align'), td.attrLocks], ['container', true, {}]);
+
+  await t.send({
+    type: 'edit', op: 'setAttr', rev: r.rev, elementId: td.id, name: 'align', value: 'center',
+  });
+  eq('setAttr → applySplice đúng một lần', fakeEditHost.calls.length, 1);
+  const call = fakeEditHost.calls[0];
+  eq('nhãn hoàn tác', call.label, 'mail: align <td>');
+  const e = call.plan.edits[0];
+  const written = SOURCE.slice(0, e.start) + e.text + SOURCE.slice(e.end);
+  ok('chèn align sau dấu nháy, vẫn trong CDATA sau entity', written.includes('<![CDATA[" align="center">{!h_so_ct}'));
+
+  await t.send({
+    type: 'edit', op: 'setAttr', rev: r.rev, elementId: td.id, name: 'align', value: 'middle',
+  });
+  eq('giá trị sai kiểu bị bộ kiểm chặn trước khi tới plan', fakeEditHost.calls.length, 1);
+  ok('ghi lý do ra Output', output.lines.some((l) => l.includes('không hợp lệ')));
+
+  const h2 = r.elements.find((x) => x.tag === 'h2');
+  await t.send({
+    type: 'edit', op: 'setAttr', rev: r.rev, elementId: h2.id, name: 'align', value: 'center',
+  });
+  ok('thẻ không có thuộc tính cho sửa → cảnh báo, không ghi',
+    fakeEditHost.calls.length === 1 && fakeVscode.window.asked.warning.some((w) => w.includes('không có thuộc tính')));
+}
+
 section('email designer — đổi biến thể, nhớ lựa chọn theo file');
 {
   reset();

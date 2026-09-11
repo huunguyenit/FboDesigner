@@ -8,6 +8,7 @@ import { section, eq, ok } from './harness.mjs';
 import {
   DESIGN_ATTR, formatElementId, parseElementId, elementFingerprint, roleOfTag, MAIL_OPS,
   MAIL_PARTS, isAttributeAllowed, isSafeCssValue, isSafeUrl, validateMailMessage, MAX_TEXT_LENGTH,
+  isValidAttrValue, ATTRIBUTE_ENUMS, isStyleProperty,
 } from '../src/mail-design-contract.mjs';
 
 const edit = (fields) => validateMailMessage({ type: 'edit', rev: 1, elementId: 'e3', ...fields });
@@ -138,3 +139,19 @@ ok('insert __proto__ bị chặn', !edit({ op: 'insertComponent', position: 'aft
 ok('resizeColumn width 9 bị chặn', !validateMailMessage({ type: 'edit', op: 'resizeColumn', rev: 2, columnIndex: 0, width: 9 }).ok);
 ok('addRow ở detail bị chặn', !validateMailMessage({ type: 'edit', op: 'addRow', rev: 2, part: 'detail', rowIndex: 0 }).ok);
 ok('addRow ở footer', validateMailMessage({ type: 'edit', op: 'addRow', rev: 2, part: 'footer', rowIndex: 0 }).ok);
+
+section('mail contract — thuộc tính kiểm theo kiểu (Phase 4)');
+
+for (const [name, value] of [['width', '600'], ['width', '100%'], ['align', 'center'], ['valign', 'middle'], ['target', '_blank'],
+  ['bgcolor', '#1677ff'], ['bgcolor', 'white'], ['size', '1'], ['alt', 'Logo Fast'], ['href', ''], ['width', '']]) {
+  ok(`nhận ${name}="${value}"`, isValidAttrValue(name, value) && edit({ op: 'setAttr', name, value }).ok);
+}
+for (const [name, value] of [['width', 'abc'], ['width', '600px'], ['align', 'middle'], ['valign', 'center'], ['target', '_new'],
+  ['bgcolor', 'red;x'], ['bgcolor', '#12345g'], ['height', '{!cao}']]) {
+  ok(`chặn ${name}="${value}"`, !isValidAttrValue(name, value) && !edit({ op: 'setAttr', name, value }).ok);
+}
+eq('align liệt kê đúng ba giá trị', ATTRIBUTE_ENUMS.align, ['left', 'center', 'right']);
+ok('hr cho sửa size', isAttributeAllowed('hr', 'size'));
+ok('div chỉ cho align', isAttributeAllowed('div', 'align') && !isAttributeAllowed('div', 'width'));
+ok('td cho sửa height (khoảng trống kiểu bảng)', isAttributeAllowed('td', 'height'));
+ok('style của đường kẻ/khoảng trống nằm trong whitelist', isStyleProperty('border-top') && isStyleProperty('line-height'));

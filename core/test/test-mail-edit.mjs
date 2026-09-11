@@ -6,7 +6,9 @@
 
 import { section, eq, ok } from './harness.mjs';
 import { mapMailEdits, wireMailElements } from '../src/mail-html.mjs';
-import { planMailText, planMailStyle, escapeMailText } from '../src/mail-edit.mjs';
+import {
+  planMailText, planMailStyle, planMailAttr, escapeMailText,
+} from '../src/mail-edit.mjs';
 import {
   HOST, SHARED, SOURCE, SHARED_SOURCE, build, nth,
 } from './test-mail-html.mjs';
@@ -117,6 +119,55 @@ section('mail edit — setStyle');
   ok('giá trị không an toàn → từ chối', !unsafe.ok);
   const same = planOn(planMailStyle, 'h2', 0, { property: 'color', value: '#333' });
   ok('đặt lại đúng giá trị cũ → noop', !same.ok && same.noop === true);
+}
+section('mail edit — setAttr (Phase 4)');
+{
+  const alt = roundTrip(planOn(planMailAttr, 'img', 1, { name: 'alt', value: 'Banner mới' }));
+  ok('đổi giá trị trong nháy', alt.ok && alt.files[HOST].includes('alt="Banner mới"'), alt.reason);
+  eq('nhãn hoàn tác', planOn(planMailAttr, 'img', 1, { name: 'alt', value: 'x' }).label, 'mail: alt <img>');
+
+  const width = roundTrip(planOn(planMailAttr, 'img', 1, { name: 'width', value: '480' }));
+  ok('thuộc tính không nháy → ghi lại có nháy kép', width.ok && width.files[HOST].includes('<img src="banner.png" width="480" alt="Banner">'), width.reason);
+  ok('chỉ đổi đúng dải giá trị', onlyChanged(SOURCE, width.files[HOST], width.mapped.edits[0]));
+  eq('đọc lại qua webview', width.wire.find((w) => w.tag === 'img' && w.attrs.src === 'banner.png').attrs.width, '480');
+
+  const add = roundTrip(planOn(planMailAttr, 'img', 1, { name: 'height', value: '120' }));
+  ok('thêm thuộc tính chưa có', add.ok && add.files[HOST].includes('alt="Banner" height="120">'), add.reason);
+
+  const rm = roundTrip(planOn(planMailAttr, 'img', 1, { name: 'alt', value: '' }));
+  ok('xoá thuộc tính kèm khoảng trắng đứng trước', rm.ok && rm.files[HOST].includes('<img src="banner.png" width=600></a>'), rm.reason);
+
+  const href = roundTrip(planOn(planMailAttr, 'a', 0, { name: 'href', value: '{!alink}&n=2' }));
+  ok('href ghi nguyên văn: & không thành &amp;, token nguyên văn', href.ok && href.files[HOST].includes('href="{!alink}&n=2"'), href.reason);
+
+  const link = roundTrip(planOn(planMailAttr, 'a', 1, { name: 'href', value: 'https://fast.com.vn/khuyen-mai' }));
+  ok('link của ảnh = href của thẻ <a> cha', link.ok && link.files[HOST].includes('<a href="https://fast.com.vn/khuyen-mai"><img src="banner.png"'), link.reason);
+
+  const align = roundTrip(planOn(planMailAttr, 'div', 0, { name: 'align', value: 'left' }));
+  ok('căn lề nút = align của khối cha', align.ok && align.files[HOST].includes('<div align="left"><a href="{!order_url}"'), align.reason);
+
+  const td = roundTrip(planOn(planMailAttr, 'td', 0, { name: 'align', value: 'center' }));
+  ok('ô có style bị entity cắt vẫn thêm được align (sau dấu nháy, trong cdata)',
+    td.ok && td.files[HOST].includes('<![CDATA[" align="center">{!h_so_ct}'), td.reason);
+
+  const shared = roundTrip(planOn(planMailAttr, 'p', 0, { name: 'align', value: 'right' }, BASE, 'Shared'), { actionId: 'Shared' });
+  ok('action tiêm từ Include → ghi vào file Include', shared.ok && shared.mapped.edits[0].file === SHARED && shared.files[SHARED].includes('<p align="right">Chung</p>'), shared.reason);
+}
+{
+  const same = planOn(planMailAttr, 'img', 1, { name: 'alt', value: 'Banner' });
+  ok('đặt lại đúng giá trị cũ → noop', !same.ok && same.noop === true);
+  const h2 = planOn(planMailAttr, 'h2', 0, { name: 'align', value: 'center' });
+  ok('thẻ không có whitelist → từ chối', !h2.ok);
+  const wrongTag = planOn(planMailAttr, 'img', 1, { name: 'href', value: 'https://x.vn' });
+  ok('thuộc tính không thuộc thẻ này → từ chối', !wrongTag.ok && wrongTag.reason.includes('không cho sửa'));
+  const px = planOn(planMailAttr, 'img', 1, { name: 'width', value: '600px' });
+  ok('sai kiểu (width có đơn vị) → từ chối', !px.ok && px.reason.includes('không hợp lệ'));
+  const js = planOn(planMailAttr, 'a', 0, { name: 'href', value: 'javascript:alert(1)' });
+  ok('URL chạy mã → từ chối', !js.ok);
+
+  const files = { ...BASE, [HOST]: SOURCE.replace('<td style="width:100px;]]>&HeaderColor;<![CDATA[">', '<td width="]]>&HeaderColor;<![CDATA[">') };
+  const locked = planOn(planMailAttr, 'td', 0, { name: 'width', value: '120' }, files);
+  ok('thuộc tính bị entity cắt → từ chối kèm lý do', !locked.ok && locked.reason.includes('entity'), locked.reason);
 }
 {
   // `display` không nằm trong danh sách cho sửa, nên dựng biến thể mà token nằm ở thuộc tính CHO sửa.

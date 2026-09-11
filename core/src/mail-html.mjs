@@ -23,6 +23,7 @@ import { decodeXmlText } from './render.mjs';
 import {
   DESIGN_ATTR, MAIL_PARTS, ELEMENT_ROLES, ATTRIBUTES, formatElementId, elementFingerprint, roleOfTag,
 } from './mail-design-contract.mjs';
+import { componentKindOf } from './mail-components.mjs';
 
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
 const RAW_TEXT = new Set(['style', 'script', 'title', 'textarea']);
@@ -284,13 +285,59 @@ export function indexMailElements(view) {
     el.caps = {
       setText: textCapability(view, el),
       setStyle: styleCapability(view, el),
-      setAttr: NOT_YET,
+      setAttr: attrCapability(el),
       removeElement: NOT_YET,
       moveElement: NOT_YET,
       insertComponent: NOT_YET,
     };
+    el.attrLocks = el.caps.setAttr === true ? attributeLocks(view, el) : {};
+    el.kind = componentKindOf({
+      tag: el.tag,
+      role: el.role,
+      childCount: el.children.length,
+      style: styleMapOf(el),
+      attrs: new Map(el.attrs.filter((a) => a.value !== null).map((a) => [a.name, a.value])),
+      text: visibleText(html, el),
+    });
   }
   return { elements, byId, warnings };
+}
+
+/** Khai báo style của phần tử thành bảng tên → giá trị (khai báo sau đè khai báo trước, như CSS). */
+function styleMapOf(el) {
+  const style = el.attrs.find((a) => a.name === 'style');
+  return new Map(parseStyleDeclarations(style?.value ?? '').map((d) => [d.property, d.value]));
+}
+
+/** Chữ HIỆN RA của nội dung (bỏ thẻ, giải `&nbsp;`) — dùng để nhận ra khối rỗng. */
+function visibleText(html, el) {
+  if (el.void || el.closeStart === null) return '';
+  return decodeMailText(html.slice(el.openEnd, el.closeStart).replace(/<!--[\s\S]*?-->|<[^>]*>/g, ''));
+}
+
+function attrCapability(el) {
+  if (el.role === ELEMENT_ROLES.FRAME) return 'khung tài liệu — không sửa thuộc tính';
+  if (!ATTRIBUTES[el.tag]) return `thẻ <${el.tag}> không có thuộc tính HTML nào cho sửa`;
+  return true;
+}
+
+/**
+ * Thuộc tính nào của thẻ KHÔNG sửa được, kèm lý do. Có sẵn mà nằm ngoài một mảnh cdata (entity
+ * chen giữa), hoặc chưa có mà thẻ mở không có điểm chèn trong cdata — cả hai đều là ghi vào phần
+ * do entity dùng chung sinh ra.
+ */
+function attributeLocks(view, el) {
+  const locks = {};
+  const canInsert = !!cdataPoint(view, el.insertAt, 'left');
+  for (const name of ATTRIBUTES[el.tag] ?? []) {
+    const attr = el.attrs.find((a) => a.name === name);
+    if (attr) {
+      if (!cdataRange(view, attr.start, attr.end)) locks[name] = `thuộc tính ${name} ${ENTITY_REASON}`;
+    } else if (!canInsert) {
+      locks[name] = `thẻ mở ${ENTITY_REASON}`;
+    }
+  }
+  return locks;
 }
 
 /** Khoảng trắng ASCII đầu/cuối của nội dung — giữ nguyên khi ghi, để thụt lề của file không đổi. */
@@ -462,6 +509,9 @@ export function wireMailElements(view, index) {
       part: el.part,
       parentId: el.parentId,
       caps: el.caps,
+      kind: el.kind,
+      attrNames: allowed,
+      attrLocks: el.attrLocks,
       style: parseStyleDeclarations(style?.value ?? '').map((d) => [d.property, d.value]),
       attrs,
       text,

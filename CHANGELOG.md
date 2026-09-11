@@ -4,6 +4,20 @@
 
 ## [Chưa phát hành]
 
+### Thêm — Email Designer: bảng thuộc tính theo loại component, sửa thuộc tính HTML
+
+Bấm một phần tử là bảng thuộc tính hiện đúng nhóm ô của **loại** nó — ảnh (`src`, `alt`, `width`,
+`height`, `align`, link của `<a>` bao ngoài), nút/liên kết (`href`, `target`, màu, nền, đệm, bo góc,
+căn lề ở khối chứa), đường kẻ, khoảng trống, khung chứa (`width`, `bgcolor`, `align`, `valign`…).
+Loại được SUY RA từ thẻ + style + nội dung (`core/src/mail-components.mjs`); phép ghi vẫn theo
+whitelist theo thẻ.
+
+- Phép mới `setAttr` (`core/src/mail-edit.mjs#planMailAttr`): đặt/đổi/xoá một thuộc tính; giá trị kiểm
+  theo kiểu (`isValidAttrValue` — `width="600px"` bị chặn), ghi nguyên văn (`href="{!alink}&n=1"`
+  khứ hồi y hệt), thuộc tính không nháy ghi lại có nháy.
+- Thuộc tính do entity sinh ra bị khoá kèm lý do (`attrLocks`).
+- Corpus FBISP24: `setAttr` khứ hồi 102/102 (27 vào file Include).
+
 ### Thêm — Email Designer cho `Options/Message.xml` (MVP)
 
 Mở mẫu mail bằng *Open With… → FBO Email Designer* hoặc lệnh **Mở Email Designer (Options/Message.xml)**:
@@ -27,7 +41,7 @@ chồng hoàn tác chung với designer form. Kiến trúc và số đo trên co
   script; chọn/hover bắt ở lớp phủ trang cha qua `elementFromPoint`.
 - Chạy trên `FBISP24/…/Options/Message.xml`: 39 biến thể, 1874 phần tử, sửa khứ hồi chữ 68/68 và
   style 68/68 (36 edit rơi vào file Include).
-- Chưa có: thuộc tính HTML (href/src…), thêm/xoá/di chuyển, biến và dữ liệu mẫu.
+- Chưa có: thêm/xoá/di chuyển, biến và dữ liệu mẫu.
 
 ### Đổi — bỏ "tính năng ẩn" (dev mode), gỡ mục lục/F12/hover, chế độ soi bật/tắt qua cấu hình
 

@@ -37,6 +37,8 @@
     actions: [],
     elements: new Map(),
     styleProperties: {},
+    componentPanels: {},
+    attributeEnums: {},
     selectedId: null,
     hoverId: null,
     templateKey: '',
@@ -61,6 +63,8 @@
     state.actions = msg.actions || [];
     state.elements = new Map((msg.elements || []).map((e) => [e.id, e]));
     state.styleProperties = msg.styleProperties || {};
+    state.componentPanels = msg.componentPanels || {};
+    state.attributeEnums = msg.attributeEnums || {};
     $('md-file').textContent = msg.file || '';
 
     const key = `${msg.template.actionId}::${msg.template.body}`;
@@ -205,7 +209,8 @@
       crumbs.appendChild(b);
     }
     $('md-el-tag').textContent = `<${el.tag}>`;
-    $('md-el-meta').textContent = `${ROLE_LABEL[el.role] || el.role} · ${el.part} · ${el.id}`;
+    const panel = panelOf(el);
+    $('md-el-meta').textContent = `${panel ? panel.label : el.kind} · ${ROLE_LABEL[el.role] || el.role} · ${el.part} · ${el.id}`;
 
     const textOk = el.caps.setText === true;
     textArea.value = textOk ? el.text : '';
@@ -213,12 +218,82 @@
     textApply.disabled = !textOk;
     showReason($('md-text-reason'), textOk ? null : el.caps.setText);
 
+    renderAttrFields(el);
     renderStyleFields(el);
   }
 
   function showReason(node, reason) {
     node.hidden = !reason;
     node.textContent = reason || '';
+  }
+
+  function panelOf(el) {
+    return state.componentPanels[el.kind] || null;
+  }
+
+  /**
+   * Một hàng ô nhập — dùng chung cho style và thuộc tính HTML. Chỉ gửi khi giá trị THẬT SỰ đổi
+   * (Enter, rời ô, hoặc chọn xong), và không gửi lại cùng một giá trị hai lần: Enter rồi Tab là hai
+   * sự kiện cho một ý định. Esc trả lại giá trị cũ. `options` → ô chọn; `color` → kèm ô chọn màu.
+   */
+  function fieldRow({
+    label, value, disabled, title, options, color, onCommit,
+  }) {
+    const row = document.createElement('div');
+    row.className = 'md-style-row';
+    const labelNode = document.createElement('label');
+    labelNode.textContent = label;
+    labelNode.title = label;
+
+    let input;
+    if (options) {
+      input = document.createElement('select');
+      const values = ['', ...options];
+      if (value && !options.includes(value)) values.push(value);
+      for (const v of values) {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v === '' ? '—' : v;
+        input.appendChild(opt);
+      }
+    } else {
+      input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = '—';
+    }
+    input.value = value;
+    input.disabled = !!disabled;
+    if (title) input.title = title;
+
+    let sent = value;
+    const commit = () => {
+      const next = input.value.trim();
+      row.classList.remove('md-changed');
+      if (next === sent) return;
+      sent = next;
+      onCommit(next);
+    };
+    if (!options) {
+      input.addEventListener('input', () => row.classList.toggle('md-changed', input.value.trim() !== value));
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        if (e.key === 'Escape') { input.value = value; row.classList.remove('md-changed'); }
+      });
+    }
+    input.addEventListener('change', commit);
+    row.append(labelNode, input);
+
+    if (color) {
+      const picker = document.createElement('input');
+      picker.type = 'color';
+      picker.disabled = input.disabled;
+      if (/^#[0-9a-f]{6}$/i.test(value)) picker.value = value;
+      picker.addEventListener('change', () => { input.value = picker.value; commit(); });
+      row.appendChild(picker);
+    } else {
+      row.appendChild(document.createElement('span'));
+    }
+    return row;
   }
 
   function renderStyleFields(el) {
@@ -230,49 +305,65 @@
     const current = new Map();
     for (const [prop, value] of el.style) current.set(prop, value); // khai báo sau đè khai báo trước
     const allowed = allStyleProperties();
-    const props = [...(state.styleProperties[styleGroupOf(el)] || [])];
+    const panel = panelOf(el);
+    const props = [...(panel ? panel.styles : (state.styleProperties[styleGroupOf(el)] || []))];
     for (const prop of current.keys()) if (allowed.has(prop) && !props.includes(prop)) props.push(prop);
 
     for (const prop of props) {
       const value = current.get(prop) ?? '';
-      const row = document.createElement('div');
-      row.className = 'md-style-row';
-      const label = document.createElement('label');
-      label.textContent = prop;
-      label.title = prop;
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.value = value;
-      input.placeholder = '—';
       const hasToken = value.includes('{!');
-      input.disabled = !styleOk || hasToken;
-      if (hasToken) input.title = 'Giá trị mang {!token} (logic runtime của mẫu) — sửa trong XML';
-      const commit = () => {
-        const next = input.value.trim();
-        if (next === value) { row.classList.remove('md-changed'); return; }
-        post({
+      box.appendChild(fieldRow({
+        label: prop,
+        value,
+        disabled: !styleOk || hasToken,
+        title: hasToken ? 'Giá trị mang {!token} (logic runtime của mẫu) — sửa trong XML' : '',
+        color: COLOR_PROPS.has(prop),
+        onCommit: (next) => post({
           type: 'edit', op: 'setStyle', rev: state.rev, elementId: el.id, property: prop, value: next,
-        });
-      };
-      input.addEventListener('input', () => row.classList.toggle('md-changed', input.value.trim() !== value));
-      input.addEventListener('change', commit);
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); commit(); }
-        if (e.key === 'Escape') { input.value = value; row.classList.remove('md-changed'); }
-      });
-      row.append(label, input);
+        }),
+      }));
+    }
+  }
 
-      if (COLOR_PROPS.has(prop)) {
-        const picker = document.createElement('input');
-        picker.type = 'color';
-        picker.disabled = input.disabled;
-        if (/^#[0-9a-f]{6}$/i.test(value)) picker.value = value;
-        picker.addEventListener('change', () => { input.value = picker.value; commit(); });
-        row.appendChild(picker);
-      } else {
-        row.appendChild(document.createElement('span'));
-      }
-      box.appendChild(row);
+  /**
+   * Thuộc tính HTML theo loại component. Hai ô mượn THẺ CHA, vì trong mail thật chỗ khai nằm ở đó:
+   * link của ảnh là `href` của `<a>` bao ngoài; căn lề của nút là `align` của khối chứa nó.
+   */
+  function renderAttrFields(el) {
+    const group = $('md-attr-group');
+    const box = $('md-attr-fields');
+    box.textContent = '';
+    const panel = panelOf(el) || { attrs: el.attrNames };
+    const parent = el.parentId ? state.elements.get(el.parentId) : null;
+
+    const rows = [];
+    if (el.caps.setAttr === true) {
+      for (const name of panel.attrs) if (el.attrNames.includes(name)) rows.push({ target: el, name, label: name });
+    }
+    let note = el.caps.setAttr === true || el.attrNames.length === 0 ? null : el.caps.setAttr;
+    if (panel.parentLink) {
+      if (parent && parent.tag === 'a') rows.push({ target: parent, name: 'href', label: 'liên kết (<a> bao ngoài)' });
+      else note = note || 'Ảnh chưa bọc liên kết — thêm liên kết cần chèn phần tử, chưa hỗ trợ ở bản này.';
+    }
+    if (panel.parentAlign && parent && parent.attrNames.includes('align')) {
+      rows.push({ target: parent, name: 'align', label: `căn lề (<${parent.tag}> chứa)` });
+    }
+
+    group.hidden = rows.length === 0 && !note;
+    showReason($('md-attr-reason'), note);
+    for (const { target, name, label } of rows) {
+      const lock = target.caps.setAttr !== true ? target.caps.setAttr : (target.attrLocks[name] || null);
+      box.appendChild(fieldRow({
+        label,
+        value: target.attrs[name] ?? '',
+        disabled: !!lock,
+        title: lock || '',
+        options: state.attributeEnums[name],
+        color: name === 'bgcolor' || name === 'color',
+        onCommit: (next) => post({
+          type: 'edit', op: 'setAttr', rev: state.rev, elementId: target.id, name, value: next,
+        }),
+      }));
     }
   }
 

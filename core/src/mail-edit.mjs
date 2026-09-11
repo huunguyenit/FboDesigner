@@ -11,11 +11,32 @@
 import {
   cdataRange, cdataPoint, parseStyleDeclarations, textBounds, decodeMailText,
 } from './mail-html.mjs';
-import { isStyleProperty, isSafeCssValue, MAX_TEXT_LENGTH } from './mail-design-contract.mjs';
+import {
+  isStyleProperty, isSafeCssValue, isAttributeAllowed, isValidAttrValue, MAX_TEXT_LENGTH,
+} from './mail-design-contract.mjs';
 
 const bad = (reason) => ({ ok: false, reason });
 const noop = () => ({ ok: false, noop: true, reason: 'không có gì đổi' });
 const ENTITY_REASON = 'dải cần sửa có phần do entity (&…;) sinh ra — dùng chung cho nhiều mẫu, sửa trong XML';
+
+/** Thay dải `[hs, he)` của dòng HTML — chỉ khi nằm trọn trong một mảnh cdata. */
+function replaceIn(view, label, hs, he, text) {
+  const range = cdataRange(view, hs, he);
+  return range ? { ok: true, edits: [{ start: range.start, end: range.end, text }], label } : bad(ENTITY_REASON);
+}
+
+/** Chèn tại điểm `h` của dòng HTML, bám ký tự đứng trước (ngay sau thuộc tính/thẻ mở). */
+function insertIn(view, label, h, text) {
+  const p = cdataPoint(view, h, 'left');
+  return p ? { ok: true, edits: [{ start: p.offset, end: p.offset, text, bias: p.bias }], label } : bad(ENTITY_REASON);
+}
+
+/** Dải xoá trọn một thuộc tính, kể cả khoảng trắng đứng trước nó (`<td ␣width="1">` → `<td>`). */
+function attributeRemovalStart(view, el, attr) {
+  let s = attr.start;
+  while (s > el.openStart && /\s/.test(view.html[s - 1])) s--;
+  return s;
+}
 
 /**
  * Phần tử `elementId` trong chỉ mục HIỆN TẠI, và đúng là phần tử webview đã thấy.
@@ -59,15 +80,7 @@ export function planMailText(view, index, { elementId, value, fingerprint }) {
   const hs = el.openEnd + lead;
   const he = el.closeStart - trail;
   const label = `mail: sửa chữ <${el.tag}>`;
-
-  if (hs === he) {
-    const p = cdataPoint(view, hs, 'left');
-    if (!p) return bad(ENTITY_REASON);
-    return { ok: true, edits: [{ start: p.offset, end: p.offset, text, bias: p.bias }], label };
-  }
-  const range = cdataRange(view, hs, he);
-  if (!range) return bad(ENTITY_REASON);
-  return { ok: true, edits: [{ start: range.start, end: range.end, text }], label };
+  return hs === he ? insertIn(view, label, hs, text) : replaceIn(view, label, hs, he, text);
 }
 
 /**
@@ -90,18 +103,9 @@ export function planMailStyle(view, index, { elementId, property, value, fingerp
   const cssValue = value.replace(/&/g, '&amp;');
   const attr = el.attrs.find((a) => a.name === 'style');
 
-  const replace = (hs, he, text) => {
-    const range = cdataRange(view, hs, he);
-    return range ? { ok: true, edits: [{ start: range.start, end: range.end, text }], label } : bad(ENTITY_REASON);
-  };
-  const insert = (h, text) => {
-    const p = cdataPoint(view, h, 'left');
-    return p ? { ok: true, edits: [{ start: p.offset, end: p.offset, text, bias: p.bias }], label } : bad(ENTITY_REASON);
-  };
-
   if (!attr) {
     if (value === '') return noop();
-    return insert(el.insertAt, ` style="${property}:${cssValue};"`);
+    return insertIn(view, label, el.insertAt, ` style="${property}:${cssValue};"`);
   }
   if (attr.valueStart === null || attr.quote === null) return bad('style không có giá trị trong dấu nháy — sửa trong XML');
   if (value.includes(attr.quote)) return bad(`giá trị chứa dấu ${attr.quote} trùng dấu nháy của thuộc tính style`);
@@ -114,18 +118,50 @@ export function planMailStyle(view, index, { elementId, property, value, fingerp
     if (value === '') return noop();
     const trimmedEnd = attr.value.replace(/\s+$/, '').length;
     const needsSemi = trimmedEnd > 0 && attr.value[trimmedEnd - 1] !== ';';
-    return insert(base + trimmedEnd, `${needsSemi ? ';' : ''}${property}:${cssValue};`);
+    return insertIn(view, label, base + trimmedEnd, `${needsSemi ? ';' : ''}${property}:${cssValue};`);
   }
   if (target.value.includes('{!')) return bad(`${property} đang mang {!token} (logic runtime của mẫu) — sửa trong XML`);
 
   if (value === '') {
-    if (decls.length === 1) {
-      let s = attr.start;
-      while (s > el.openStart && /\s/.test(view.html[s - 1])) s--;
-      return replace(s, attr.end, '');
-    }
-    return replace(base + target.start, base + target.end + (target.semicolon ? 1 : 0), '');
+    if (decls.length === 1) return replaceIn(view, label, attributeRemovalStart(view, el, attr), attr.end, '');
+    return replaceIn(view, label, base + target.start, base + target.end + (target.semicolon ? 1 : 0), '');
   }
   if (target.value === value) return noop();
-  return replace(base + target.valueStart, base + target.valueEnd, cssValue);
+  return replaceIn(view, label, base + target.valueStart, base + target.valueEnd, cssValue);
+}
+
+/**
+ * Đặt / đổi / xoá MỘT thuộc tính HTML của phần tử (`href`, `src`, `width`, `align`…).
+ *
+ * Giá trị ghi NGUYÊN VĂN như người dùng gõ — không escape `&`: `href="{!alink}&n=1"` của corpus thật
+ * phải đi qua bảng thuộc tính rồi ghi lại y hệt, không thành `&amp;n=1`. An toàn vẫn giữ nhờ bộ kiểm
+ * theo kiểu (`isValidAttrValue` chặn `"<>`, URL chạy mã, tham chiếu ký tự trong URL).
+ *
+ * - Thuộc tính không nháy (`width=50`) → ghi lại có nháy kép.
+ * - Thuộc tính trần (`noshade`) → thay bằng `name="value"`.
+ * - `value === ''` → xoá cả thuộc tính cùng khoảng trắng đứng trước.
+ * - Trùng tên: sửa thuộc tính ĐẦU (trình duyệt đọc cái đầu, bỏ qua cái sau).
+ */
+export function planMailAttr(view, index, { elementId, name, value, fingerprint }) {
+  const r = resolveMailElement(index, elementId, fingerprint);
+  if (!r.ok) return r;
+  const el = r.element;
+  if (el.caps.setAttr !== true) return bad(`<${el.tag}>: ${el.caps.setAttr}`);
+  if (!isAttributeAllowed(el.tag, name)) return bad(`<${el.tag}> không cho sửa thuộc tính ${name}`);
+  if (!isValidAttrValue(name, value)) return bad(`giá trị ${name} không hợp lệ: ${String(value).slice(0, 60)}`);
+  if (el.attrLocks?.[name]) return bad(el.attrLocks[name]);
+
+  const label = value === '' ? `mail: xoá ${name} <${el.tag}>` : `mail: ${name} <${el.tag}>`;
+  const attr = el.attrs.find((a) => a.name === name);
+
+  if (!attr) {
+    if (value === '') return noop();
+    return insertIn(view, label, el.insertAt, ` ${name}="${value}"`);
+  }
+  if (value === '') return replaceIn(view, label, attributeRemovalStart(view, el, attr), attr.end, '');
+  if (attr.value === value) return noop();
+  if (attr.valueStart === null) return replaceIn(view, label, attr.start, attr.end, `${name}="${value}"`);
+  if (attr.quote === null) return replaceIn(view, label, attr.valueStart, attr.valueEnd, `"${value}"`);
+  if (value.includes(attr.quote)) return bad(`giá trị chứa dấu ${attr.quote} trùng dấu nháy của thuộc tính ${name}`);
+  return replaceIn(view, label, attr.valueStart, attr.valueEnd, value);
 }

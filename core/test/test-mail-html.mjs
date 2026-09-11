@@ -40,6 +40,10 @@ export const SOURCE = `<?xml version="1.0" encoding="utf-8"?>
 <img src="logo.png" data-fbo-el="e999"/>
 <p><b>Đậm</b> thường</p>
 <p></p>
+<a href="https://fast.com.vn"><img src="banner.png" width=600 alt="Banner"></a>
+<div align="center"><a href="{!order_url}" style="display:inline-block;padding:10px 20px;color:#ffffff;background-color:#1677ff;">Xem đơn hàng</a></div>
+<hr style="border:0;border-top:1px solid #dddddd;">
+<div style="height:20px;line-height:20px;font-size:0;">&#160;</div>
 <script>alert(1)</script>
 <table><tr><td style="width:100px;]]>&HeaderColor;<![CDATA[">{!h_so_ct}</td><td>{!so_ct}</td></tr>
 ]]></text>
@@ -123,6 +127,33 @@ section('mail html — chỉ mục phần tử và vai trò');
   eq('img chưa có style vẫn sửa style được (chèn thuộc tính)', nth(index, 'img').caps.setStyle, true);
   ok('html (frame) không sửa style', nth(index, 'html').caps.setStyle !== true);
   ok('op phase sau ghi rõ chưa hỗ trợ', String(nth(index, 'h2').caps.removeElement).includes('chưa hỗ trợ'));
+}
+
+section('mail html — loại component và thuộc tính (Phase 4)');
+{
+  const { view, index } = build();
+  eq('ảnh', nth(index, 'img', 1).kind, 'image');
+  eq('a mang display:{!token} = liên kết', nth(index, 'a', 0).kind, 'link');
+  eq('a có nền + đệm = nút', nth(index, 'a', 2).kind, 'button');
+  eq('hr = đường kẻ', nth(index, 'hr').kind, 'divider');
+  eq('div chỉ &#160; = khoảng trống', nth(index, 'div', 1).kind, 'spacer');
+  eq('td có chữ = khung chứa', nth(index, 'td', 1).kind, 'container');
+  eq('h2 = chữ', nth(index, 'h2').kind, 'text');
+  eq('body = khung tài liệu', nth(index, 'body').kind, 'frame');
+
+  eq('img sửa thuộc tính được', nth(index, 'img', 1).caps.setAttr, true);
+  ok('h2 không có thuộc tính nào cho sửa', String(nth(index, 'h2').caps.setAttr).includes('không có thuộc tính'));
+  ok('html (frame) không sửa thuộc tính', nth(index, 'html').caps.setAttr !== true);
+  eq('td có style bị entity cắt: điểm chèn vẫn trong cdata → không khoá thuộc tính nào', nth(index, 'td', 0).attrLocks, {});
+
+  const img = wireMailElements(view, index).find((w) => w.id === nth(index, 'img', 1).id);
+  eq('wire mang kind + attrNames', [img.kind, img.attrNames], ['image', ['src', 'alt', 'width', 'height', 'align', 'border', 'title']]);
+  eq('wire đọc được thuộc tính không nháy', img.attrs, { src: 'banner.png', width: '600', alt: 'Banner' });
+
+  const locked = build({ [HOST]: SOURCE.replace('<td style="width:100px;]]>&HeaderColor;<![CDATA[">', '<td width="]]>&HeaderColor;<![CDATA[">'), [SHARED]: SHARED_SOURCE });
+  const td = nth(locked.index, 'td', 0);
+  ok('thuộc tính bị entity cắt → khoá kèm lý do', String(td.attrLocks.width).includes('entity'));
+  ok('thuộc tính khác của cùng thẻ vẫn thêm được', !('align' in td.attrLocks));
 }
 
 section('mail html — bản vẽ: làm sạch, đánh dấu, thay nhãn');

@@ -1,6 +1,6 @@
 # Email Designer — Phase 0 (baseline) và Phase 2 (kiến trúc)
 
-> Trạng thái: **Phase 0 · Phase 2 · Phase 3 (MVP) xong** — xem mục Phase 3 cuối file. Ghi ngày
+> Trạng thái: **Phase 0 · 2 · 3 (MVP) · 4 (Component) xong** — xem hai mục cuối file. Ghi ngày
 > 2026-09-11. Hợp đồng dạng mã: [`core/src/mail-design-contract.mjs`](../core/src/mail-design-contract.mjs),
 > test: [`core/test/test-mail-design-contract.mjs`](../core/test/test-mail-design-contract.mjs).
 
@@ -501,5 +501,66 @@ Chốt `editing` gộp mọi nhịp của một phép sửa thành một lượt
 - Không sửa được style/chữ nằm trong phần do entity sinh ra (vd 178 `<td>` bị `&HeaderColor;` cắt
   ngang trên corpus) — có lý do hiện ở bảng thuộc tính.
 - Hộp thoại xác nhận file dùng chung dùng `DialogService` (panel riêng), chưa vẽ đè trong designer.
-- Chưa có: thuộc tính HTML (Phase 4), thêm/xoá/di chuyển (Phase 5), biến + dữ liệu mẫu (Phase 6),
-  xem theo bề rộng/validation (Phase 8).
+- Chưa có: ~~thuộc tính HTML (Phase 4)~~ — xem dưới; thêm/xoá/di chuyển (Phase 5), biến + dữ liệu
+  mẫu (Phase 6), xem theo bề rộng/validation (Phase 8).
+
+Commit: **`255eddd`** trên `feat/email-designer` (Phase 2 + 3; kiểm trong worktree tạm: core 2220/2220,
+extension 342/342).
+
+---
+
+## Phase 4 — Component
+
+### Đã làm
+
+Bảng thuộc tính đổi theo LOẠI component, và thêm phép `setAttr`.
+
+| Loại | Nhận ra khi | Ô thuộc tính HTML | Style inline |
+| --- | --- | --- | --- |
+| Ảnh | `<img>` | `src`, `alt`, `width`, `height`, `align`, `border`, `title` + **link = `href` của `<a>` bao ngoài** | `width`, `height`, `border` |
+| Nút | `<a>` có nền / đệm / viền / `display:inline-block` | `href`, `target`, `title` + **căn lề = `align` của khối chứa** | màu, nền, cỡ chữ, đậm, đệm, viền, bo góc, canh chữ, gạch chân |
+| Liên kết | `<a>` còn lại | như nút | màu, cỡ chữ, đậm, gạch chân |
+| Đường kẻ | `<hr>`; khối rỗng có `border-top`/`border-bottom`; khối rỗng cao ≤ 4px có nền | `width`, `size`, `align`, `color` (`<hr>`), `height` (ô) | `border-top`, `border-bottom`, `height`, `background-color`, `margin`, `width` |
+| Khoảng trống | `div`/`td`/`th`/`p` rỗng (kể cả chỉ `&nbsp;`) có `height` hoặc `line-height` | `height` (ô) | `height`, `line-height`, `font-size` |
+| Khung chứa | `table`/`tr`/`td`/`th`/`div`/`center` | `width`, `height`, `align`, `valign`, `bgcolor`, `border`, `cellpadding`, `cellspacing` (theo thẻ) | `width`, `padding`, `background-color`, `border`, `text-align`, `vertical-align` |
+| Chữ | còn lại | `align` (`p`) | font, cỡ, đậm, nghiêng, màu, canh, dòng, đệm, lề |
+
+- `core/src/mail-components.mjs` — `componentKindOf` + `COMPONENT_PANELS` (Phase 5 thêm bộ sinh HTML vào đây).
+- `core/src/mail-design-contract.mjs` — `ATTRIBUTES` mở rộng (`tr`, `hr`, `div`, `p`, `td@height`, `img@border`),
+  nhóm style `divider`/`spacer`, `ATTRIBUTE_ENUMS`, `isValidAttrValue` (độ dài `\d{1,4}%?`, màu, liệt kê,
+  URL; `''` = xoá).
+- `core/src/mail-html.mjs` — `caps.setAttr`, `attrLocks` (thuộc tính do entity sinh ra → lý do), `kind`.
+- `core/src/mail-edit.mjs` — `planMailAttr`; gom phần splice chung với `planMailStyle`.
+- Webview — mục «Thuộc tính HTML», ô liệt kê là ô chọn, ô màu có bảng màu; ô dùng chung một hàm dựng
+  và không gửi lại cùng một giá trị hai lần (Enter rồi rời ô).
+
+### Quyết định
+
+1. **Loại SUY RA, không khai.** Mẫu mail chỉ là HTML. Suy sai chỉ làm hiện nhầm nhóm ô; phép ghi vẫn
+   đi qua whitelist theo THẺ — không có đường ghi thuộc tính lạ.
+2. **Link của ảnh và căn lề của nút sửa ở THẺ CHA** — đó là chỗ HTML mail thật khai chúng. Ảnh chưa
+   bọc `<a>` thì chưa thêm link được: cần chèn phần tử (Phase 5).
+3. **Kiểm theo kiểu**, không chỉ theo ký tự: `width="600px"` hợp lệ về HTML nhưng Outlook bỏ qua.
+4. **Giá trị thuộc tính ghi nguyên văn, không escape `&`**: `href="{!alink}&n=1"` phải khứ hồi y hệt.
+   An toàn nhờ bộ kiểm (`"<>`, URL chạy mã, tham chiếu ký tự trong URL đều bị chặn).
+5. Thuộc tính không nháy (`width=600`) ghi lại thành nháy kép; xoá thuộc tính kéo theo khoảng trắng đứng trước.
+
+### Kiểm chứng
+
+- `node core/test/run.mjs` **2303/2303** · `node extension/test/run.mjs` **350/350**.
+- Test mới: `test-mail-components.mjs` (suy loại, gồm `display:{!token}`, ô trống không khai cao, khối chỉ
+  `&nbsp;`); `setAttr` khứ hồi trong `test-mail-edit.mjs` (không nháy, thêm, xoá, `href` giữ `&`, link
+  thẻ cha, căn lề thẻ cha, ô có style bị entity cắt, action từ Include, khoá do entity); host: dữ liệu
+  `render` mới, `applySplice` đúng nhãn, giá trị sai kiểu chặn ở cửa vào.
+- Corpus FBISP24: phân loại 1874 phần tử — khung chứa 1454, khung tài liệu 163, chữ 138, liên kết 118,
+  đường kẻ 1; `setAttr` khứ hồi **102/102** (27 edit vào file Include); 0 thuộc tính bị khoá.
+- Webview trong trình duyệt (fixture có ảnh/nút/đường kẻ/khoảng trống): mỗi loại hiện đúng nhóm ô,
+  ảnh có ô link thẻ cha, nút có ô căn lề thẻ cha (ô chọn), Enter + rời ô gửi đúng một `setAttr`.
+
+### Giới hạn
+
+- Corpus FBISP24 là mail duyệt chứng từ (bảng) — hầu như không có ảnh/nút/khoảng trống; ba loại đó mới
+  kiểm trên fixture.
+- Nút dựng bằng `<td bgcolor>` + `<a>` trơn được nhận là **liên kết** (vẫn sửa được `href` và căn lề ô).
+- Ảnh chưa bọc link không thêm link được (Phase 5).
+- Chưa chạy trong VS Code thật.

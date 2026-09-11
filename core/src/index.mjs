@@ -115,9 +115,13 @@ export {
   DESIGN_ATTR, ELEMENT_ID_RE, formatElementId, parseElementId, elementFingerprint, MAIL_PARTS, ELEMENT_ROLES,
   roleOfTag, MAIL_OPS, STYLE_PROPERTIES, isStyleProperty, ATTRIBUTES, isAttributeAllowed, COMPONENT_KINDS,
   INSERT_POSITIONS, MOVE_DIRECTIONS, MAX_TEXT_LENGTH, isSafeCssValue, isSafeAttrValue, isSafeUrl, validateMailMessage,
+  ATTRIBUTE_ENUMS, isValidAttrValue,
 } from './mail-design-contract.mjs';
+export { COMPONENT_PANELS, componentKindOf } from './mail-components.mjs';
 export {
   buildMailView, indexMailElements, renderMailDesign, wireMailElements, mapMailEdits, mailElementClearRange,
   parseStyleDeclarations,
 } from './mail-html.mjs';
-export { resolveMailElement, planMailText, planMailStyle } from './mail-edit.mjs';
+export {
+  resolveMailElement, planMailText, planMailStyle, planMailAttr,
+} from './mail-edit.mjs';
