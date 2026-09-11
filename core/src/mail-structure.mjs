@@ -12,6 +12,7 @@ import { cdataRange, cdataPoint } from './mail-html.mjs';
 import { resolveMailElement } from './mail-edit.mjs';
 import { formatElementId, isSafeUrl } from './mail-design-contract.mjs';
 import { componentHtml } from './mail-components.mjs';
+import { analyzeMailColumns, listMailRows } from './mail-template.mjs';
 
 const bad = (reason) => ({ ok: false, reason });
 const noop = () => ({ ok: false, noop: true, reason: 'không có gì đổi' });
@@ -59,6 +60,45 @@ function insertionPoint(el, position) {
 }
 
 const POSITION_LABEL = { before: 'trước', after: 'sau', append: 'vào cuối' };
+
+/**
+ * Vai trò BẢNG của từng phần tử — cầu nối từ phần tử designer đang chọn sang các phép bảng có sẵn của
+ * «Xem mail» (`planResizeMailColumn`, `planAddMailColumn`, `planAddMailRow`), vốn nhận SỐ THỨ TỰ cột/
+ * dòng chứ không nhận phần tử. Nối bằng toạ độ thẻ mở trong clearText — thước đo cả hai phía cùng
+ * dùng — không suy theo tên thẻ hay vị trí trong DOM.
+ *
+ * Luật cột/dòng giữ nguyên của `mail-template.mjs`: cột đếm theo `<detail>`, hàng tiêu đề là hàng gần
+ * `<detail>` nhất khớp số ô; dòng nhân bản được chỉ ở header/footer (nhân dòng mẫu detail là nhân mọi
+ * dòng dữ liệu lúc gửi).
+ *
+ * @returns {Record<string, {column?:{index:number, width:number|null, header:boolean},
+ *                          row?:{part:'header'|'footer', rowIndex:number}}>}
+ */
+export function mailTableContext(view, index, clearText, { actionId, body }) {
+  const clearOf = (h) => {
+    const p = view.pieces.find((x) => x.kind === 'cdata' && h >= x.htmlStart && h < x.htmlEnd);
+    return p ? p.clearStart + (h - p.htmlStart) : null;
+  };
+  const byClear = new Map();
+  for (const el of index.elements) {
+    const c = clearOf(el.openStart);
+    if (c !== null) byClear.set(c, el.id);
+  }
+  const out = {};
+  const put = (id, key, value) => { if (id) out[id] = { ...(out[id] ?? {}), [key]: value }; };
+
+  const analysis = analyzeMailColumns(clearText, { actionId, body });
+  if (analysis.ok) {
+    for (const col of analysis.columns) {
+      put(byClear.get(col.headerCell.tdStart), 'column', { index: col.index, width: col.width, header: true });
+      put(byClear.get(col.detailCell.tdStart), 'column', { index: col.index, width: col.width, header: false });
+    }
+  }
+  for (const row of listMailRows(clearText, { actionId, body })) {
+    put(byClear.get(row.start), 'row', { part: row.section, rowIndex: row.rowIndex });
+  }
+  return out;
+}
 
 /** Xoá trọn một khối/nội tuyến. Chọn lại anh em đứng trước, không có thì cha. */
 export function planMailRemove(view, index, { elementId, fingerprint }) {

@@ -644,3 +644,35 @@ export function mailElementClearRange(view, el) {
   const end = at(el.openEnd, true);
   return start === null || end === null ? null : { start, end: Math.max(start, end) };
 }
+
+/** Đường dẫn so được giữa editor (gạch ngược, hoa thường tuỳ ổ đĩa) và bản đồ đoạn. Core không có `samePath`. */
+const pathKey = (p) => String(p ?? '').replace(/\\/g, '/').toLowerCase();
+
+/**
+ * Con trỏ trong file nguồn → phần tử SÂU NHẤT của dòng HTML đang vẽ chứa nó (chiều Code → Designer).
+ *
+ * Một vị trí nguồn có thể có mặt nhiều lần trong clearText — giá trị một `<!ENTITY>` bung ra ở nhiều
+ * chỗ — nên lấy lần ĐẦU TIÊN rơi vào dòng HTML của (action, body) này. Vị trí thuộc action khác, nằm
+ * trong `<fields>` hay khung XML → `null`: designer không có gì để chọn và giữ nguyên lựa chọn đang có.
+ *
+ * @returns {string|null} elementId
+ */
+export function mailElementAtSource(view, index, segments, file, offset) {
+  const key = pathKey(file);
+  for (const s of segments) {
+    if (pathKey(s.file) !== key || offset < s.sourceStart || offset > s.sourceEnd) continue;
+    const clear = s.start + (offset - s.sourceStart);
+    const piece = view.pieces.find((p) => clear >= p.clearStart && clear <= p.clearEnd);
+    if (!piece) continue;
+    const h = piece.kind === 'cdata' ? piece.htmlStart + (clear - piece.clearStart) : piece.htmlStart;
+    // Phần tử theo thứ tự thẻ mở: cái chứa `h` đứng SAU CÙNG là cái lồng sâu nhất.
+    let best = null;
+    for (const el of index.elements) {
+      if (el.openStart > h) break;
+      const end = el.void ? el.openEnd : (el.closeEnd ?? view.html.length);
+      if (h < end) best = el;
+    }
+    return best ? best.id : null;
+  }
+  return null;
+}

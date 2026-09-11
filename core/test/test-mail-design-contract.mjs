@@ -153,6 +153,11 @@ ok('resizeColumn width 9 bị chặn', !validateMailMessage({ type: 'edit', op: 
 ok('addRow ở detail bị chặn', !validateMailMessage({ type: 'edit', op: 'addRow', rev: 2, part: 'detail', rowIndex: 0 }).ok);
 ok('addRow ở footer', validateMailMessage({ type: 'edit', op: 'addRow', rev: 2, part: 'footer', rowIndex: 0 }).ok);
 
+section('mail contract — bám XML (Phase 7)');
+
+eq('setFollow: chỉ giữ on', validateMailMessage({ type: 'setFollow', on: false, x: 1 }), { ok: true, message: { type: 'setFollow', on: false } });
+ok('setFollow: on không phải boolean bị chặn', !validateMailMessage({ type: 'setFollow', on: 'yes' }).ok);
+
 section('mail contract — chế độ biến và dữ liệu mẫu (Phase 6)');
 
 eq('ba chế độ hiện biến', PREVIEW_MODES, ['label', 'token', 'sample']);

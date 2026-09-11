@@ -416,6 +416,11 @@ export function validateMailMessage(msg) {
         type: 'select', rev: msg.rev, elementId: msg.elementId, reveal: msg.reveal === true,
       });
 
+    // «Bám XML» (Phase 7): chọn trên designer thì con trỏ XML đi theo, đặt con trỏ XML thì designer chọn theo.
+    case 'setFollow':
+      if (typeof msg.on !== 'boolean') return bad('setFollow: on phải là true | false');
+      return ok({ type: 'setFollow', on: msg.on });
+
     case 'setPreview':
       if (!PREVIEW_MODES.includes(msg.mode)) return bad('setPreview: mode phải là label | token | sample');
       return ok({ type: 'setPreview', mode: msg.mode });
@@ -473,6 +478,8 @@ export function validateMailMessage(msg) {
  * @property {Record<string, string>} attrLocks thuộc tính KHÔNG sửa được → lý do (vd do entity sinh ra)
  * @property {{up:string|null, down:string|null}} moveTargets  anh em liền kề đổi chỗ được (Phase 5)
  * @property {{before:true|string, after:true|string, append:true|string}} insertPositions  chỗ chèn/thả quanh phần tử
+ * @property {{column?:{index:number,width:number|null,header:boolean}, row?:{part:string,rowIndex:number}}|null} table
+ *           vai trò trong bảng lưới của mẫu (`mail-structure.mjs#mailTableContext`) — nối sang phép cột/dòng (Phase 7)
  * @property {Array<[string, string]>} style   khai báo inline theo đúng thứ tự trong nguồn
  * @property {Record<string, string>} attrs     chỉ các thuộc tính trong ATTRIBUTES[tag]
  * @property {string|null} text                 chỉ khi `caps.setText === true`
@@ -493,6 +500,10 @@ export function validateMailMessage(msg) {
  * @property {Array<{name:string, kind:'label'|'data', label:{v:string,e:string}|null, count:number,
  *            contexts:string[], parts:string[]}>} variables   biến có trong (action, body) đang vẽ
  * @property {{text:string, skeleton:string}} sample     JSON dữ liệu mẫu đã lưu + khung rỗng dựng từ biến
+ * @property {boolean} follow                            «Bám XML» đang bật (Phase 7)
+ *
+ * Host → webview còn có `{type:'reveal', rev, elementId}` (con trỏ XML vừa vào phần tử này — webview chọn
+ * nó mà KHÔNG gửi `select` ngược lại) và `{type:'sampleError', reason}`.
  * @property {string|null} selectId             host chọn hộ sau một phép sửa (vd phần tử vừa di chuyển)
  * @property {string[]} warnings
  *

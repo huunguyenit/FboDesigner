@@ -23,6 +23,9 @@
     <option value="detail">detail</option>
     <option value="footer">footer</option>
   </select>
+  <label class="md-follow" title="Chọn trên designer thì con trỏ XML đi theo; đặt con trỏ trong XML thì designer chọn theo">
+    <input type="checkbox" id="md-follow" checked> Bám XML
+  </label>
 </header>
 <main class="md-main">
   <aside class="md-palette" aria-label="Component">
@@ -67,6 +70,19 @@
           <button type="button" id="md-insert-apply">Chèn</button>
         </div>
         <p class="md-reason" id="md-struct-reason" hidden></p>
+      </section>
+      <section class="md-group" id="md-table-group" hidden>
+        <h3>Bảng</h3>
+        <div class="md-row" id="md-col-row" hidden>
+          <span id="md-col-label">Cột</span>
+          <input type="number" id="md-col-width" min="10" max="2000" step="1">
+          <span>px</span>
+          <button type="button" id="md-col-add" title="Nhân bản cột này (tiêu đề + dòng mẫu), chèn ngay sau">+ Cột</button>
+        </div>
+        <div class="md-row" id="md-row-row" hidden>
+          <span id="md-row-label">Dòng</span>
+          <button type="button" id="md-row-add" title="Nhân bản dòng này, chèn ngay sau">+ Dòng</button>
+        </div>
       </section>
       <section class="md-group">
         <h3>Chữ</h3>

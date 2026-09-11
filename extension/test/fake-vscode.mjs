@@ -248,6 +248,24 @@ export const workspace = {
   fireDidChangeTextDocument(e) {
     for (const fn of [...workspace.changeListeners]) fn(e);
   },
+
+  /** File watcher giả — giữ handler theo loại sự kiện; test gọi `watcher.fire('change')`. */
+  watchers: [],
+  createFileSystemWatcher(pattern) {
+    const handlers = { change: [], create: [], delete: [] };
+    const on = (kind) => (fn) => { handlers[kind].push(fn); return { dispose() {} }; };
+    const watcher = {
+      pattern,
+      disposed: false,
+      onDidChange: on('change'),
+      onDidCreate: on('create'),
+      onDidDelete: on('delete'),
+      fire(kind, uri) { for (const fn of handlers[kind]) fn(uri); },
+      dispose() { watcher.disposed = true; },
+    };
+    workspace.watchers.push(watcher);
+    return watcher;
+  },
   onDidSaveTextDocument: () => ({ dispose() {} }),
   onDidCloseTextDocument: () => ({ dispose() {} }),
   onDidChangeConfiguration: () => ({ dispose() {} }),
@@ -340,6 +358,14 @@ export const OverviewRulerLane = {
 export const TextEditorRevealType = {
   Default: 0, InCenter: 1, InCenterIfOutsideViewport: 2, AtTop: 3,
 };
+
+/** Mẫu glob theo một thư mục gốc — đủ cho file watcher của Email Designer. */
+export class RelativePattern {
+  constructor(base, pattern) {
+    this.base = base;
+    this.pattern = pattern;
+  }
+}
 
 /** `Selection` là `Range` cộng hướng — chế độ soi chỉ cần phần `Range`. */
 export class Selection extends Range {
@@ -523,7 +549,18 @@ export const window = {
 
   onDidChangeActiveTextEditor: () => ({ dispose() {} }),
   onDidChangeVisibleTextEditors: () => ({ dispose() {} }),
-  onDidChangeTextEditorSelection: () => ({ dispose() {} }),
+  /*
+   * GIỮ LẠI listener đổi vùng chọn — điểm quan sát của «Bám XML» (Email Designer): con trỏ XML đổi thì
+   * designer chọn theo. Test bắn sự kiện qua `fireDidChangeTextEditorSelection`.
+   */
+  selectionListeners: [],
+  onDidChangeTextEditorSelection(fn) {
+    window.selectionListeners.push(fn);
+    return { dispose() { window.selectionListeners = window.selectionListeners.filter((f) => f !== fn); } };
+  },
+  fireDidChangeTextEditorSelection(e) {
+    for (const fn of [...window.selectionListeners]) fn(e);
+  },
 
   asked: { quickPick: [], inputBox: [], warning: [], info: [] },
   answers: { quickPick: [], inputBox: [], warning: [] },

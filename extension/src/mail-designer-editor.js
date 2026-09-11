@@ -30,6 +30,9 @@ const VIEW_TYPE = 'fboDesigner.mail';
 /** Cùng con số và cùng lý do với `PreviewPanel.renderSoon`. */
 const RENDER_DEBOUNCE_MS = 40;
 
+/** Gộp nhịp đổi vùng chọn XML (gõ phím, kéo chuột) trước khi đồng bộ sang designer. */
+const SELECTION_DEBOUNCE_MS = 80;
+
 const NOT_MAIL = 'Email Designer chỉ mở file khai <message xmlns="urn:schemas-fast-com:data-message">'
   + ' — thường là App_Data\\Controllers\\Options\\Message.xml.';
 
@@ -42,6 +45,9 @@ const lastSelection = new Map();
 
 /** Chế độ hiện biến (`PREVIEW_MODES`) gần nhất THEO FILE — sống suốt phiên. */
 const lastPreview = new Map();
+
+/** «Bám XML» bật/tắt THEO FILE — sống suốt phiên, mặc định bật. */
+const lastFollow = new Map();
 
 /**
  * Dữ liệu mẫu khi không có `workspaceState` (chạy test). Bản thật sống ở workspace state của VS Code:
@@ -106,12 +112,20 @@ class MailDesignSession {
     this.editing = false;
     this.renderPending = false;
     this.disposed = false;
+    this.follow = lastFollow.get(this.key) ?? true;
+    this.selectedId = null;      // phần tử webview đang chọn — đồng bộ trúng chính nó thì không gửi gì
+    this.lastBuilt = null;       // { view, index, segments, version } của lần vẽ gần nhất — cho «Bám XML»
+    this.syncingEditor = false;  // đang đặt vùng chọn XML hộ designer → bỏ sự kiện đổi vùng chọn nó sinh ra
+    this.selectionTimer = null;
+    this.watchers = [];          // watcher trên đĩa cho file Include (xem `watchSources`)
+    this.watchKey = '';
 
     this.disposables = [
       vscode.workspace.onDidChangeTextDocument((e) => {
         const p = e.document.uri.fsPath;
         if (samePath(p, document.uri.fsPath) || this.sourceFiles.some((f) => samePath(f, p))) this.renderSoon();
       }),
+      vscode.window.onDidChangeTextEditorSelection((e) => this.onEditorSelectionSoon(e)),
     ];
     panel.onDidDispose(() => this.dispose());
     panel.webview.onDidReceiveMessage((msg) => this.onMessage(msg));
@@ -160,14 +174,19 @@ class MailDesignSession {
       expanded, actions, view, index,
     } = built;
     this.sourceFiles = [...new Set(expanded.segments.map((s) => s.file))];
+    this.watchSources();
     this.rev += 1;
     this.rendered = { rev: this.rev, fingerprints: new Map(index.elements.map((e) => [e.id, e.fingerprint])) };
+    this.lastBuilt = {
+      view, index, segments: expanded.segments, version: this.document.version,
+    };
     for (const w of index.warnings) this.output.appendLine(`email designer: ${w}`);
 
     const selectId = this.selectAfter;
     this.selectAfter = null;
     const labels = this.core.mailActionLabels(expanded.clearText, view.actionId);
     const variables = this.core.mailVariables(view, index, labels);
+    const tables = this.core.mailTableContext(view, index, expanded.clearText, { actionId: view.actionId, body: view.body });
     const sampleText = this.readSampleText(view.actionId);
     const parsedSample = this.core.parseMailSample(sampleText);
     this.post({
@@ -182,7 +201,7 @@ class MailDesignSession {
         mode: this.previewMode,
         sample: parsedSample.ok ? parsedSample.data : null,
       }),
-      elements: this.core.wireMailElements(view, index),
+      elements: this.core.wireMailElements(view, index).map((w) => ({ ...w, table: tables[w.id] ?? null })),
       // Danh sách thuộc tính cho sửa đi KÈM bản vẽ — webview không chép lại whitelist của hợp đồng.
       styleProperties: this.core.STYLE_PROPERTIES,
       componentPanels: this.core.COMPONENT_PANELS,
@@ -191,6 +210,7 @@ class MailDesignSession {
       preview: { mode: this.previewMode },
       variables,
       sample: { text: sampleText, skeleton: JSON.stringify(this.core.sampleSkeleton(variables), null, 2) },
+      follow: this.follow,
       selectId,
       warnings: index.warnings,
     });
@@ -292,7 +312,12 @@ class MailDesignSession {
       case 'setSampleData':
         return this.applySample(msg.text);
       case 'select':
-        return msg.reveal ? this.revealElement(msg) : undefined;
+        this.selectedId = msg.elementId;
+        return msg.reveal ? this.revealElement(msg) : this.followInEditor(msg);
+      case 'setFollow':
+        this.follow = msg.on;
+        lastFollow.set(this.key, msg.on);
+        return undefined;
       case 'undo':
       case 'redo':
         // Ctrl+Z trong webview — undo của VS Code không với tới đây. Chồng dùng chung với designer form.
@@ -310,6 +335,14 @@ class MailDesignSession {
       this.renderPending = true;
       return false;
     }
+    const built = this.build();
+    if (!built.ok) { warn(built.idle || built.error); return false; }
+
+    // Phép bảng của «Xem mail» nhận (action, body) + SỐ THỨ TỰ cột/dòng, không nhận phần tử — bọc lại cho
+    // cùng hình dạng với các kế hoạch khác và gắn nhãn hoàn tác. Luật cột/dòng vẫn của `mail-template.mjs`.
+    const { actionId, body } = this.selection;
+    const { clearText } = built.expanded;
+    const labelled = (plan, label) => (plan.ok ? { ...plan, label } : plan);
     const planner = {
       setText: this.core.planMailText,
       setStyle: this.core.planMailStyle,
@@ -318,14 +351,27 @@ class MailDesignSession {
       moveElement: this.core.planMailMove,
       insertComponent: this.core.planMailInsert,
       wrapLink: this.core.planMailWrapLink,
+      resizeColumn: (_view, _index, m) => labelled(
+        this.core.planResizeMailColumn(clearText, {
+          actionId, body, columnIndex: m.columnIndex, width: m.width,
+        }),
+        `mail: bề rộng cột ${m.columnIndex + 1} → ${m.width}px`,
+      ),
+      addColumn: (_view, _index, m) => labelled(
+        this.core.planAddMailColumn(clearText, { actionId, body, columnIndex: m.columnIndex }),
+        `mail: nhân bản cột ${m.columnIndex + 1}`,
+      ),
+      addRow: (_view, _index, m) => labelled(
+        this.core.planAddMailRow(clearText, {
+          actionId, body, section: m.part, rowIndex: m.rowIndex,
+        }),
+        `mail: nhân bản dòng ${m.rowIndex + 1} <${m.part}>`,
+      ),
     }[msg.op];
     if (!planner) {
       warn(`"${msg.op}" chưa hỗ trợ ở bản này của Email Designer.`);
       return false;
     }
-
-    const built = this.build();
-    if (!built.ok) { warn(built.idle || built.error); return false; }
 
     // Kéo thả chạm HAI phần tử — đích cũng phải đúng là cái webview đã thấy, không riêng phần tử kéo.
     if (msg.targetId) {
@@ -362,10 +408,92 @@ class MailDesignSession {
     }
 
     // Phép cấu trúc làm dồn số id — plan tính sẵn id MỚI của phần tử người dùng đang cầm.
-    this.selectAfter = plan.selectId !== undefined ? plan.selectId : msg.elementId;
+    // Phép bảng không mang phần tử: id của thứ đang chọn (ô/dòng gốc) không dồn số — webview giữ lựa chọn.
+    this.selectAfter = plan.selectId !== undefined ? plan.selectId : (msg.elementId ?? null);
     const wrote = await applySplice({ edits: mapped.edits, warning: mapped.foreignFile }, this.document, this.output, plan.label);
     if (!wrote) this.selectAfter = null;
+    // Việc người dùng phải tự kiểm sau khi ghi (vd footer không có colspan để tự tăng theo cột mới).
+    if (wrote) for (const note of plan.notes ?? []) vscode.window.showInformationMessage(`FBO Designer: ${note}`);
     return wrote;
+  }
+
+  /** Gộp nhịp đổi vùng chọn XML dồn dập vào một lần đồng bộ. */
+  onEditorSelectionSoon(e) {
+    if (!this.follow || this.syncingEditor || this.disposed) return;
+    if (this.selectionTimer) clearTimeout(this.selectionTimer);
+    this.selectionTimer = setTimeout(() => { this.selectionTimer = null; this.onEditorSelection(e); }, SELECTION_DEBOUNCE_MS);
+  }
+
+  /**
+   * Code → Designer: con trỏ XML vào một phần tử thì designer chọn nó.
+   *
+   * Chống vòng lặp bằng hai chốt độc lập: webview chọn theo `reveal` mà KHÔNG gửi `select` ngược lại; và
+   * con trỏ rơi đúng phần tử đang chọn thì không gửi gì. Văn bản đã đổi mà chưa kịp vẽ lại → toạ độ của
+   * lần vẽ cũ không còn đúng, bỏ qua — lượt vẽ tới đang tới.
+   */
+  onEditorSelection(e) {
+    const built = this.lastBuilt;
+    if (!this.follow || this.syncingEditor || !built || !this.rendered || this.disposed) return;
+    const doc = e.textEditor && e.textEditor.document;
+    if (!doc || doc.uri.scheme !== 'file') return;
+    const file = doc.uri.fsPath;
+    const isHost = samePath(file, this.document.uri.fsPath);
+    if (!isHost && !this.sourceFiles.some((f) => samePath(f, file))) return;
+    if (isHost && doc.version !== built.version) return;
+    const selection = e.selections && e.selections[0];
+    if (!selection) return;
+    const id = this.core.mailElementAtSource(built.view, built.index, built.segments, file, doc.offsetAt(selection.active));
+    if (!id || id === this.selectedId) return;
+    this.selectedId = id;
+    this.post({ type: 'reveal', rev: this.rendered.rev, elementId: id });
+  }
+
+  /**
+   * Designer → Code: chọn phần tử thì XML ĐANG MỞ, nhìn thấy được, đi theo — không mở tab mới, không lấy
+   * focus khỏi designer. Sự kiện đổi vùng chọn do chính phép đặt này sinh ra tới SAU (bất đồng bộ), nên
+   * cờ `syncingEditor` giữ qua hết nhịp debounce của nó.
+   */
+  async followInEditor(msg) {
+    const built = this.lastBuilt;
+    if (!this.follow || !built || !this.rendered || msg.rev !== this.rendered.rev) return;
+    const el = built.index.byId.get(msg.elementId);
+    const range = el && this.core.mailElementClearRange(built.view, el);
+    const src = range && this.core.sourceRange(built.segments, range.start, range.end);
+    if (!src) return;
+    const editor = vscode.window.visibleTextEditors.find((ed) => ed.document.uri.scheme === 'file' && samePath(ed.document.uri.fsPath, src.file));
+    if (!editor) return;
+    const target = new vscode.Range(editor.document.positionAt(src.start), editor.document.positionAt(src.end));
+    this.syncingEditor = true;
+    try {
+      editor.selection = new vscode.Selection(target.start, target.end);
+      editor.revealRange(target, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+    } finally {
+      setTimeout(() => { this.syncingEditor = false; }, SELECTION_DEBOUNCE_MS * 2);
+    }
+  }
+
+  /**
+   * File Include KHÔNG mở trong VS Code mà bị đổi trên đĩa (công cụ khác, git checkout) thì không có
+   * `onDidChangeTextDocument` nào báo — theo dõi thẳng file. File ĐANG mở thì bỏ qua watcher: thay đổi của
+   * nó đã tới qua document, vẽ hai lần là thừa. Message.xml không cần watcher — nó là document của editor.
+   */
+  watchSources() {
+    const foreign = this.sourceFiles.filter((f) => !samePath(f, this.document.uri.fsPath));
+    const key = foreign.map((f) => f.toLowerCase()).sort().join('|');
+    if (key === this.watchKey) return;
+    this.watchKey = key;
+    for (const w of this.watchers) w.dispose();
+    this.watchers = foreign.map((file) => {
+      const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(path.dirname(file), path.basename(file)));
+      const onDisk = () => {
+        if (vscode.workspace.textDocuments.some((d) => d.uri.scheme === 'file' && samePath(d.uri.fsPath, file))) return;
+        this.renderSoon();
+      };
+      watcher.onDidChange(onDisk);
+      watcher.onDidCreate(onDisk);
+      watcher.onDidDelete(onDisk);
+      return watcher;
+    });
   }
 
   async revealElement(msg) {
@@ -402,8 +530,11 @@ class MailDesignSession {
     if (this.disposed) return;
     this.disposed = true;
     if (this.renderTimer) { clearTimeout(this.renderTimer); this.renderTimer = null; }
+    if (this.selectionTimer) { clearTimeout(this.selectionTimer); this.selectionTimer = null; }
     for (const d of this.disposables) d.dispose();
     this.disposables = [];
+    for (const w of this.watchers) w.dispose();
+    this.watchers = [];
   }
 }
 
@@ -459,6 +590,7 @@ async function openMailDesigner(core) {
 function resetForTests() {
   lastSelection.clear();
   lastPreview.clear();
+  lastFollow.clear();
   memorySamples.clear();
 }
 

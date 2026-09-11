@@ -4,6 +4,19 @@
 
 ## [Chưa phát hành]
 
+### Thêm — Email Designer: Code ↔ Designer, phép bảng trong designer
+
+- **«Bám XML»** (bật mặc định): chọn phần tử trên designer thì vùng chọn của XML đang mở nhảy tới thẻ
+  mở của nó; đặt con trỏ trong XML thì designer chọn phần tử sâu nhất chứa con trỏ. Không lấy focus,
+  không mở tab; hai chốt chặn vòng lặp (bỏ sự kiện do chính designer sinh ra, không gửi lại khi trúng
+  phần tử đang chọn).
+- **File Include đổi trên đĩa** (không mở trong VS Code) → designer vẽ lại, nhờ watcher theo từng file
+  góp nội dung vào mẫu.
+- **Mục «Bảng»**: đổi bề rộng cột, nhân bản cột, nhân bản dòng header/footer ngay trong designer — dùng
+  lại nguyên phép bảng của «Xem mail».
+- Core: `mailElementAtSource` (con trỏ nguồn → phần tử), `mailTableContext` (phần tử → số thứ tự cột/dòng).
+- Corpus FBISP24: khứ hồi nguồn → phần tử 1810/1810 với phần tử trong CDATA.
+
 ### Thêm — Email Designer: biến `{!tên}` và dữ liệu mẫu
 
 - **Ba chế độ hiện biến** trên bản vẽ — nhãn (như runtime), `{!tên}` (chip), dữ liệu mẫu. Chỉ đổi bản

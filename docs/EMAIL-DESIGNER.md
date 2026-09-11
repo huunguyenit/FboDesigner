@@ -1,6 +1,6 @@
 # Email Designer — Phase 0 (baseline) và Phase 2 (kiến trúc)
 
-> Trạng thái: **Phase 0 · 2 · 3 (MVP) · 4 (Component) · 5 (Thêm/xoá/di chuyển) · 6 (Biến) xong** — xem các mục cuối file. Ghi ngày
+> Trạng thái: **Phase 0 · 2 · 3 (MVP) · 4 (Component) · 5 (Thêm/xoá/di chuyển) · 6 (Biến) · 7 (Code ↔ Designer) xong** — xem các mục cuối file. Ghi ngày
 > 2026-09-11. Hợp đồng dạng mã: [`core/src/mail-design-contract.mjs`](../core/src/mail-design-contract.mjs),
 > test: [`core/test/test-mail-design-contract.mjs`](../core/test/test-mail-design-contract.mjs).
 
@@ -717,3 +717,73 @@ Commit: **`0f8a00b`** trên `feat/email-designer` (kiểm trong worktree tạm: 
 - Không xem nhiều dòng `<detail>` cùng lúc.
 - Không lấy dữ liệu thật từ query của action — dữ liệu mẫu nhập tay.
 - Chưa chạy trong VS Code thật.
+
+Commit: **`1c28e7b`** trên `feat/email-designer` (kiểm trong worktree tạm: core 2425/2425, extension 378/378).
+
+---
+
+## Phase 7 — Code ↔ Designer
+
+### Đã làm
+
+Sửa hai chiều đã có từ Phase 3 (custom text editor dùng CHUNG một TextDocument). Phase 7 bổ sung
+những đường VS Code không tự lo, và nối nốt các phép bảng còn nằm riêng ở «Xem mail».
+
+| Chiều | Cơ chế | Chống vòng lặp |
+| --- | --- | --- |
+| Designer → XML (sửa) | kế hoạch → `applySplice` → TextDocument | chốt `editing` + debounce 40ms; đổi document chỉ dẫn tới VẼ LẠI, không bao giờ tới ghi |
+| XML → Designer (sửa) | `onDidChangeTextDocument` của Message.xml và mọi Include đang mở → vẽ lại | lượt vẽ không ghi gì |
+| Include đổi trên đĩa (không mở) | **FileSystemWatcher** theo từng file góp nội dung vào bản vẽ → vẽ lại | file đang mở thì bỏ sự kiện watcher (thay đổi đã tới qua document); Message.xml không cần watcher |
+| Designer → XML (chọn, «Bám XML») | chọn phần tử → vùng chọn của XML ĐANG MỞ, nhìn thấy được, nhảy tới thẻ mở — không lấy focus, không mở tab | cờ `syncingEditor` bỏ sự kiện đổi vùng chọn do chính phép đặt sinh ra |
+| XML → Designer (chọn) | con trỏ XML (debounce 80ms) → phần tử SÂU NHẤT chứa nó → `reveal` | webview chọn mà KHÔNG gửi `select` ngược; trúng phần tử đang chọn thì không gửi; văn bản đã đổi mà chưa vẽ lại thì bỏ qua |
+
+**Mục «Bảng»** trong bảng thuộc tính — nối các phép có sẵn của «Xem mail» qua vai trò bảng của phần tử
+(`mailTableContext`): đổi bề rộng cột (chỉ khi cột khai `width:Npx` ngay trên ô tiêu đề), nhân bản cột
+(ô tiêu đề + ô dòng mẫu, tăng `colspan` footer nếu có), nhân bản dòng header/footer. Ghi chú của plan
+(vd footer không có `colspan`) hiện sau khi ghi.
+
+- Core: `mail-html.mjs#mailElementAtSource`, `mail-structure.mjs#mailTableContext`.
+- Hợp đồng: `setFollow`; host → webview `reveal`; `render.follow`; phần tử mang `table`.
+- Webview: công tắc «Bám XML» trên thanh công cụ, mục «Bảng».
+
+### Quyết định
+
+1. **Không thêm kênh đồng bộ sửa mới** — hai phía đã chung một TextDocument; chỉ bù phần VS Code không
+   báo (Include trên đĩa) và phần nó không biết (vùng chọn ↔ phần tử).
+2. **Hai chốt độc lập** cho vùng chọn (cờ + so id), không dựa riêng vào thời gian: một chốt lỡ nhịp thì
+   chốt kia vẫn chặn.
+3. **Bám không giành chỗ**: chỉ di chuyển XML đang nhìn thấy, không mở tab, không lấy focus khỏi designer.
+4. Vị trí nguồn nằm trong giá trị `<!ENTITY>` bung ở nhiều chỗ → lấy lần đầu rơi vào bản vẽ hiện tại.
+5. **Phép bảng dùng lại nguyên plan của «Xem mail»** — luật cột theo `<detail>`, chỉ `width` trực tiếp,
+   không nhân dòng detail; không viết phép bảng thứ hai.
+6. **Panel «Xem mail» giữ nguyên.** Nó còn so sánh hai biến thể cạnh nhau và kéo giãn cột bằng tay cầm
+   — hai việc designer chưa có. Hai lối ghi cấu trúc bảng qua CÙNG plan và cùng `mail-apply.js` nên không
+   thể lệch luật, nhưng là hai giao diện cho một việc — **cần chốt**: bỏ phần sửa bảng khỏi panel (chỉ còn
+   xem/so sánh), hay giữ cả hai.
+
+### Kiểm chứng
+
+- `node core/test/run.mjs` **2446/2446** · `node extension/test/run.mjs` **405/405**.
+- `core/test/test-mail-sync.mjs`: con trỏ → phần tử (chữ, thẻ mở, lồng sâu, chữ ngay sau thẻ đóng con,
+  ô tiêu đề, dòng mẫu, `<fields>` → null, giá trị ENTITY trong DOCTYPE, đường dẫn khác kiểu gạch/hoa, Include
+  của action khác); vai trò bảng (`width` trực tiếp dù style bị entity cắt, cột không `width`, dòng mẫu,
+  hàng header, dòng detail không nhân bản, mẫu không có bảng).
+- Host: phép bảng (nhãn, chỉ thay đúng chữ số, hai edit khi nhân bản cột, note `colspan`, dòng không có);
+  bám XML hai chiều (reveal một lần, không gửi lại, `<fields>` không đổi lựa chọn, designer → XML đặt
+  vùng chọn vào `<td`, sự kiện tự sinh không dội, người dùng đổi con trỏ thì theo, tắt bám, văn bản đã đổi
+  thì không đoán); watcher (hai nhịp → một lần vẽ, bỏ khi Include đang mở, gỡ khi đóng editor); sửa từ
+  designer với hai nhịp đổi document → đúng một lượt vẽ, không lượt vẽ hay phép ghi nào tự sinh thêm.
+- Corpus FBISP24 (39 biến thể): 356 ô mang vai trò cột (đều có `width` trực tiếp), 338 dòng nhân bản được;
+  khứ hồi nguồn → phần tử **1810/1810** với phần tử nằm trong CDATA (519 trong file Include); phần tử sinh
+  từ CHỮ của entity (`&CssClass;` → `<head><style>`) 32/64 — giới hạn có chủ ý, xem dưới.
+- Webview trong trình duyệt: công tắc gửi `setFollow`; ô tiêu đề hiện «Cột 1 · 100px» + «Dòng 1 (header)»;
+  Enter + rời ô gửi đúng một `resizeColumn`; «+ Cột», «+ Dòng» gửi đúng số thứ tự; ô không `width` khoá ô
+  nhập kèm lý do; ô dòng mẫu hiện «(dòng mẫu)», không có «+ Dòng»; h2 không có mục «Bảng»; `reveal` chọn
+  phần tử mà không gửi `select` ngược, `rev` cũ bị bỏ qua.
+
+### Giới hạn
+
+- Con trỏ trong phần do CHỮ của entity sinh ra (mảnh text) trỏ về đầu mảnh — không phân biệt được các
+  thẻ bên trong một `&CssClass;`.
+- Con trỏ XML ở mẫu/biến thể KHÁC cái đang vẽ không tự đổi mẫu trên designer.
+- Chưa chạy trong VS Code thật: sự kiện vùng chọn và watcher thật.

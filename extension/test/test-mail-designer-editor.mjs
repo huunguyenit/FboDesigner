@@ -20,9 +20,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const fakeEditHost = {
   calls: [],
   result: true,
-  reset() { fakeEditHost.calls = []; fakeEditHost.result = true; },
+  reset() { fakeEditHost.calls = []; fakeEditHost.result = true; fakeEditHost.onApply = null; },
+  onApply: null,
   async applySplice(plan, hostDocument, output, label) {
     fakeEditHost.calls.push({ plan, hostDocument, label });
+    if (fakeEditHost.onApply) fakeEditHost.onApply(plan);
     return fakeEditHost.result;
   },
 };
@@ -61,9 +63,12 @@ const core = await import('../../core/src/index.mjs');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fbo-mail-designer-'));
 const MESSAGE_XML = path.join(tmp, 'App_Data', 'Controllers', 'Options', 'Message.xml');
 fs.mkdirSync(path.dirname(MESSAGE_XML), { recursive: true });
+const SIGNATURE = path.join(path.dirname(MESSAGE_XML), 'Signature.inc');
+fs.writeFileSync(SIGNATURE, '&lt;p&gt;Chân thư&lt;/p&gt;', 'utf8');
 const SOURCE = `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE message [
   <!ENTITY HeaderColor "background-color:#edede2;">
+  <!ENTITY Signature SYSTEM "Signature.inc">
 ]>
 <message xmlns="urn:schemas-fast-com:data-message">
   <mail>
@@ -75,7 +80,8 @@ const SOURCE = `<?xml version="1.0" encoding="utf-8"?>
 <h2 style="color:#333;">Xin chào {!ten_kh}</h2>
 <table><tr><td style="width:100px;]]>&HeaderColor;<![CDATA[">{!h_so_ct}</td></tr>
 ]]></text></header>
-          <footer><text><![CDATA[</table></body></html>]]></text></footer>
+          <detail><text><![CDATA[<tr><td>x</td></tr>]]></text></detail>
+          <footer><text><![CDATA[</table>]]>&Signature;<![CDATA[</body></html>]]></text></footer>
         </body>
         <body2>
           <header><text><![CDATA[<html><body><p>Biến thể 2</p></body></html>]]></text></header>
@@ -113,6 +119,10 @@ async function open(doc = documentOf(MESSAGE_XML, SOURCE)) {
 function reset() {
   fakeVscode.window.reset();
   fakeVscode.workspace.changeListeners = [];
+  fakeVscode.workspace.watchers = [];
+  fakeVscode.workspace.textDocuments = [];
+  fakeVscode.window.selectionListeners = [];
+  fakeVscode.window.visibleTextEditors = [];
   fakeEditHost.reset();
   fakeHistory.calls = [];
   fakeDialog.reset();
@@ -215,11 +225,6 @@ section('email designer — từ chối có lý do, noop im lặng');
   eq('gõ lại y nguyên → không ghi', fakeEditHost.calls.length, 0);
   eq('gõ lại y nguyên → không cảnh báo', fakeVscode.window.asked.warning.length, before);
 
-  await t.send({
-    type: 'edit', op: 'addColumn', rev: t.last().rev, columnIndex: 0,
-  });
-  ok('phép bảng của «Xem mail» chưa nối vào designer → báo chưa hỗ trợ', fakeVscode.window.asked.warning.some((w) => w.includes('chưa hỗ trợ')));
-  eq('… và không ghi', fakeEditHost.calls.length, 0);
 
   await t.send({ type: 'undo' });
   await t.send({ type: 'redo' });
@@ -353,6 +358,144 @@ section('email designer — biến và dữ liệu mẫu (Phase 6)');
   ok('xoá dữ liệu mẫu → biến trở lại chip', again.last().sample.text === '' && again.last().html.includes('data-fbo-var="ten_kh"'));
   await again.send({ type: 'setPreview', mode: 'bogus' });
   ok('mode lạ bị bỏ ở cửa vào', output.lines.some((l) => l.includes('setPreview')));
+}
+
+section('email designer — phép bảng trong designer (Phase 7)');
+{
+  reset();
+  const t = await open();
+  await t.send({ type: 'ready' });
+  const r = t.last();
+  const headTd = r.elements.find((e) => e.tag === 'td');
+  const headTr = r.elements.find((e) => e.tag === 'tr');
+  eq('ô tiêu đề mang vai trò cột', headTd.table.column, { index: 0, width: 100, header: true });
+  eq('hàng tiêu đề mang vai trò dòng', headTr.table.row, { part: 'header', rowIndex: 0 });
+  eq('phần tử ngoài bảng: table = null', r.elements.find((e) => e.tag === 'h2').table, null);
+
+  await t.send({
+    type: 'edit', op: 'resizeColumn', rev: r.rev, columnIndex: 0, width: 140,
+  });
+  eq('đổi bề rộng → ghi', fakeEditHost.calls.length, 1);
+  eq('nhãn hoàn tác', fakeEditHost.calls[0].label, 'mail: bề rộng cột 1 → 140px');
+  const w = fakeEditHost.calls[0].plan.edits[0];
+  ok('chỉ thay đúng chữ số của width:Npx', SOURCE.slice(w.start, w.end) === '100' && w.text === '140');
+
+  await t.send({ type: 'edit', op: 'addColumn', rev: r.rev, columnIndex: 0 });
+  eq('nhân bản cột → hai edit (ô tiêu đề + ô dòng mẫu)', fakeEditHost.calls[1].plan.edits.length, 2);
+  ok('footer không có colspan → báo để tự kiểm', fakeVscode.window.asked.info.some((m) => m.includes('colspan')));
+
+  await t.send({
+    type: 'edit', op: 'addRow', rev: r.rev, part: 'header', rowIndex: 0,
+  });
+  eq('nhân bản dòng → ghi', [fakeEditHost.calls.length, fakeEditHost.calls[2].label], [3, 'mail: nhân bản dòng 1 <header>']);
+  await t.send({
+    type: 'edit', op: 'addRow', rev: r.rev, part: 'header', rowIndex: 5,
+  });
+  ok('dòng không có → cảnh báo, không ghi', fakeEditHost.calls.length === 3 && fakeVscode.window.asked.warning.some((m) => m.includes('dòng số 6')));
+}
+
+section('email designer — bám XML hai chiều, không dội vòng (Phase 7)');
+{
+  reset();
+  const t = await open();
+  await t.send({ type: 'ready' });
+  const r = t.last();
+  const h2 = r.elements.find((e) => e.tag === 'h2');
+  const td = r.elements.find((e) => e.tag === 'td');
+  const editor = {
+    document: t.doc, selection: null, revealed: [], revealRange(range, type) { editor.revealed.push({ range, type }); },
+  };
+  fakeVscode.window.visibleTextEditors = [editor];
+  const cursorAt = (needle) => {
+    const pos = t.doc.positionAt(SOURCE.indexOf(needle));
+    fakeVscode.window.fireDidChangeTextEditorSelection({ textEditor: editor, selections: [new fakeVscode.Selection(pos, pos)] });
+  };
+  const reveals = () => t.panel.webview.posted.filter((m) => m.type === 'reveal');
+
+  eq('mặc định bật', r.follow, true);
+  cursorAt('Xin chào');
+  await sleep(150);
+  eq('con trỏ XML vào chữ h2 → designer chọn h2', reveals().map((m) => [m.elementId, m.rev]), [[h2.id, r.rev]]);
+  cursorAt('Xin chào');
+  await sleep(150);
+  eq('con trỏ vẫn trong h2 → không gửi lại', reveals().length, 1);
+  cursorAt('<header v="Số phiếu"');
+  await sleep(150);
+  eq('con trỏ vào <fields> → không đổi lựa chọn', reveals().length, 1);
+
+  await t.send({ type: 'select', rev: r.rev, elementId: td.id });
+  const at = t.doc.offsetAt(editor.selection.start);
+  ok('designer chọn td → XML đặt vùng chọn vào thẻ mở <td>', SOURCE.slice(at, at + 3) === '<td' && editor.revealed.length === 1);
+  fakeVscode.window.fireDidChangeTextEditorSelection({ textEditor: editor, selections: [editor.selection] });
+  await sleep(200);
+  eq('sự kiện đổi vùng chọn do chính designer đặt → không dội ngược', reveals().length, 1);
+  cursorAt('{!ten_kh}');
+  await sleep(150);
+  eq('người dùng đưa con trỏ về h2 → designer chọn h2 lại', reveals().at(-1).elementId, h2.id);
+
+  await t.send({ type: 'setFollow', on: false });
+  cursorAt('{!h_so_ct}');
+  await sleep(150);
+  eq('tắt Bám XML → không gửi reveal', reveals().length, 2);
+  const revealed = editor.revealed.length;
+  await t.send({ type: 'select', rev: r.rev, elementId: h2.id });
+  eq('tắt Bám XML → XML không bị kéo theo', editor.revealed.length, revealed);
+
+  await t.send({ type: 'setFollow', on: true });
+  t.doc.version = 2;
+  cursorAt('{!h_so_ct}');
+  await sleep(150);
+  eq('văn bản đã đổi mà chưa vẽ lại → không đoán theo toạ độ cũ', reveals().length, 2);
+}
+
+section('email designer — Include đổi trên đĩa → vẽ lại một lần (Phase 7)');
+{
+  reset();
+  const t = await open();
+  await t.send({ type: 'ready' });
+  const watchers = fakeVscode.workspace.watchers.filter((w) => !w.disposed);
+  eq('theo dõi đúng file Include góp nội dung', watchers.map((w) => w.pattern.pattern), ['Signature.inc']);
+  ok('chữ từ Include có trên bản vẽ', t.last().html.includes('Chân thư'));
+
+  const count = t.renders().length;
+  watchers[0].fire('change');
+  watchers[0].fire('change');
+  await sleep(120);
+  eq('đổi trên đĩa hai nhịp → vẽ lại một lần', t.renders().length, count + 1);
+
+  fakeVscode.workspace.textDocuments = [documentOf(SIGNATURE, '&lt;p&gt;Chân thư&lt;/p&gt;')];
+  watchers[0].fire('change');
+  await sleep(120);
+  eq('Include đang mở trong VS Code → bỏ qua watcher (thay đổi đã tới qua document)', t.renders().length, count + 1);
+  fakeVscode.workspace.textDocuments = [];
+  t.panel.dispose();
+  ok('đóng editor → gỡ watcher', watchers.every((w) => w.disposed));
+}
+
+section('email designer — sửa từ designer: đổi document không thành vòng lặp (Phase 7)');
+{
+  reset();
+  const t = await open();
+  await t.send({ type: 'ready' });
+  const r = t.last();
+  const h2 = r.elements.find((e) => e.tag === 'h2');
+  // Giả đúng thứ VS Code làm: applyEdit bắn một nhịp đổi document, lưu bắn thêm một nhịp nữa.
+  fakeEditHost.onApply = (plan) => {
+    const e = plan.edits[0];
+    t.doc.current = t.doc.current.slice(0, e.start) + e.text + t.doc.current.slice(e.end);
+    fakeVscode.workspace.fireDidChangeTextDocument({ document: t.doc });
+    fakeVscode.workspace.fireDidChangeTextDocument({ document: t.doc });
+  };
+  const count = t.renders().length;
+  await t.send({
+    type: 'edit', op: 'setText', rev: r.rev, elementId: h2.id, value: 'Chào {!ten_kh}',
+  });
+  await sleep(120);
+  eq('một phép sửa, hai nhịp đổi document → đúng một lượt vẽ lại', t.renders().length, count + 1);
+  ok('bản vẽ theo văn bản mới và chọn lại h2', !t.last().html.includes('Xin chào') && t.last().selectId === h2.id);
+  await sleep(250);
+  eq('không lượt vẽ nào tự sinh thêm', t.renders().length, count + 1);
+  eq('và không ghi thêm lần nào', fakeEditHost.calls.length, 1);
 }
 
 section('email designer — đổi biến thể, nhớ lựa chọn theo file');

@@ -61,6 +61,7 @@
     // Delete do host bắt (VS Code nuốt phím trước webview) — xem `designer-webview.js`.
     else if (msg.type === 'hotkey' && (msg.key === 'Delete' || msg.key === 'Del')) onDeleteHotkey();
     else if (msg.type === 'sampleError') showSampleError(msg.reason);
+    else if (msg.type === 'reveal') onReveal(msg);
   });
 
   /**
@@ -96,6 +97,7 @@
     state.variables = msg.variables || [];
     renderVariables();
     $('md-preview').value = (msg.preview && msg.preview.mode) || 'label';
+    $('md-follow').checked = msg.follow !== false;
     state.skeleton = (msg.sample && msg.sample.skeleton) || '{}';
     if (!state.sampleDirty) {
       $('md-sample').value = (msg.sample && msg.sample.text) || '';
@@ -261,6 +263,7 @@
     showReason($('md-text-reason'), textOk ? null : el.caps.setText);
 
     renderStructure(el);
+    renderTable(el);
     renderAttrFields(el);
     renderStyleFields(el);
   }
@@ -725,6 +728,78 @@
     $('md-sample-group').open = true;
     state.sampleDirty = true;
   }
+
+  // ─── Code ↔ Designer (Phase 7) ──────────────────────────────────────────────────────────────
+
+  /**
+   * Con trỏ XML vừa vào phần tử này (host gửi khi «Bám XML» bật). Chọn nó và cuộn tới — nhưng KHÔNG gửi
+   * `select` ngược lại: host đã biết, và gửi lại là kéo con trỏ XML đi theo chính nó, mở màn một vòng lặp.
+   */
+  function onReveal(msg) {
+    if (msg.rev !== state.rev || !state.elements.has(msg.elementId)) return;
+    state.selectedId = msg.elementId;
+    const node = nodeOf(msg.elementId);
+    if (node) node.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    drawBoxes();
+    renderProps();
+  }
+
+  $('md-follow').addEventListener('change', (e) => post({ type: 'setFollow', on: e.target.checked }));
+
+  /**
+   * Mục «Bảng»: phép cột/dòng có sẵn của «Xem mail», nối qua `table` host tính (`mailTableContext`).
+   * Ô chọn trong hàng nhân bản được thì dùng vai trò dòng của thẻ `<tr>` cha.
+   */
+  function renderTable(el) {
+    const parent = el.parentId ? state.elements.get(el.parentId) : null;
+    const column = el.table && el.table.column;
+    const row = (el.table && el.table.row) || (parent && parent.table && parent.table.row) || null;
+    $('md-table-group').hidden = !column && !row;
+
+    $('md-col-row').hidden = !column;
+    if (column) {
+      const input = $('md-col-width');
+      $('md-col-label').textContent = `Cột ${column.index + 1}${column.header ? '' : ' (dòng mẫu)'}`;
+      input.value = column.width === null ? '' : String(column.width);
+      input.disabled = column.width === null;
+      input.title = column.width === null
+        ? 'Cột không khai width:Npx ngay trên ô tiêu đề (dùng class chung) — đổi an toàn không được, sửa trong XML'
+        : 'Bề rộng cột (px) — ghi vào width:Npx của ô tiêu đề';
+      input.dataset.columnIndex = String(column.index);
+      input.dataset.original = input.value;
+      $('md-col-add').dataset.columnIndex = String(column.index);
+    }
+
+    $('md-row-row').hidden = !row;
+    if (row) {
+      $('md-row-label').textContent = `Dòng ${row.rowIndex + 1} (${row.part})`;
+      $('md-row-add').dataset.part = row.part;
+      $('md-row-add').dataset.rowIndex = String(row.rowIndex);
+    }
+  }
+
+  const columnWidth = $('md-col-width');
+  function commitColumnWidth() {
+    if (columnWidth.disabled || columnWidth.value === columnWidth.dataset.original) return;
+    const width = Number(columnWidth.value);
+    if (!Number.isInteger(width) || width < 10 || width > 2000) {
+      showMessageBriefly('Bề rộng cột phải là số nguyên trong khoảng 10–2000px.');
+      columnWidth.value = columnWidth.dataset.original;
+      return;
+    }
+    columnWidth.dataset.original = columnWidth.value; // Enter rồi rời ô là hai sự kiện cho một ý định
+    post({
+      type: 'edit', op: 'resizeColumn', rev: state.rev, columnIndex: Number(columnWidth.dataset.columnIndex), width,
+    });
+  }
+  columnWidth.addEventListener('change', commitColumnWidth);
+  columnWidth.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commitColumnWidth(); } });
+  $('md-col-add').addEventListener('click', (e) => post({
+    type: 'edit', op: 'addColumn', rev: state.rev, columnIndex: Number(e.currentTarget.dataset.columnIndex),
+  }));
+  $('md-row-add').addEventListener('click', (e) => post({
+    type: 'edit', op: 'addRow', rev: state.rev, part: e.currentTarget.dataset.part, rowIndex: Number(e.currentTarget.dataset.rowIndex),
+  }));
 
   function applyText() {
     const el = state.selectedId ? state.elements.get(state.selectedId) : null;

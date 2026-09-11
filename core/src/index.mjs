@@ -124,11 +124,11 @@ export {
   COMPONENT_PANELS, componentKindOf, componentHtml, INSERTABLE_COMPONENTS,
 } from './mail-components.mjs';
 export {
-  planMailRemove, planMailMove, planMailInsert, planMailWrapLink,
+  planMailRemove, planMailMove, planMailInsert, planMailWrapLink, mailTableContext,
 } from './mail-structure.mjs';
 export {
   buildMailView, indexMailElements, renderMailDesign, wireMailElements, mapMailEdits, mailElementClearRange,
-  parseStyleDeclarations,
+  parseStyleDeclarations, mailElementAtSource,
 } from './mail-html.mjs';
 export {
   resolveMailElement, planMailText, planMailStyle, planMailAttr,

@@ -85,6 +85,9 @@ body.md-dragging, body.md-dragging * { cursor: grabbing !important; }
 .md-var span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9em; opacity: 0.75; }
 .md-var-label code { color: var(--vscode-descriptionForeground, #777777); }
 details.md-group summary { margin-bottom: 6px; cursor: pointer; font-size: 0.9em; opacity: 0.8; }
+.md-follow { display: flex; align-items: center; gap: 4px; white-space: nowrap; cursor: pointer; user-select: none; }
+.md-follow input { margin: 0; }
+#md-col-width { width: 72px; }
 #md-sample { width: 100%; box-sizing: border-box; resize: vertical; font-family: var(--vscode-editor-font-family, monospace); }
 
 .md-canvas {
