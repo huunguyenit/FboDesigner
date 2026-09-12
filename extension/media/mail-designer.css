@@ -35,8 +35,9 @@ button:disabled, input:disabled, textarea:disabled { opacity: 0.5; cursor: defau
 .md-file { font-weight: 600; white-space: nowrap; }
 .md-spacer { flex: 1; }
 
-.md-combo { position: relative; }
+.md-combo { position: relative; display: flex; gap: 2px; }
 .md-combo input { width: 280px; }
+#md-action-drop { padding: 0 6px; line-height: 1.2; }
 .md-combo-list {
   position: absolute;
   top: 100%;
@@ -57,17 +58,6 @@ button:disabled, input:disabled, textarea:disabled { opacity: 0.5; cursor: defau
 
 .md-main { flex: 1 1 auto; min-height: 0; display: flex; }
 
-.md-palette {
-  flex: 0 0 120px;
-  overflow: auto;
-  padding: 8px;
-  border-right: 1px solid var(--vscode-panel-border);
-  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
-}
-.md-palette h3 { margin: 0 0 6px; font-size: 0.9em; text-transform: uppercase; opacity: 0.75; }
-.md-palette-group { margin: 8px 0 3px; font-size: 0.8em; opacity: 0.6; }
-.md-palette-item { display: block; width: 100%; margin-bottom: 3px; text-align: left; cursor: grab; }
-
 .md-drop { position: absolute; box-sizing: border-box; pointer-events: none; z-index: 2; }
 .md-drop[hidden] { display: none; }
 .md-drop.md-line { height: 0; border-top: 3px solid var(--vscode-focusBorder, #0a63c2); }
@@ -75,20 +65,37 @@ button:disabled, input:disabled, textarea:disabled { opacity: 0.5; cursor: defau
 .md-hit.md-can-drag { cursor: grab; }
 body.md-dragging, body.md-dragging * { cursor: grabbing !important; }
 
-.md-struct-buttons button { flex: 1; }
-.md-insert-row select, #md-wrap-href { flex: 1; min-width: 0; }
-.md-row[hidden] { display: none; }
-
-.md-vars { display: flex; flex-direction: column; gap: 1px; }
-.md-var { display: flex; gap: 6px; align-items: baseline; min-width: 0; padding: 2px 4px; border: 0; text-align: left; }
-.md-var code { color: var(--vscode-textLink-foreground, #0a63c2); white-space: nowrap; }
-.md-var span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9em; opacity: 0.75; }
-.md-var-label code { color: var(--vscode-descriptionForeground, #777777); }
 details.md-group summary { margin-bottom: 6px; cursor: pointer; font-size: 0.9em; opacity: 0.8; }
 .md-follow { display: flex; align-items: center; gap: 4px; white-space: nowrap; cursor: pointer; user-select: none; }
 .md-follow input { margin: 0; }
-#md-col-width { width: 72px; }
+
+/* Khung xem theo bề rộng mail thật — giữ giữa khi đủ chỗ, sát trái khi cửa sổ hẹp hơn. */
+.md-canvas { overflow: auto; }
+.md-frame-wrap.md-fixed { right: auto; width: var(--md-w); left: max(12px, calc(50% - var(--md-w) / 2)); }
+
+.md-issues { display: flex; flex-direction: column; gap: 1px; }
+.md-issue { display: flex; gap: 6px; align-items: baseline; min-width: 0; padding: 2px 4px; border: 0; text-align: left; }
+.md-issue:disabled { opacity: 1; cursor: default; }
+.md-issue b { flex: 0 0 auto; font-size: 0.8em; text-transform: uppercase; }
+.md-issue span { font-size: 0.9em; }
+.md-issue-error b { color: var(--vscode-errorForeground, #c00000); }
+.md-issue-warning b { color: var(--vscode-editorWarning-foreground, #a36b00); }
+.md-issue-info b { color: var(--vscode-editorInfo-foreground, #0a63c2); }
+#md-issues-badge.md-has-error { color: var(--vscode-errorForeground, #c00000); }
+body.md-readonly .md-hit { cursor: default; }
 #md-sample { width: 100%; box-sizing: border-box; resize: vertical; font-family: var(--vscode-editor-font-family, monospace); }
+.md-sample-keys {
+  display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: flex-end; margin-bottom: 6px;
+}
+.md-sample-keys label {
+  display: flex; flex-direction: column; gap: 2px; font-size: 0.85em; opacity: 0.9; min-width: 0;
+}
+.md-sample-keys input {
+  width: 140px; max-width: 100%; box-sizing: border-box;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+.md-hint { font-size: 0.85em; opacity: 0.75; margin: 0 0 6px; }
+.md-hint code { font-size: 0.95em; }
 
 .md-canvas {
   flex: 1 1 auto;
@@ -152,6 +159,7 @@ details.md-group summary { margin-bottom: 6px; cursor: pointer; font-size: 0.9em
 .md-group textarea { width: 100%; box-sizing: border-box; resize: vertical; font-family: var(--vscode-editor-font-family, monospace); }
 .md-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .md-note { font-size: 0.85em; opacity: 0.7; }
+.md-caption { margin: 6px 0 2px; text-transform: lowercase; }
 .md-reason { margin: 4px 0; font-size: 0.9em; color: var(--vscode-editorWarning-foreground); }
 .md-reason[hidden] { display: none; }
 
@@ -170,3 +178,68 @@ details.md-group summary { margin-bottom: 6px; cursor: pointer; font-size: 0.9em
   background: var(--vscode-editorWidget-background);
   opacity: 0.85;
 }
+
+/* Hộp thoại overlay — cùng token với designer form (subset: text/highlight/nút). */
+.fbo-dlg-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: rgba(0, 0, 0, 0.44);
+}
+.fbo-dlg {
+  display: flex; flex-direction: column;
+  max-width: calc(100vw - 40px); max-height: calc(100vh - 40px);
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 6px;
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+  box-shadow: 0 8px 24px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  font-family: var(--vscode-font-family); font-size: var(--vscode-font-size, 13px);
+}
+.fbo-dlg-small { width: 380px; }
+.fbo-dlg-medium { width: 500px; }
+.fbo-dlg-large { width: 640px; }
+.fbo-dlg-backdrop[data-type="info"] { --fbo-dlg-accent: var(--vscode-textLink-foreground, #3794ff); }
+.fbo-dlg-backdrop[data-type="success"] { --fbo-dlg-accent: var(--vscode-testing-iconPassed, #2ea043); }
+.fbo-dlg-backdrop[data-type="warning"] { --fbo-dlg-accent: var(--vscode-editorWarning-foreground, #cca700); }
+.fbo-dlg-backdrop[data-type="error"] { --fbo-dlg-accent: var(--vscode-editorError-foreground, #f14c4c); }
+.fbo-dlg-head {
+  display: flex; align-items: flex-start; gap: 9px; padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+}
+.fbo-dlg-icon {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; margin-top: 1px; border-radius: 50%;
+  border: 1.5px solid var(--fbo-dlg-accent); color: var(--fbo-dlg-accent);
+  font-size: 12px; font-weight: 700; line-height: 1;
+}
+.fbo-dlg-titles { flex: 1 1 auto; min-width: 0; }
+.fbo-dlg-title { font-size: 13px; font-weight: 600; line-height: 1.35; }
+.fbo-dlg-sub { margin-top: 2px; font-size: 11px; color: var(--vscode-descriptionForeground); }
+.fbo-dlg-x {
+  flex: 0 0 auto; width: 22px; height: 22px; padding: 0; border: none; border-radius: 4px;
+  background: transparent; color: var(--vscode-foreground); font-size: 15px; cursor: pointer;
+}
+.fbo-dlg-x:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2)); }
+.fbo-dlg-body { overflow: auto; padding: 12px; line-height: 1.55; max-height: min(60vh, 520px); }
+.fbo-dlg-block + .fbo-dlg-block { margin-top: 10px; }
+.fbo-dlg-tag {
+  display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;
+  background: color-mix(in srgb, var(--fbo-dlg-accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fbo-dlg-accent) 40%, transparent);
+}
+.fbo-dlg-foot {
+  display: flex; justify-content: flex-end; gap: 8px; padding: 10px 12px 12px;
+  border-top: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+}
+.fbo-dlg-btn {
+  padding: 4px 12px; border-radius: 2px; border: 1px solid var(--vscode-button-border, transparent);
+  font-family: inherit; font-size: 12px; cursor: pointer;
+}
+.fbo-dlg-btn.secondary {
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+}
+.fbo-dlg-btn.primary, .fbo-dlg-btn.danger {
+  background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+}
+.fbo-dlg-btn.danger { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); }

@@ -8,7 +8,8 @@ import { section, eq, ok } from './harness.mjs';
 import { mailActionLabels } from '../src/mail-template.mjs';
 import { renderMailDesign } from '../src/mail-html.mjs';
 import {
-  scanMailTokens, mailVariables, parseMailSample, formatSampleScalar, sampleValueOf, sampleSkeleton, MAX_SAMPLE_ROWS,
+  scanMailTokens, mailVariables, mailTokenKind, parseMailSample, formatSampleScalar, sampleValueOf, sampleSkeleton,
+  MAX_SAMPLE_ROWS,
 } from '../src/mail-variables.mjs';
 import {
   HOST, SHARED, SOURCE, SHARED_SOURCE, build,
@@ -33,6 +34,30 @@ section('mail variables — quét token và ngữ cảnh');
 
   const titled = build({ [HOST]: SOURCE.replace('<![CDATA[<html>]]>', '<![CDATA[<html><title>Đơn {!so_ct}</title>]]>'), [SHARED]: SHARED_SOURCE });
   eq('token trong <title> = raw', scanMailTokens(titled.view, titled.index)[0].context, 'raw');
+}
+
+section('mail variables — nhãn CÓ VÙNG: <fields> không áp vào <detail>');
+{
+  // Mẫu thật dùng chung một tên cho tiêu đề cột và giá trị dòng — corpus FBISP24 có 22 chỗ như vậy
+  // (PurchaseRequisition/body: {!so_luong}, {!sl_duyet}). Ở đây mượn {!h_so_ct} cho đúng hình dạng ấy.
+  const b = build({ [HOST]: SOURCE.replace('{!ma_vt}', '{!h_so_ct}'), [SHARED]: SHARED_SOURCE });
+  const l = mailActionLabels(b.expanded.clearText, 'Order');
+
+  eq('mailTokenKind: ngoài detail mà khai trong <fields> = nhãn', mailTokenKind('h_so_ct', 'header', l), 'label');
+  eq('mailTokenKind: trong detail = dữ liệu, dù có khai', mailTokenKind('h_so_ct', 'detail', l), 'data');
+  eq('mailTokenKind: không khai thì ở đâu cũng là dữ liệu', mailTokenKind('ten_kh', 'header', l), 'data');
+
+  const vars = mailVariables(b.view, b.index, l);
+  const both = vars.filter((v) => v.name === 'h_so_ct');
+  eq('một tên ở hai vùng → HAI mục, mỗi vùng một vai', both.map((v) => [v.kind, v.parts]), [['label', ['header']], ['data', ['detail']]]);
+  eq('mục nhãn mang chữ của <fields>', both[0].label, { v: 'Số phiếu', e: 'Number' });
+  eq('mục dữ liệu không mang nhãn', both[1].label, null);
+  eq('khung dữ liệu mẫu xin cột cho dòng detail', sampleSkeleton(vars).detail[0].h_so_ct, '');
+
+  const html = renderMailDesign(b.view, b.index, { labels: l, mode: 'sample', sample: { detail: [{ h_so_ct: 'VT01' }] } });
+  ok('header vẫn hiện nhãn', html.includes('>Số phiếu</span>'));
+  ok('detail hiện GIÁ TRỊ của dòng', html.includes('>VT01</span>'));
+  eq('nhãn không lọt xuống dòng mẫu', (html.match(/Số phiếu/g) ?? []).length, 1);
 }
 
 section('mail variables — đọc dữ liệu mẫu');
@@ -77,7 +102,9 @@ section('mail variables — bản vẽ theo chế độ');
   const expected = base.index.elements.length - 1; // <script> bị gỡ
 
   const label = render({ mode: 'label' });
-  ok('nhãn: {!h_so_ct} thành chữ "Số phiếu", không chip', label.includes('Số phiếu') && !label.includes('data-fbo-var="h_so_ct"'));
+  ok('nhãn: {!h_so_ct} thành chữ "Số phiếu", không còn token và không phải chip',
+    label.includes('>Số phiếu</span>') && !label.includes('{!h_so_ct}'));
+  ok('nhãn: chữ đã thay vẫn mang dấu token để bấm về đúng {!tên}', /data-fbo-var="h_so_ct" data-fbo-tok="\d+">Số phiếu</.test(label));
   ok('nhãn: biến dữ liệu thành chip', label.includes('data-fbo-var="ten_kh"') && label.includes('>{!ten_kh}</span>'));
   ok('token trong href giữ nguyên, không chip', label.includes('href="{!alink}&n=1"') && !/href="<span/.test(label));
   eq('chip không mang data-fbo-el → số dấu phần tử không đổi', marks(label), expected);
@@ -93,9 +120,9 @@ section('mail variables — bản vẽ theo chế độ');
       ten_kh: 'Nguyễn <b>A</b>', alink: 'https://fast.com.vn/duyet?id=1', so_ct: 'PN0001', t_tien: 1, detail: [{ ma_vt: 'VT01' }],
     },
   });
-  ok('mẫu: giá trị thay vào chữ, đã escape', sample.includes('Xin chào Nguyễn &lt;b&gt;A&lt;/b&gt;'));
+  ok('mẫu: giá trị thay vào chữ, đã escape', /Xin chào <span[^>]*>Nguyễn &lt;b&gt;A&lt;\/b&gt;<\/span>/.test(sample));
   ok('mẫu: giá trị thay vào href, phần sau token giữ nguyên', sample.includes('href="https://fast.com.vn/duyet?id=1&n=1"'));
-  ok('mẫu: dòng detail đọc detail[0]', sample.includes('>VT01</td>'));
+  ok('mẫu: dòng detail đọc detail[0]', sample.includes('>VT01</span></td>'));
   ok('mẫu: biến thiếu vẫn là chip, ghi rõ chưa có', sample.includes('data-fbo-var="ten_vt"') && sample.includes('chưa có trong dữ liệu mẫu'));
   ok('mẫu: nhãn vẫn là nhãn', sample.includes('Số phiếu'));
   eq('mẫu: số dấu phần tử không đổi', marks(sample), expected);

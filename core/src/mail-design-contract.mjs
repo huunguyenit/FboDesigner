@@ -409,12 +409,16 @@ export function validateMailMessage(msg) {
 
     // Chọn phần tử. `reveal` = Ctrl+click / double click → mở XML đúng dải của phần tử, cùng cử
     // chỉ với designer form (`revealSource`).
-    case 'select':
+    case 'select': {
       if (!checkRev(msg.rev)) return bad('select: thiếu rev hợp lệ');
       if (parseElementId(msg.elementId) === null) return bad('select: elementId không hợp lệ');
+      // Bấm trúng một `{!biến}`: số thứ tự token (theo `scanMailTokens`) để host trỏ con trỏ XML vào
+      // ĐÚNG token đó. Không có thì vẫn là một lần chọn phần tử bình thường.
+      const tokenIndex = Number.isInteger(msg.tokenIndex) && msg.tokenIndex >= 0 ? msg.tokenIndex : null;
       return ok({
-        type: 'select', rev: msg.rev, elementId: msg.elementId, reveal: msg.reveal === true,
+        type: 'select', rev: msg.rev, elementId: msg.elementId, reveal: msg.reveal === true, tokenIndex,
       });
+    }
 
     // «Bám XML» (Phase 7): chọn trên designer thì con trỏ XML đi theo, đặt con trỏ XML thì designer chọn theo.
     case 'setFollow':
@@ -431,6 +435,19 @@ export function validateMailMessage(msg) {
         return bad(`setSampleData: text phải là chuỗi ≤ ${MAX_SAMPLE_LENGTH} ký tự`);
       }
       return ok({ type: 'setSampleData', text: msg.text });
+
+    // Lấy dữ liệu mẫu THẬT từ DB: `stt_rec` + `contactID` → chạy query report của action
+    // (`mail-sample.mjs`). Host hỏi xác nhận trước khi ghi `dmxn`.
+    case 'loadMailSample': {
+      if (typeof msg.stt_rec !== 'string') return bad('loadMailSample: stt_rec phải là chuỗi');
+      const stt_rec = msg.stt_rec.trim();
+      if (stt_rec === '' || stt_rec.length > 64) return bad('loadMailSample: stt_rec phải 1–64 ký tự');
+      const contactRaw = msg.contactID === undefined || msg.contactID === null ? '' : String(msg.contactID).trim();
+      if (contactRaw !== '' && !/^\d+$/.test(contactRaw)) {
+        return bad('loadMailSample: contactID phải là số nguyên hoặc để trống');
+      }
+      return ok({ type: 'loadMailSample', stt_rec, contactID: contactRaw === '' ? '0' : contactRaw });
+    }
 
     case 'edit':
       return validateEdit(msg);
@@ -501,6 +518,9 @@ export function validateMailMessage(msg) {
  *            contexts:string[], parts:string[]}>} variables   biến có trong (action, body) đang vẽ
  * @property {{text:string, skeleton:string}} sample     JSON dữ liệu mẫu đã lưu + khung rỗng dựng từ biến
  * @property {boolean} follow                            «Bám XML» đang bật (Phase 7)
+ * @property {boolean} fullPreview                       bản xem trước đầy đủ, chỉ đọc — `elements` rỗng (Phase 8)
+ * @property {Array<{severity:string, code:string, message:string, elementId:string|null}>} issues
+ *           vấn đề theo luật mail client (`mail-lint.mjs#lintMailHtml`)
  *
  * Host → webview còn có `{type:'reveal', rev, elementId}` (con trỏ XML vừa vào phần tử này — webview chọn
  * nó mà KHÔNG gửi `select` ngược lại) và `{type:'sampleError', reason}`.

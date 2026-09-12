@@ -9,6 +9,7 @@ import { expandEntities, sourceRange } from '../src/entities.mjs';
 import {
   scanMailActions, renderMailPreview, isMailTemplateDoc, locateMailSection,
   analyzeMailColumns, planResizeMailColumn, listMailRows, planAddMailRow, planAddMailColumn,
+  readMailReportCommands,
 } from '../src/mail-template.mjs';
 
 /** Áp các splice {start,end,text} vào `text` — CHỈ dùng trong test để kiểm kết quả một kế hoạch
@@ -37,6 +38,17 @@ const SOURCE = `<?xml version="1.0" encoding="utf-8"?>
             <header v="Mã hàng" e="Item"/>
           </field>
         </fields>
+        <query id="checking">
+          <command id="check"><text><![CDATA[select 1]]></text></command>
+        </query>
+        <query id="report">
+          <command id="master">
+            <text><![CDATA[select bodyID = 'body', d_language, so_ct from @@table b where b.stt_rec = @@stt_rec and @@contactID = @@contactID]]></text>
+          </command>
+          <command id="detail">
+            <text><![CDATA[select ma_vt from @@table where stt_rec = @@stt_rec]]></text>
+          </command>
+        </query>
         <body>
           <header>
             <text>
@@ -428,4 +440,30 @@ section('mail-template: renderMailPreview — blueprint:true trên mẫu không 
     actionId: 'PQApproval', body: 'body', vi: true, blueprint: true,
   });
   ok('vẫn render được, chỉ là không có marker', r.ok === true && !r.html.includes('data-fbo-col'));
+}
+
+section('mail-template: readMailReportCommands — đọc master/detail, footer vắng thì null, không lẫn <query id="checking">');
+{
+  const { clearText } = build();
+  const r = readMailReportCommands(clearText, 'PurchaseRequisition');
+  ok('ok', r.ok === true);
+  ok('master đọc đúng SQL, không lẫn command "check" của <query id="checking">', r.commands.master.includes("bodyID = 'body'") && !r.commands.master.includes('select 1'));
+  ok('detail đọc đúng SQL', r.commands.detail.includes('select ma_vt from @@table'));
+  eq('footer vắng → null, không ném lỗi', r.commands.footer, null);
+}
+
+section('mail-template: readMailReportCommands — action không tồn tại');
+{
+  const { clearText } = build();
+  const r = readMailReportCommands(clearText, 'KhongCoActionNay');
+  eq('ok:false', r.ok, false);
+  ok('lý do nhắc rõ tên action', r.reason.includes('KhongCoActionNay'));
+}
+
+section('mail-template: readMailReportCommands — action không có <query id="report">');
+{
+  const { clearText } = buildTable();
+  const r = readMailReportCommands(clearText, 'PQApproval');
+  eq('ok:false', r.ok, false);
+  ok('lý do nhắc rõ thiếu <query id="report">', r.reason.includes('report'));
 }

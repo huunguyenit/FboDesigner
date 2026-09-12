@@ -39,6 +39,13 @@ const fakeDialog = {
   reset() { fakeDialog.shown = []; fakeDialog.answer = 'delete'; },
   async ask(options) { fakeDialog.shown.push(options); return fakeDialog.answer; },
 };
+const fakeOverlay = class OverlayDialogs {
+  constructor() { this.pending = new Map(); }
+  handleMessage() { return false; }
+  dispose() {}
+  async ask(options) { return fakeDialog.ask(options); }
+  async show(options) { return { action: 'confirm', buttonId: await fakeDialog.ask(options) }; }
+};
 const fakeLicense = {
   active: true,
   async ensureLicense() { return fakeLicense.active ? { active: true } : null; },
@@ -51,7 +58,13 @@ Module._load = function load(request, ...rest) {
   if (request === './edit-host') return fakeEditHost;
   if (request === './edit-history') return { history: () => fakeHistory };
   if (request === './license') return fakeLicense;
-  if (request === './dialog/dialog-service') return { dialogs: () => fakeDialog };
+  if (request === './dialog/dialog-service') {
+    return {
+      dialogs: () => fakeDialog,
+      runWithDialogs: (_host, fn) => fn(),
+    };
+  }
+  if (request === './dialog/dialog-overlay') return { OverlayDialogs: fakeOverlay };
   return previousLoad.call(this, request, ...rest);
 };
 
@@ -87,6 +100,12 @@ const SOURCE = `<?xml version="1.0" encoding="utf-8"?>
           <header><text><![CDATA[<html><body><p>Biến thể 2</p></body></html>]]></text></header>
         </body2>
       </action>
+      <action id="Alert" v="Cảnh báo" e="Alert">
+        <fields/>
+        <body>
+          <header><text><![CDATA[<html><body><p>Cảnh báo tồn kho</p></body></html>]]></text></header>
+        </body>
+      </action>
     </template>
   </mail>
 </message>
@@ -105,9 +124,9 @@ function documentOf(file, text) {
   return doc;
 }
 
-async function open(doc = documentOf(MESSAGE_XML, SOURCE)) {
+async function open(doc = documentOf(MESSAGE_XML, SOURCE), coreImpl = core) {
   const panel = fakeVscode.window.createWebviewPanel(VIEW_TYPE, 'Email Designer', {}, {});
-  const provider = new MailDesignerProvider(context, core, output);
+  const provider = new MailDesignerProvider(context, coreImpl, output);
   const session = await provider.resolveCustomTextEditor(doc, panel);
   const send = (msg) => panel.webview.postMessageFromWebview(msg);
   const renders = () => panel.webview.posted.filter((m) => m.type === 'render');
@@ -160,7 +179,7 @@ section('email designer — mở: shell + CSP, vẽ khi webview báo ready');
   ok('html mang data-fbo-el', r.html.includes('data-fbo-el="e1"'));
   ok('nhãn field đã thay', r.html.includes('Số phiếu'));
   ok('danh sách thuộc tính style đi kèm', r.styleProperties.text.includes('font-size'));
-  eq('danh sách mẫu', r.actions.map((a) => [a.id, a.bodies]), [['Order', ['body', 'body2']]]);
+  eq('danh sách mẫu', r.actions.map((a) => [a.id, a.bodies]), [['Order', ['body', 'body2']], ['Alert', ['body']]]);
   t.panel.dispose();
   eq('dispose gỡ listener đổi document', fakeVscode.workspace.changeListeners.length, 0);
 }
@@ -334,6 +353,8 @@ section('email designer — biến và dữ liệu mẫu (Phase 6)');
   ok('biến dữ liệu hiện thành chip', r.html.includes('data-fbo-var="ten_kh"'));
   const skeleton = JSON.parse(r.sample.skeleton);
   ok('khung dữ liệu mẫu chỉ gồm biến dữ liệu', skeleton.ten_kh === '' && !('h_so_ct' in skeleton));
+  ok('render mang sample.keys (stt_rec/contactID)', r.sample.keys
+    && r.sample.keys.stt_rec === '' && r.sample.keys.contactID === '');
 
   await t.send({ type: 'setPreview', mode: 'token' });
   ok('chế độ token: cả nhãn cũng thành chip', t.last().preview.mode === 'token' && t.last().html.includes('data-fbo-var="h_so_ct"'));
@@ -496,6 +517,172 @@ section('email designer — sửa từ designer: đổi document không thành v
   await sleep(250);
   eq('không lượt vẽ nào tự sinh thêm', t.renders().length, count + 1);
   eq('và không ghi thêm lần nào', fakeEditHost.calls.length, 1);
+}
+
+section('email designer — xem trước đầy đủ và kiểm mẫu (Phase 8)');
+{
+  reset();
+  const t = await open();
+  await t.send({ type: 'ready' });
+  const r = t.last();
+  ok('render mang danh sách vấn đề', Array.isArray(r.issues));
+  eq('fixture không có lỗi mail client', r.issues.filter((i) => i.severity === 'error'), []);
+  eq('mặc định không xem trước', r.fullPreview, false);
+
+  await t.send({ type: 'setSampleData', text: '{"detail":[{"x":1},{"x":2}]}' });
+  const p = t.last();
+  ok('gõ dữ liệu mẫu → vào thẳng chế độ xem trước, chỉ đọc',
+    p.fullPreview === true && p.preview.mode === 'sample' && p.elements.length === 0 && !p.html.includes('data-fbo-el'));
+  eq('xem trước: dòng mẫu detail nhân theo dữ liệu mẫu', (p.html.match(/<td>x<\/td>/g) ?? []).length, 2);
+  await t.send({
+    type: 'edit', op: 'setText', rev: p.rev, elementId: 'e3', value: 'y',
+  });
+  ok('xem trước: phép sửa bị từ chối kèm lý do', fakeEditHost.calls.length === 0 && fakeVscode.window.asked.warning.some((w) => w.includes('dữ liệu mẫu')));
+
+  await t.send({ type: 'setPreview', mode: 'label' });
+  ok('về "Biến: nhãn" → bản vẽ có phần tử trở lại', t.last().fullPreview === false && t.last().elements.length > 0);
+  await t.send({ type: 'setPreview', mode: 'token' });
+  eq('"Biến: {!tên}" cũng là bản vẽ sửa được', t.last().fullPreview, false);
+  await t.send({ type: 'setPreview', mode: 'sample' });
+  ok('chọn lại "Biến: dữ liệu mẫu" = xem trước', t.last().fullPreview === true && t.last().elements.length === 0);
+}
+
+section('email designer — bám XML: đổi MẪU theo con trỏ, và ngược lại');
+{
+  reset();
+  const t = await open();
+  await t.send({ type: 'ready' });
+  const r = t.last();
+  const editor = {
+    document: t.doc, selection: null, revealed: [], revealRange(range) { editor.revealed.push(range); },
+  };
+  fakeVscode.window.visibleTextEditors = [editor];
+  const cursorAt = (needle) => {
+    const pos = t.doc.positionAt(t.doc.current.indexOf(needle));
+    fakeVscode.window.fireDidChangeTextEditorSelection({ textEditor: editor, selections: [new fakeVscode.Selection(pos, pos)] });
+  };
+  const selectedText = () => {
+    const from = t.doc.offsetAt(editor.selection.start);
+    const to = t.doc.offsetAt(editor.selection.end);
+    return t.doc.current.slice(from, to);
+  };
+
+  eq('đang vẽ mẫu đầu', r.template.actionId, 'Order');
+  cursorAt('Cảnh báo tồn kho');
+  await sleep(200);
+  const after = t.last();
+  eq('con trỏ XML sang mẫu khác → designer đổi mẫu theo', after.template, { actionId: 'Alert', body: 'body', lang: 'vi' });
+  const reveal = t.panel.webview.posted.filter((m) => m.type === 'reveal').at(-1);
+  ok('… và chọn đúng phần tử dưới con trỏ trên bản vẽ mới',
+    !!reveal && reveal.rev === after.rev && after.elements.find((e) => e.id === reveal.elementId).tag === 'p');
+
+  cursorAt('Biến thể 2');
+  await sleep(200);
+  eq('con trỏ sang BIẾN THỂ khác của mẫu khác → đổi cả hai', t.last().template.body, 'body2');
+  eq('… và về đúng mẫu Order', t.last().template.actionId, 'Order');
+
+  await t.send({
+    type: 'selection', actionId: 'Alert', body: 'body', lang: 'vi',
+  });
+  eq('designer đổi mẫu → XML nhảy tới thẻ mở của action ấy', selectedText(), '<action id="Alert" v="Cảnh báo" e="Alert">');
+  ok('… và cuộn tới đó', editor.revealed.length > 0);
+
+  const before = editor.revealed.length;
+  await t.send({
+    type: 'selection', actionId: 'Alert', body: 'body', lang: 'en',
+  });
+  eq('chỉ đổi ngôn ngữ, cùng mẫu → không kéo XML đi đâu', editor.revealed.length, before);
+}
+
+section('email designer — bấm trúng {!biến} thì con trỏ XML vào đúng token');
+{
+  // Webview (`tokenAt`): thẻ sở hữu `data-fbo-tok` (kể cả bấm padding ô rộng) gửi `tokenIndex`.
+  // Host chỉ nhận số đó — không tự đoán từ elementId.
+  reset();
+  const t = await open();
+  await t.send({ type: 'ready' });
+  const r = t.last();
+  const editor = {
+    document: t.doc, selection: null, revealed: [], revealRange(range) { editor.revealed.push(range); },
+  };
+  fakeVscode.window.visibleTextEditors = [editor];
+  const selectedText = () => t.doc.current.slice(t.doc.offsetAt(editor.selection.start), t.doc.offsetAt(editor.selection.end));
+  const td = r.elements.find((e) => e.tag === 'td');
+
+  ok('bản vẽ gắn số thứ tự token vào chữ đã thay', r.html.includes('data-fbo-tok="1"') && r.html.includes('>Số phiếu</span>'));
+  await t.send({
+    type: 'select', rev: r.rev, elementId: td.id, tokenIndex: 1,
+  });
+  eq('chọn token thứ 1 → XML đúng {!h_so_ct}, không phải thẻ <td>', selectedText(), '{!h_so_ct}');
+
+  await t.send({ type: 'select', rev: r.rev, elementId: td.id });
+  ok('không có tokenIndex → vẫn là thẻ mở <td>', selectedText().startsWith('<td'));
+
+  await t.send({
+    type: 'select', rev: r.rev, elementId: td.id, tokenIndex: 999, reveal: true,
+  });
+  ok('số thứ tự token không có thật → không ném, không kéo XML sai chỗ', selectedText().startsWith('<td'));
+}
+
+section('email designer — nhớ kết quả bung entity (Phase 8)');
+{
+  reset();
+  const spy = { count: 0 };
+  const spyCore = { ...core, expandEntities: (...args) => { spy.count++; return core.expandEntities(...args); } };
+  const t = await open(undefined, spyCore);
+  await t.send({ type: 'ready' });
+  eq('vẽ lần đầu: bung một lần', spy.count, 1);
+  await t.send({ type: 'setPreview', mode: 'token' });
+  await t.send({
+    type: 'selection', actionId: 'Order', body: 'body2', lang: 'vi',
+  });
+  await t.send({
+    type: 'selection', actionId: 'Order', body: 'body', lang: 'vi',
+  });
+  await t.send({ type: 'setFullPreview', on: true });
+  await t.send({ type: 'setFullPreview', on: false });
+  eq('đổi chế độ / biến thể / xem trước — văn bản không đổi → không bung lại', spy.count, 1);
+
+  t.doc.current = SOURCE.replace('Xin chào', 'Kính gửi');
+  fakeVscode.workspace.fireDidChangeTextDocument({ document: t.doc });
+  await sleep(100);
+  eq('Message.xml đổi → bung lại', spy.count, 2);
+
+  const original = fs.readFileSync(SIGNATURE, 'utf8');
+  fs.writeFileSync(SIGNATURE, '&lt;p&gt;Chân thư đã đổi&lt;/p&gt;', 'utf8');
+  fs.utimesSync(SIGNATURE, new Date(), new Date(Date.now() + 5000));
+  await t.send({ type: 'setPreview', mode: 'label' });
+  eq('Include đổi trên đĩa → bung lại', spy.count, 3);
+  ok('… và thấy nội dung mới của Include', t.last().html.includes('Chân thư đã đổi'));
+  fs.writeFileSync(SIGNATURE, original, 'utf8');
+}
+
+section('email designer — lỗi nội bộ không làm designer đứng hình (Phase 8)');
+{
+  reset();
+  const broken = { ...core, mailVariables: () => { throw new Error('nổ lúc vẽ'); } };
+  const t = await open(undefined, broken);
+  await t.send({ type: 'ready' });
+  const err = t.panel.webview.posted.find((m) => m.type === 'error');
+  ok('lỗi trong lúc vẽ → khung báo lỗi', !!err && err.message.includes('nổ lúc vẽ'));
+  ok('… và ghi đủ ra Output', output.lines.some((l) => l.includes('vẽ lỗi') && l.includes('nổ lúc vẽ')));
+
+  reset();
+  const failing = { ...core, mailElementClearRange: () => { throw new Error('nổ lúc mở XML'); } };
+  const u = await open(undefined, failing);
+  await u.send({ type: 'ready' });
+  const h2 = u.last().elements.find((e) => e.tag === 'h2');
+  let threw = false;
+  try {
+    await u.send({
+      type: 'select', rev: u.last().rev, elementId: h2.id, reveal: true,
+    });
+  } catch {
+    threw = true;
+  }
+  ok('lỗi khi xử lý thông điệp không ném ra ngoài', !threw);
+  ok('… báo người dùng xem Output, ghi lại loại thông điệp', fakeVscode.window.asked.warning.some((w) => w.includes('Output'))
+    && output.lines.some((l) => l.includes('"select"') && l.includes('nổ lúc mở XML')));
 }
 
 section('email designer — đổi biến thể, nhớ lựa chọn theo file');

@@ -5,7 +5,9 @@
 // hoặc phép «đổi bề rộng cột» ghi vào cột người dùng không hề chọn.
 
 import { section, eq, ok } from './harness.mjs';
-import { mailElementAtSource } from '../src/mail-html.mjs';
+import { mailElementAtSource, mailTokenClearRange } from '../src/mail-html.mjs';
+import { mailLocationAtSource, mailLocationAt } from '../src/mail-template.mjs';
+import { scanMailTokens } from '../src/mail-variables.mjs';
 import { mailTableContext } from '../src/mail-structure.mjs';
 import {
   HOST, SHARED, SOURCE, SHARED_SOURCE, build, nth,
@@ -31,6 +33,38 @@ section('mail sync — con trỏ trong nguồn → phần tử');
   const shared = build(undefined, { actionId: 'Shared' });
   eq('… và trỏ đúng <p> trên bản vẽ Shared',
     mailElementAtSource(shared.view, shared.index, shared.expanded.segments, SHARED, SHARED_SOURCE.indexOf('Chung')), nth(shared.index, 'p').id);
+}
+
+section('mail sync — con trỏ trong nguồn → MẪU MAIL chứa nó');
+{
+  const b = build();
+  const at = (needle, file = HOST, src = SOURCE) => mailLocationAtSource(
+    b.expanded.clearText, b.expanded.segments, file, src.indexOf(needle),
+  );
+
+  eq('chữ trong body của Order', at('Xin chào'), { actionId: 'Order', body: 'body' });
+  eq('con trỏ trong <fields> vẫn thuộc action ấy (rơi về biến thể đầu)', at('<header v="Số phiếu"'), { actionId: 'Order', body: 'body' });
+  eq('con trỏ trên chính thẻ mở <action>', at('<action id="Order"'), { actionId: 'Order', body: 'body' });
+  eq('action tiêm từ file Include → action của file ấy', at('Chung', SHARED, SHARED_SOURCE), { actionId: 'Shared', body: 'body' });
+  eq('ngoài <template> → null', at('<?xml'), null);
+  eq('file lạ → null', mailLocationAtSource(b.expanded.clearText, b.expanded.segments, 'D:/khong-lien-quan.xml', 10), null);
+  eq('vị trí clearText ngoài mọi action → null', mailLocationAt(b.expanded.clearText, 0), null);
+}
+
+section('mail sync — dải nguồn của MỘT {!biến}');
+{
+  const b = build();
+  const tokens = scanMailTokens(b.view, b.index);
+  const range = (name) => {
+    const i = tokens.findIndex((t) => t.name === name);
+    const r = mailTokenClearRange(b.view, b.index, i);
+    return r ? b.expanded.clearText.slice(r.start, r.end) : null;
+  };
+
+  eq('token trong chữ', range('h_so_ct'), '{!h_so_ct}');
+  eq('token trong dòng mẫu', range('ma_vt'), '{!ma_vt}');
+  eq('token trong thuộc tính href', range('alink'), '{!alink}');
+  eq('số thứ tự không có → null', mailTokenClearRange(b.view, b.index, 999), null);
 }
 
 section('mail sync — vai trò bảng của phần tử');

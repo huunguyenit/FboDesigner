@@ -10,7 +10,7 @@ export {
 } from './spans.mjs';
 export { resolveProgramPaths } from './program.mjs';
 export { expandEntities, findInternalSubset, resolveSystemPath, segmentAt, mapToSource, sourceRange, hostRefAt, refResolvedSpan, shiftSegments, scanEntityRefs } from './entities.mjs';
-export { scanOptionVars, formatSampleValue, isNumericField, isDateField, formatDate, parseDisplayDate, resolveMask } from './format.mjs';
+export { scanOptionVars, formatSampleValue, formatNumber, isNumericField, isDateField, formatDate, parseDisplayDate, resolveMask } from './format.mjs';
 export { renderControl, renderGridControl, containerClass, isDisabled, isTextArea, resolveLocaleName, alignOf } from './control.mjs';
 export { buildGridModel, renderGridHtml, renderGrid, applyArrangement, mergeGridConfig } from './grid.mjs';
 export {
@@ -108,8 +108,13 @@ export {
 export {
   scanMailActions, renderMailPreview, isMailTemplateDoc, locateMailSection,
   analyzeMailColumns, planResizeMailColumn, listMailRows, planAddMailRow, planAddMailColumn,
-  locateMailText, mailActionLabels, substituteFieldTokens,
+  locateMailText, mailActionLabels, substituteFieldTokens, mailLocationAt, mailLocationAtSource,
+  readMailReportCommands,
 } from './mail-template.mjs';
+export {
+  buildMailSampleStub, buildMailTableProbe, buildMailSampleSelect, mailSampleFromRows,
+  isMailFormatTable, mailFormatMap, applyMailFieldFormats, buildMailInWordsSelect,
+} from './mail-sample.mjs';
 // Email Designer — hợp đồng (`docs/EMAIL-DESIGNER.md`), dòng HTML + chỉ mục, kế hoạch sửa.
 export {
   DESIGN_ATTR, ELEMENT_ID_RE, formatElementId, parseElementId, elementFingerprint, MAIL_PARTS, ELEMENT_ROLES,
@@ -118,7 +123,8 @@ export {
   ATTRIBUTE_ENUMS, isValidAttrValue, PREVIEW_MODES, MAX_SAMPLE_LENGTH,
 } from './mail-design-contract.mjs';
 export {
-  scanMailTokens, mailVariables, parseMailSample, formatSampleScalar, sampleValueOf, sampleSkeleton, tokenPatches,
+  scanMailTokens, mailVariables, mailTokenKind, parseMailSample, formatSampleScalar, sampleValueOf, sampleSkeleton,
+  tokenPatches,
 } from './mail-variables.mjs';
 export {
   COMPONENT_PANELS, componentKindOf, componentHtml, INSERTABLE_COMPONENTS,
@@ -128,8 +134,9 @@ export {
 } from './mail-structure.mjs';
 export {
   buildMailView, indexMailElements, renderMailDesign, wireMailElements, mapMailEdits, mailElementClearRange,
-  parseStyleDeclarations, mailElementAtSource,
+  parseStyleDeclarations, mailElementAtSource, renderMailFullPreview, mailTokenClearRange,
 } from './mail-html.mjs';
+export { lintMailHtml, GMAIL_CLIP_BYTES } from './mail-lint.mjs';
 export {
   resolveMailElement, planMailText, planMailStyle, planMailAttr,
 } from './mail-edit.mjs';

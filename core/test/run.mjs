@@ -37,7 +37,9 @@ import './test-mail-edit.mjs';
 import './test-mail-components.mjs';
 import './test-mail-structure.mjs';
 import './test-mail-variables.mjs';
+import './test-mail-sample.mjs';
 import './test-mail-sync.mjs';
+import './test-mail-polish.mjs';
 import { summary } from './harness.mjs';
 
 summary();

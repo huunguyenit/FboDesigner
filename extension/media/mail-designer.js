@@ -20,10 +20,9 @@
   const message = $('md-message');
   const actionInput = $('md-action');
   const actionList = $('md-action-list');
+  const dropButton = $('md-action-drop');
   const bodySelect = $('md-body');
   const langButton = $('md-lang');
-  const textArea = $('md-text');
-  const textApply = $('md-text-apply');
 
   const ROLE_LABEL = {
     frame: 'khung', structure: 'cấu trúc bảng', block: 'khối', inline: 'nội tuyến', unknown: 'thẻ lạ',
@@ -39,11 +38,10 @@
     styleProperties: {},
     componentPanels: {},
     attributeEnums: {},
-    components: [],
-    variables: [],
     skeleton: '{}',
-    lastField: null,      // ô chữ/thuộc tính nhận `{!tên}` được focus gần nhất
     sampleDirty: false,   // ô dữ liệu mẫu đang gõ dở — bản vẽ mới không được đè lên
+    issues: [],
+    fullPreview: false,   // bản xem trước đầy đủ — chỉ đọc, không có phần tử
     selectedId: null,
     hoverId: null,
     templateKey: '',
@@ -56,6 +54,7 @@
 
   window.addEventListener('message', (event) => {
     const msg = event.data || {};
+    if (msg.type === 'dialog-show') return showDialog(msg.id, msg.options);
     if (msg.type === 'render') onRender(msg);
     else if (msg.type === 'idle' || msg.type === 'error') showMessage(msg.message, msg.type === 'error');
     // Delete do host bắt (VS Code nuốt phím trước webview) — xem `designer-webview.js`.
@@ -63,6 +62,110 @@
     else if (msg.type === 'sampleError') showSampleError(msg.reason);
     else if (msg.type === 'reveal') onReveal(msg);
   });
+
+  // ─── Hộp thoại overlay (cùng giao kèo designer form — không mở webview riêng) ───────────────
+  const DIALOG_GLYPH = { info: 'i', success: '✓', warning: '!', error: '×' };
+  let dialogOpen = null;
+
+  function dialogEl(tag, className, text) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (text !== undefined) el.textContent = String(text);
+    return el;
+  }
+
+  function dialogBlock(item) {
+    if (!item || typeof item !== 'object') return null;
+    if (item.type === 'text') {
+      const box = dialogEl('div', 'fbo-dlg-block fbo-dlg-text');
+      String(item.content ?? '').split('\n').forEach((line, i) => {
+        if (i) box.appendChild(document.createElement('br'));
+        box.appendChild(document.createTextNode(line));
+      });
+      return box;
+    }
+    if (item.type === 'highlight') {
+      const box = dialogEl('div', 'fbo-dlg-block');
+      box.appendChild(dialogEl('span', `fbo-dlg-tag ${item.kind || 'info'}`, item.content ?? ''));
+      return box;
+    }
+    return null;
+  }
+
+  function closeDialog(action, buttonId) {
+    if (!dialogOpen) return;
+    const { id, root, lastFocus } = dialogOpen;
+    dialogOpen = null;
+    root.remove();
+    if (lastFocus && document.contains(lastFocus)) {
+      try { lastFocus.focus(); } catch { /* ignore */ }
+    }
+    post({
+      type: 'dialog-result', id, action, buttonId, values: null,
+    });
+  }
+
+  function showDialog(id, options) {
+    if (dialogOpen) closeDialog('close', null);
+    const opt = options || {};
+    const root = dialogEl('div', 'fbo-dlg-backdrop');
+    root.dataset.type = opt.type || 'info';
+    const card = dialogEl('div', `fbo-dlg fbo-dlg-${opt.size || 'medium'}`);
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'true');
+
+    const head = dialogEl('header', 'fbo-dlg-head');
+    head.appendChild(dialogEl('span', 'fbo-dlg-icon', DIALOG_GLYPH[opt.type] || 'i'));
+    const titles = dialogEl('div', 'fbo-dlg-titles');
+    titles.appendChild(dialogEl('div', 'fbo-dlg-title', opt.title || ''));
+    if (opt.subtitle) titles.appendChild(dialogEl('div', 'fbo-dlg-sub', opt.subtitle));
+    head.appendChild(titles);
+    if (opt.showCloseButton !== false) {
+      const x = dialogEl('button', 'fbo-dlg-x', '×');
+      x.type = 'button';
+      x.title = 'Đóng';
+      x.addEventListener('click', () => closeDialog('close', null));
+      head.appendChild(x);
+    }
+    card.appendChild(head);
+
+    const body = dialogEl('div', 'fbo-dlg-body');
+    for (const item of opt.body || []) {
+      const block = dialogBlock(item);
+      if (block) body.appendChild(block);
+    }
+    if (body.childNodes.length) card.appendChild(body);
+
+    const foot = dialogEl('footer', 'fbo-dlg-foot');
+    let primary = null;
+    for (const button of opt.buttons || []) {
+      const el = dialogEl('button', `fbo-dlg-btn ${button.variant || 'secondary'}`, button.label || 'OK');
+      el.type = 'button';
+      el.addEventListener('click', () => closeDialog(button.action || 'confirm', button.id));
+      if (!primary && (button.variant === 'primary' || button.variant === 'danger')) primary = el;
+      foot.appendChild(el);
+    }
+    card.appendChild(foot);
+    root.appendChild(card);
+    document.body.appendChild(root);
+    dialogOpen = { id, root, lastFocus: document.activeElement, primary };
+    root.addEventListener('mousedown', (e) => { if (e.target === root) root.dataset.armed = '1'; });
+    root.addEventListener('click', (e) => {
+      if (e.target === root && root.dataset.armed === '1' && opt.canClose !== false) closeDialog('close', null);
+      delete root.dataset.armed;
+    });
+    (primary || foot.querySelector('.fbo-dlg-btn') || card).focus();
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (!dialogOpen) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      return closeDialog('close', null);
+    }
+    event.stopPropagation();
+  }, true);
 
   /**
    * Phím tắt Delete của VS Code chặn phím ở MỌI chỗ trong editor này, kể cả trong ô nhập của bảng
@@ -92,16 +195,23 @@
     state.styleProperties = msg.styleProperties || {};
     state.componentPanels = msg.componentPanels || {};
     state.attributeEnums = msg.attributeEnums || {};
-    state.components = msg.components || [];
-    renderPalette();
-    state.variables = msg.variables || [];
-    renderVariables();
     $('md-preview').value = (msg.preview && msg.preview.mode) || 'label';
     $('md-follow').checked = msg.follow !== false;
+    state.fullPreview = msg.fullPreview === true;
+    document.body.classList.toggle('md-readonly', state.fullPreview);
+    state.issues = msg.issues || [];
+    renderIssues();
     state.skeleton = (msg.sample && msg.sample.skeleton) || '{}';
     if (!state.sampleDirty) {
       $('md-sample').value = (msg.sample && msg.sample.text) || '';
       $('md-sample-error').hidden = true;
+    }
+    const keys = (msg.sample && msg.sample.keys) || {};
+    if (document.activeElement !== $('md-sample-stt-rec')) {
+      $('md-sample-stt-rec').value = keys.stt_rec || '';
+    }
+    if (document.activeElement !== $('md-sample-contact-id')) {
+      $('md-sample-contact-id').value = keys.contactID || '';
     }
     $('md-file').textContent = msg.file || '';
 
@@ -163,6 +273,56 @@
     return idOf(doc.elementFromPoint(event.clientX - r.left, event.clientY - r.top));
   }
 
+  /**
+   * Số thứ tự `{!biến}` dưới con trỏ. Bản vẽ bọc mỗi biến trong `<span data-fbo-tok>` (kể cả khi
+   * đã thay bằng nhãn), nên chỗ người dùng nhìn thấy "Số phiếu" vẫn trỏ về `{!h_so_ct}` trong XML.
+   *
+   * Ô rộng (`width:300px`) chỉ bọc chữ nhãn — bấm padding/vùng trống của `<td>` thì
+   * `elementFromPoint` trúng thẻ, không trúng span. Thẻ sở hữu token thì vẫn ưu tiên token:
+   * một token → lấy nó; nhiều token trong cùng thẻ → lấy cái gần điểm bấm nhất. Token nằm trong
+   * thẻ con `data-fbo-el` khác không tính (bấm `<tr>` không kéo về token của từng `<td>`).
+   */
+  function tokenAt(event) {
+    const doc = frameDoc();
+    if (!doc) return null;
+    const r = hit.getBoundingClientRect();
+    let node = doc.elementFromPoint(event.clientX - r.left, event.clientY - r.top);
+    while (node && node.getAttribute) {
+      const tok = node.getAttribute('data-fbo-tok');
+      if (tok !== null) return Number(tok);
+      if (node.getAttribute('data-fbo-el') !== null) break;
+      node = node.parentElement;
+    }
+    const owner = node && typeof node.closest === 'function'
+      ? (node.getAttribute('data-fbo-el') !== null ? node : node.closest('[data-fbo-el]'))
+      : null;
+    if (!owner) return null;
+
+    const owned = [];
+    for (const span of owner.querySelectorAll('[data-fbo-tok]')) {
+      if (span.closest('[data-fbo-el]') === owner) owned.push(span);
+    }
+    if (owned.length === 0) return null;
+    if (owned.length === 1) return Number(owned[0].getAttribute('data-fbo-tok'));
+
+    // Nhiều token cùng thẻ: khoảng cách tới hộp chữ (tọa độ cửa sổ cha, cùng hệ với clientX/Y).
+    const x = event.clientX;
+    const y = event.clientY;
+    let best = null;
+    let bestDist = Infinity;
+    for (const span of owned) {
+      const b = span.getBoundingClientRect();
+      const cx = Math.min(Math.max(x, b.left), b.right);
+      const cy = Math.min(Math.max(y, b.top), b.bottom);
+      const dist = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = span;
+      }
+    }
+    return best ? Number(best.getAttribute('data-fbo-tok')) : null;
+  }
+
   function nodeOf(id) {
     const doc = frameDoc();
     return id && doc && ID_RE.test(id) ? doc.querySelector(`[data-fbo-el="${id}"]`) : null;
@@ -198,9 +358,9 @@
   hit.addEventListener('click', (e) => {
     // `click` nổ ra sau `mouseup` của một lần KÉO — thao tác vừa rồi không phải bấm chọn.
     if (suppressClick) { suppressClick = false; return; }
-    select(idAt(e), { reveal: e.ctrlKey || e.metaKey });
+    select(idAt(e), { reveal: e.ctrlKey || e.metaKey, tokenIndex: tokenAt(e) });
   });
-  hit.addEventListener('dblclick', (e) => { const id = idAt(e); if (id) select(id, { reveal: true }); });
+  hit.addEventListener('dblclick', (e) => { const id = idAt(e); if (id) select(id, { reveal: true, tokenIndex: tokenAt(e) }); });
   // Lớp phủ nuốt bánh xe — cuộn hộ iframe rồi vẽ lại khung chọn cho khớp.
   hit.addEventListener('wheel', (e) => {
     const doc = frameDoc();
@@ -211,11 +371,15 @@
   }, { passive: false });
   window.addEventListener('resize', drawBoxes);
 
-  function select(id, { reveal = false } = {}) {
+  function select(id, { reveal = false, tokenIndex = null } = {}) {
     state.selectedId = id && state.elements.has(id) ? id : null;
     drawBoxes();
     renderProps();
-    if (state.selectedId) post({ type: 'select', rev: state.rev, elementId: state.selectedId, reveal });
+    if (state.selectedId) {
+      post({
+        type: 'select', rev: state.rev, elementId: state.selectedId, reveal, tokenIndex,
+      });
+    }
   }
 
   // ─── Bảng thuộc tính ──────────────────────────────────────────────────────────────────────
@@ -233,8 +397,12 @@
     return all;
   }
 
+  const EMPTY_HINT = $('md-props-empty').innerHTML;
+
   function renderProps() {
     const el = state.selectedId ? state.elements.get(state.selectedId) : null;
+    if (state.fullPreview) $('md-props-empty').textContent = 'Đang xem trước theo dữ liệu mẫu (chỉ đọc) — dòng mẫu nhân theo số dòng của dữ liệu mẫu. Chọn «Biến: nhãn» hoặc «Biến: {!tên}» để sửa.';
+    else $('md-props-empty').innerHTML = EMPTY_HINT;
     $('md-props-empty').hidden = !!el;
     $('md-props-body').hidden = !el;
     if (!el) return;
@@ -256,14 +424,6 @@
     const panel = panelOf(el);
     $('md-el-meta').textContent = `${panel ? panel.label : el.kind} · ${ROLE_LABEL[el.role] || el.role} · ${el.part} · ${el.id}`;
 
-    const textOk = el.caps.setText === true;
-    textArea.value = textOk ? el.text : '';
-    textArea.disabled = !textOk;
-    textApply.disabled = !textOk;
-    showReason($('md-text-reason'), textOk ? null : el.caps.setText);
-
-    renderStructure(el);
-    renderTable(el);
     renderAttrFields(el);
     renderStyleFields(el);
   }
@@ -283,7 +443,7 @@
    * sự kiện cho một ý định. Esc trả lại giá trị cũ. `options` → ô chọn; `color` → kèm ô chọn màu.
    */
   function fieldRow({
-    label, value, disabled, title, options, color, onCommit, acceptsToken = false,
+    label, value, disabled, title, options, color, onCommit,
   }) {
     const row = document.createElement('div');
     row.className = 'md-style-row';
@@ -310,7 +470,6 @@
     input.value = value;
     input.disabled = !!disabled;
     if (title) input.title = title;
-    if (acceptsToken && !options) input.dataset.acceptsToken = '1';
 
     let sent = value;
     const commit = () => {
@@ -370,6 +529,7 @@
         }),
       }));
     }
+    $('md-style-caption').hidden = props.length === 0;
   }
 
   /**
@@ -377,7 +537,6 @@
    * link của ảnh là `href` của `<a>` bao ngoài; căn lề của nút là `align` của khối chứa nó.
    */
   function renderAttrFields(el) {
-    const group = $('md-attr-group');
     const box = $('md-attr-fields');
     box.textContent = '';
     const panel = panelOf(el) || { attrs: el.attrNames };
@@ -396,8 +555,8 @@
       rows.push({ target: parent, name: 'align', label: `căn lề (<${parent.tag}> chứa)` });
     }
 
-    group.hidden = rows.length === 0 && !note;
     showReason($('md-attr-reason'), note);
+    $('md-attr-caption').hidden = rows.length === 0;
     for (const { target, name, label } of rows) {
       const lock = target.caps.setAttr !== true ? target.caps.setAttr : (target.attrLocks[name] || null);
       box.appendChild(fieldRow({
@@ -408,7 +567,6 @@
         options: state.attributeEnums[name],
         color: name === 'bgcolor' || name === 'color',
         // Chỉ thuộc tính mà bộ kiểm nhận `{!tên}` — width/height kiểm theo số, chèn token vào đó là bị chặn.
-        acceptsToken: ['href', 'src', 'alt', 'title'].includes(name),
         onCommit: (next) => post({
           type: 'edit', op: 'setAttr', rev: state.rev, elementId: target.id, name, value: next,
         }),
@@ -416,14 +574,13 @@
     }
   }
 
-  // ─── Cấu trúc: xoá / di chuyển / chèn / bọc liên kết (Phase 5) ──────────────────────────────
+  // ─── Di chuyển phần tử bằng kéo thả (Phase 5) ───────────────────────────────────────────────
   //
-  // Webview không tự quyết chỗ nào hợp lệ: mọi nút/ô chọn/vạch thả đọc `caps`, `moveTargets`,
-  // `insertPositions` do core tính. Host kiểm lại lần nữa trên văn bản hiện tại trước khi ghi.
+  // Webview không tự quyết chỗ nào hợp lệ: vạch thả đọc `caps`, `moveTargets`, `insertPositions` do
+  // core tính. Host kiểm lại lần nữa trên văn bản hiện tại trước khi ghi.
 
   const POSITION_LABEL = { before: 'trước', after: 'sau', append: 'vào cuối' };
   const GROUP_LABEL = { content: 'Nội dung', layout: 'Bố cục', dynamic: 'Động' };
-  let drag = null;          // kéo từ palette: { component }
   let press = null;         // nhấn giữ trên phần tử đang chọn: { id, x, y, dragging, drop }
   let suppressClick = false;
 
@@ -437,99 +594,6 @@
   function removeSelected() {
     const el = selected();
     if (el && el.caps.removeElement === true) editSelected({ op: 'removeElement' });
-  }
-
-  function renderStructure(el) {
-    const up = $('md-move-up');
-    const down = $('md-move-down');
-    up.disabled = !el.moveTargets.up;
-    down.disabled = !el.moveTargets.down;
-    up.title = el.moveTargets.up ? 'Đổi chỗ với phần tử liền trên' : 'Không có phần tử anh em phía trên đổi chỗ được';
-    down.title = el.moveTargets.down ? 'Đổi chỗ với phần tử liền dưới' : 'Không có phần tử anh em phía dưới đổi chỗ được';
-    $('md-remove').disabled = el.caps.removeElement !== true;
-    $('md-wrap-row').hidden = el.caps.wrapLink !== true;
-
-    const pos = $('md-insert-pos');
-    for (const opt of pos.options) {
-      const cap = el.insertPositions[opt.value];
-      opt.disabled = cap !== true;
-      opt.title = cap === true ? '' : cap;
-    }
-    if (pos.selectedOptions[0] && pos.selectedOptions[0].disabled) {
-      const firstOk = [...pos.options].find((o) => !o.disabled);
-      if (firstOk) pos.value = firstOk.value;
-    }
-    const canInsert = el.caps.insertComponent === true;
-    $('md-insert-kind').disabled = !canInsert;
-    pos.disabled = !canInsert;
-    $('md-insert-apply').disabled = !canInsert;
-
-    const reasons = [el.caps.removeElement, canInsert ? true : el.caps.insertComponent].filter((r) => r !== true);
-    showReason($('md-struct-reason'), reasons.length ? reasons.join(' · ') : null);
-  }
-
-  $('md-move-up').addEventListener('click', () => editSelected({ op: 'moveElement', direction: 'up' }));
-  $('md-move-down').addEventListener('click', () => editSelected({ op: 'moveElement', direction: 'down' }));
-  $('md-remove').addEventListener('click', removeSelected);
-  $('md-wrap-apply').addEventListener('click', () => {
-    const href = $('md-wrap-href').value.trim();
-    if (href) editSelected({ op: 'wrapLink', href });
-  });
-  $('md-insert-apply').addEventListener('click', () => editSelected({
-    op: 'insertComponent', position: $('md-insert-pos').value, component: $('md-insert-kind').value,
-  }));
-
-  /** Palette + ô chọn component — dựng MỘT lần từ danh sách host gửi (core quyết loại nào có bộ sinh). */
-  function renderPalette() {
-    const box = $('md-palette-items');
-    if (box.childElementCount > 0 || state.components.length === 0) return;
-    const kindSelect = $('md-insert-kind');
-    let group = null;
-    for (const c of state.components) {
-      if (c.group !== group) {
-        group = c.group;
-        const head = document.createElement('div');
-        head.className = 'md-palette-group';
-        head.textContent = GROUP_LABEL[group] || group;
-        box.appendChild(head);
-      }
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.className = 'md-palette-item';
-      item.textContent = c.label;
-      item.draggable = true;
-      item.addEventListener('dragstart', (e) => {
-        drag = { component: c.kind };
-        e.dataTransfer.setData('text/plain', c.kind);
-        e.dataTransfer.effectAllowed = 'copy';
-      });
-      item.addEventListener('dragend', () => { drag = null; showDrop(null); });
-      item.addEventListener('click', () => insertNearSelection(c.kind));
-      box.appendChild(item);
-
-      const opt = document.createElement('option');
-      opt.value = c.kind;
-      opt.textContent = c.label;
-      kindSelect.appendChild(opt);
-    }
-  }
-
-  /** Bấm palette: chèn sau phần tử đang chọn; ô chứa thì chèn vào cuối; không thì trước. */
-  function insertNearSelection(component) {
-    const el = selected();
-    if (!el) { showMessageBriefly('Chọn một phần tử trên mẫu trước, rồi bấm component để chèn cạnh nó — hoặc kéo component thả vào mẫu.'); return; }
-    const position = ['after', 'append', 'before'].find((p) => el.insertPositions[p] === true);
-    if (!position) { showMessageBriefly(`<${el.tag}>: ${el.caps.insertComponent}`); return; }
-    editSelected({ op: 'insertComponent', position, component });
-  }
-
-  function showMessageBriefly(text) {
-    const status = $('md-status');
-    const original = status.dataset.original || status.innerHTML;
-    status.dataset.original = original;
-    status.textContent = text;
-    clearTimeout(showMessageBriefly.timer);
-    showMessageBriefly.timer = setTimeout(() => { status.innerHTML = original; }, 4000);
   }
 
   function isInside(el, ancestor) {
@@ -582,28 +646,6 @@
     box.querySelector('.md-tag').textContent = `${POSITION_LABEL[drop.position]} <${el.tag}> ${el.id}`;
   }
 
-  // Kéo từ palette (HTML5 drag & drop — palette và lớp phủ cùng một trang).
-  hit.addEventListener('dragover', (e) => {
-    if (!drag) return;
-    const d = dropAt(e, null);
-    showDrop(d);
-    if (d) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }
-  });
-  hit.addEventListener('dragleave', () => showDrop(null));
-  hit.addEventListener('drop', (e) => {
-    if (!drag) return;
-    e.preventDefault();
-    const d = dropAt(e, null);
-    const { component } = drag;
-    drag = null;
-    showDrop(null);
-    if (d) {
-      post({
-        type: 'edit', op: 'insertComponent', rev: state.rev, elementId: d.targetId, position: d.position, component,
-      });
-    }
-  });
-
   // Kéo phần tử ĐANG CHỌN để di chuyển — nhấn giữ trên nó rồi rê quá 5px.
   hit.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
@@ -641,59 +683,6 @@
   // ─── Biến và dữ liệu mẫu (Phase 6) ──────────────────────────────────────────────────────────
   //
   // Chế độ hiện biến và dữ liệu mẫu chỉ đổi BẢN VẼ — host vẽ lại, không có phép sửa nào đi ra.
-  // Chèn biến là việc của ô đang soạn: nó chỉ gõ `{!tên}` vào ô, ghi vẫn đi qua «Ghi chữ»/setAttr.
-
-  function renderVariables() {
-    const box = $('md-vars');
-    box.textContent = '';
-    $('md-vars-count').textContent = state.variables.length ? `(${state.variables.length})` : '';
-    if (state.variables.length === 0) {
-      const empty = document.createElement('p');
-      empty.className = 'md-hint';
-      empty.textContent = 'Mẫu này chưa có biến {!tên} nào.';
-      box.appendChild(empty);
-      return;
-    }
-    for (const v of state.variables) {
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.className = `md-var md-var-${v.kind}`;
-      const code = document.createElement('code');
-      code.textContent = `{!${v.name}}`;
-      const info = document.createElement('span');
-      info.textContent = v.label ? (v.label.v || v.label.e) : `dữ liệu · ${v.parts.join('/')}`;
-      item.append(code, info);
-      item.title = `${v.kind === 'label' ? 'Nhãn khai trong <fields>' : 'Dữ liệu lúc gửi (cột của câu query)'} · ${v.count} lần · ${v.contexts.join(', ')}`;
-      // mousedown không lấy focus → ô đang soạn giữ nguyên con trỏ và vùng chọn.
-      item.addEventListener('mousedown', (e) => e.preventDefault());
-      item.addEventListener('click', () => insertToken(v.name));
-      box.appendChild(item);
-    }
-  }
-
-  const acceptsToken = (node) => (node instanceof HTMLTextAreaElement || node instanceof HTMLInputElement) && node.dataset.acceptsToken === '1';
-
-  document.addEventListener('focusin', (e) => {
-    if (acceptsToken(e.target)) state.lastField = e.target;
-  });
-
-  /**
-   * Ô nhận `{!tên}`: ô ĐANG focus trước (nút biến chặn mousedown nên focus không rời ô), rồi mới tới ô
-   * focus gần nhất (người dùng Tab sang nút biến). Không dựa riêng vào `focusin`: khi khung webview
-   * chưa có focus hệ thống, trình duyệt không bắn sự kiện focus dù `activeElement` đã đổi.
-   */
-  function insertToken(name) {
-    const field = acceptsToken(document.activeElement) ? document.activeElement : state.lastField;
-    if (!field || !field.isConnected || field.disabled) {
-      showMessageBriefly('Đặt con trỏ vào ô Chữ (hoặc href/src/alt/title) của phần tử đang chọn, rồi bấm biến để chèn.');
-      return;
-    }
-    const start = field.selectionStart ?? field.value.length;
-    const end = field.selectionEnd ?? start;
-    field.setRangeText(`{!${name}}`, start, end, 'end');
-    field.focus();
-    field.dispatchEvent(new Event('input', { bubbles: true }));
-  }
 
   $('md-preview').addEventListener('change', (e) => post({ type: 'setPreview', mode: e.target.value }));
 
@@ -702,6 +691,15 @@
   $('md-sample-apply').addEventListener('click', () => {
     state.sampleDirty = false;
     post({ type: 'setSampleData', text: sampleArea.value });
+  });
+  $('md-sample-load').addEventListener('click', () => {
+    const stt_rec = $('md-sample-stt-rec').value.trim();
+    const contactID = $('md-sample-contact-id').value.trim();
+    if (!stt_rec) {
+      showSampleError('Nhập stt_rec của chứng từ cần xem trước khi lấy dữ liệu.');
+      return;
+    }
+    post({ type: 'loadMailSample', stt_rec, contactID });
   });
   $('md-sample-skeleton').addEventListener('click', () => {
     let current = {};
@@ -746,72 +744,67 @@
 
   $('md-follow').addEventListener('change', (e) => post({ type: 'setFollow', on: e.target.checked }));
 
-  /**
-   * Mục «Bảng»: phép cột/dòng có sẵn của «Xem mail», nối qua `table` host tính (`mailTableContext`).
-   * Ô chọn trong hàng nhân bản được thì dùng vai trò dòng của thẻ `<tr>` cha.
-   */
-  function renderTable(el) {
-    const parent = el.parentId ? state.elements.get(el.parentId) : null;
-    const column = el.table && el.table.column;
-    const row = (el.table && el.table.row) || (parent && parent.table && parent.table.row) || null;
-    $('md-table-group').hidden = !column && !row;
+  // ─── Hoàn thiện (Phase 8) ───────────────────────────────────────────────────────────────────
 
-    $('md-col-row').hidden = !column;
-    if (column) {
-      const input = $('md-col-width');
-      $('md-col-label').textContent = `Cột ${column.index + 1}${column.header ? '' : ' (dòng mẫu)'}`;
-      input.value = column.width === null ? '' : String(column.width);
-      input.disabled = column.width === null;
-      input.title = column.width === null
-        ? 'Cột không khai width:Npx ngay trên ô tiêu đề (dùng class chung) — đổi an toàn không được, sửa trong XML'
-        : 'Bề rộng cột (px) — ghi vào width:Npx của ô tiêu đề';
-      input.dataset.columnIndex = String(column.index);
-      input.dataset.original = input.value;
-      $('md-col-add').dataset.columnIndex = String(column.index);
-    }
+  // Lỗi JS của webview không hiện ở đâu cả nếu không gửi về — ghi vào Output «FBO Designer».
+  window.addEventListener('error', (e) => post({ type: 'log', text: `webview lỗi: ${e.message} (${e.filename || ''}:${e.lineno || ''})` }));
+  window.addEventListener('unhandledrejection', (e) => post({ type: 'log', text: `webview lỗi promise: ${e.reason && e.reason.message ? e.reason.message : e.reason}` }));
 
-    $('md-row-row').hidden = !row;
-    if (row) {
-      $('md-row-label').textContent = `Dòng ${row.rowIndex + 1} (${row.part})`;
-      $('md-row-add').dataset.part = row.part;
-      $('md-row-add').dataset.rowIndex = String(row.rowIndex);
-    }
+  /** Bề rộng khung xem — mail máy tính (600px), điện thoại (375px). Nhớ theo webview, không qua host. */
+  function applyWidth(value) {
+    const wrap = $('md-frame-wrap');
+    wrap.classList.toggle('md-fixed', Boolean(value));
+    wrap.style.setProperty('--md-w', value ? `${value}px` : '');
+    $('md-width').value = value || '';
+    requestAnimationFrame(drawBoxes);
   }
+  applyWidth((vscode.getState() || {}).width || '');
+  $('md-width').addEventListener('change', (e) => {
+    vscode.setState({ ...(vscode.getState() || {}), width: e.target.value });
+    applyWidth(e.target.value);
+  });
 
-  const columnWidth = $('md-col-width');
-  function commitColumnWidth() {
-    if (columnWidth.disabled || columnWidth.value === columnWidth.dataset.original) return;
-    const width = Number(columnWidth.value);
-    if (!Number.isInteger(width) || width < 10 || width > 2000) {
-      showMessageBriefly('Bề rộng cột phải là số nguyên trong khoảng 10–2000px.');
-      columnWidth.value = columnWidth.dataset.original;
+  const SEVERITY_LABEL = { error: 'Lỗi', warning: 'Cảnh báo', info: 'Gợi ý' };
+
+  /** Bảng «Kiểm tra mẫu» — bấm một vấn đề là chọn phần tử nó trỏ tới và cuộn tới đó. */
+  function renderIssues() {
+    const box = $('md-issues');
+    box.textContent = '';
+    const errors = state.issues.filter((i) => i.severity === 'error').length;
+    const badge = $('md-issues-badge');
+    badge.textContent = state.issues.length ? `⚠ ${state.issues.length}` : '✓ 0';
+    badge.classList.toggle('md-has-error', errors > 0);
+    $('md-issues-count').textContent = state.issues.length ? `(${state.issues.length})` : '';
+    if (state.issues.length === 0) {
+      const none = document.createElement('p');
+      none.className = 'md-hint';
+      none.textContent = 'Không thấy vấn đề nào theo luật mail client.';
+      box.appendChild(none);
       return;
     }
-    columnWidth.dataset.original = columnWidth.value; // Enter rồi rời ô là hai sự kiện cho một ý định
-    post({
-      type: 'edit', op: 'resizeColumn', rev: state.rev, columnIndex: Number(columnWidth.dataset.columnIndex), width,
-    });
+    for (const issue of state.issues) {
+      const el = issue.elementId ? state.elements.get(issue.elementId) : null;
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = `md-issue md-issue-${issue.severity}`;
+      const level = document.createElement('b');
+      level.textContent = SEVERITY_LABEL[issue.severity] || issue.severity;
+      const text = document.createElement('span');
+      text.textContent = el ? `<${el.tag}> ${issue.message}` : issue.message;
+      item.append(level, text);
+      item.disabled = !el;
+      item.title = el ? 'Bấm để chọn phần tử' : issue.code;
+      item.addEventListener('click', () => {
+        if (!el) return;
+        select(el.id);
+        const node = nodeOf(el.id);
+        if (node) node.scrollIntoView({ block: 'nearest' });
+        drawBoxes();
+      });
+      box.appendChild(item);
+    }
   }
-  columnWidth.addEventListener('change', commitColumnWidth);
-  columnWidth.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commitColumnWidth(); } });
-  $('md-col-add').addEventListener('click', (e) => post({
-    type: 'edit', op: 'addColumn', rev: state.rev, columnIndex: Number(e.currentTarget.dataset.columnIndex),
-  }));
-  $('md-row-add').addEventListener('click', (e) => post({
-    type: 'edit', op: 'addRow', rev: state.rev, part: e.currentTarget.dataset.part, rowIndex: Number(e.currentTarget.dataset.rowIndex),
-  }));
-
-  function applyText() {
-    const el = state.selectedId ? state.elements.get(state.selectedId) : null;
-    if (!el || el.caps.setText !== true || textArea.value === el.text) return;
-    post({
-      type: 'edit', op: 'setText', rev: state.rev, elementId: el.id, value: textArea.value,
-    });
-  }
-  textApply.addEventListener('click', applyText);
-  textArea.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyText(); }
-  });
+  $('md-issues-badge').addEventListener('click', () => $('md-issues-group').scrollIntoView({ block: 'nearest' }));
 
   // ─── Thanh công cụ ────────────────────────────────────────────────────────────────────────
 
@@ -844,8 +837,8 @@
     });
   }
 
-  function openList() {
-    const q = actionInput.value.trim().toLowerCase();
+  function openList(all = false) {
+    const q = all ? '' : actionInput.value.trim().toLowerCase();
     visible = state.actions.filter((a) => !q || a.label.toLowerCase().includes(q) || a.id.toLowerCase().includes(q));
     actionList.textContent = '';
     for (const a of visible.slice(0, 300)) {
@@ -876,7 +869,15 @@
   }
 
   actionInput.addEventListener('focus', () => { actionInput.select(); openList(); });
-  actionInput.addEventListener('input', openList);
+  // mousedown: giữ focus ở ô nhập, nếu không blur đóng danh sách ngay trước khi click kịp mở.
+  dropButton.addEventListener('mousedown', (e) => e.preventDefault());
+  dropButton.addEventListener('click', () => {
+    if (!actionList.hidden) { closeList(); return; }
+    actionInput.focus();
+    actionInput.select();
+    openList(true);
+  });
+  actionInput.addEventListener('input', () => openList());
   actionInput.addEventListener('blur', () => { closeList(); renderToolbar(); });
   actionInput.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { closeList(); actionInput.blur(); return; }
@@ -894,20 +895,27 @@
     if (!state.template) return;
     choose(state.template.actionId, state.template.body, state.template.lang === 'en' ? 'vi' : 'en');
   });
-  $('md-undo').addEventListener('click', () => post({ type: 'undo' }));
-  $('md-redo').addEventListener('click', () => post({ type: 'redo' }));
-  $('md-goto').addEventListener('change', (e) => {
-    const section = e.target.value;
-    e.target.value = '';
-    if (section) post({ type: 'gotoSource', section });
-  });
-
   // ─── Phím tắt ─────────────────────────────────────────────────────────────────────────────
 
   document.addEventListener('keydown', (e) => {
     const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement;
     if (e.key === 'Escape' && !typing) { select(null); return; }
     if (e.key === 'Delete' && !typing) { e.preventDefault(); removeSelected(); return; }
+    if (!typing && e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+      const el = selected();
+      const direction = e.key === 'ArrowUp' ? 'up' : 'down';
+      if (el && el.moveTargets[direction]) editSelected({ op: 'moveElement', direction });
+      return;
+    }
+    if (!typing && (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+      const el = selected();
+      if (!el) return;
+      const next = e.key === 'ArrowUp' ? el.parentId : ([...state.elements.values()].find((x) => x.parentId === el.id) || {}).id;
+      if (next) select(next);
+      return;
+    }
     if (typing || !(e.ctrlKey || e.metaKey) || e.altKey) return;
     const k = e.key.toLowerCase();
     if (k === 'z' && !e.shiftKey) { e.preventDefault(); post({ type: 'undo' }); }

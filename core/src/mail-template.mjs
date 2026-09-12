@@ -228,23 +228,82 @@ function mailTemplateBounds(clearText) {
   return { start: template.contentStart, end: template.contentEnd };
 }
 
+/** Thẻ `<tagName id="wantedId">` đầu tiên (không lồng — cùng giả định với `findElement`), tìm
+ * bằng toạ độ tuyệt đối trong khoảng `[from, to)`. Tổng quát của `findActionByIdAbs` cũ — dùng
+ * chung cho `<action id>`, và cho `<query id="report">`/`<command id="master|detail|footer">`
+ * của `readMailReportCommands`, vốn khớp bằng `id` giữa nhiều thẻ ANH EM cùng tên chứ không phải
+ * thẻ đầu tiên như `findElement`. */
+function findTagByIdAbs(text, tagName, wantedId, from, to) {
+  const ranges = maskRanges(text);
+  const re = new RegExp(`<${tagName}(?=[\\s>])[^>]*>`, 'g');
+  re.lastIndex = from;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index >= to) return null;
+    if (masked(ranges, m.index)) continue;
+    if (parseAttrs(m[0]).id !== wantedId) continue;
+    const contentStart = m.index + m[0].length;
+    const contentEnd = findCloseFrom(text, tagName, contentStart, ranges, to);
+    return contentEnd === -1 ? null : { contentStart, contentEnd };
+  }
+  return null;
+}
+
 /** `<action id="…">` khớp `id`, tìm bằng toạ độ tuyệt đối trong khoảng `[from, to)`. Tách khỏi
  * `renderMailPreview`/`scanMailActions` (cắt lát, toạ độ tương đối) vì `locateMailSection` cần
  * toạ độ gốc để đi tiếp qua `sourceRange`. */
 function findActionByIdAbs(clearText, id, from, to) {
-  const ranges = maskRanges(clearText);
-  const re = /<action(?=[\s>])[^>]*>/g;
-  re.lastIndex = from;
-  let m;
-  while ((m = re.exec(clearText)) !== null) {
-    if (m.index >= to) return null;
-    if (masked(ranges, m.index)) continue;
-    if (parseAttrs(m[0]).id !== id) continue;
-    const contentStart = m.index + m[0].length;
-    const contentEnd = findCloseFrom(clearText, 'action', contentStart, ranges, to);
-    return contentEnd === -1 ? null : { contentStart, contentEnd };
+  return findTagByIdAbs(clearText, 'action', id, from, to);
+}
+
+/** Bóc CDATA, giữ nguyên phần còn lại — cùng quy tắc `grid-sample.mjs#stripCdata`, lặp lại ở đây
+ * để `readMailReportCommands` không phải kéo theo cả `grid-sample.mjs` (file đó ngược lại có
+ * import `mail-template.mjs`, xem `mail-sample.mjs`). */
+function stripCdataText(text) {
+  return String(text ?? '').replace(/<!\[CDATA\[/g, '').replace(/\]\]>/g, '');
+}
+
+/**
+ * SQL của MỘT `<command id="…">` bên trong `<query id="report">` — nội dung có thể bọc thêm một
+ * lớp `<text>` (cùng khảo sát đã ghi ở `grid-sample.mjs#readControllerQuery`), và luôn bọc CDATA.
+ */
+function commandSql(text, contentStart, contentEnd) {
+  const inner = text.slice(contentStart, contentEnd);
+  const wrapped = /<text\s*>([\s\S]*?)<\/text>/i.exec(inner);
+  const sql = stripCdataText(wrapped ? wrapped[1] : inner).trim();
+  return sql === '' ? null : sql;
+}
+
+/**
+ * Ba câu SQL của `<query id="report">` trong MỘT action — `master`/`detail`/`footer` — dùng để
+ * lấy DỮ LIỆU MẪU THẬT cho mail (khác hẳn `<header>/<detail>/<footer>` của `<body>`, đó là KHUNG
+ * HTML mẫu; đây là ba câu SQL runtime chạy trên database khách khi gửi mail thật, xem
+ * `mail-sample.mjs` về cách dùng lại chúng cho một bản xem trước).
+ *
+ * @param {string} clearText văn bản Message.xml ĐÃ bung entity
+ * @param {string} actionId
+ * @returns {{ok:true, commands:{master:string|null, detail:string|null, footer:string|null}}
+ *           |{ok:false, reason:string}}
+ */
+export function readMailReportCommands(clearText, actionId) {
+  const bounds = mailTemplateBounds(clearText);
+  if (!bounds) return { ok: false, reason: 'không tìm thấy <mail><template>' };
+
+  const action = findActionByIdAbs(clearText, actionId, bounds.start, bounds.end);
+  if (!action) return { ok: false, reason: `không tìm thấy action "${actionId}"` };
+
+  const report = findTagByIdAbs(clearText, 'query', 'report', action.contentStart, action.contentEnd);
+  if (!report) return { ok: false, reason: `action "${actionId}" không có <query id="report">` };
+
+  const commands = {};
+  for (const id of ['master', 'detail', 'footer']) {
+    const cmd = findTagByIdAbs(clearText, 'command', id, report.contentStart, report.contentEnd);
+    commands[id] = cmd ? commandSql(clearText, cmd.contentStart, cmd.contentEnd) : null;
   }
-  return null;
+  if (!commands.master && !commands.detail && !commands.footer) {
+    return { ok: false, reason: `<query id="report"> của "${actionId}" không có <command> nào đọc được` };
+  }
+  return { ok: true, commands };
 }
 
 const MAIL_SECTIONS = new Set(['header', 'detail', 'footer']);
@@ -313,8 +372,9 @@ export function mailActionLabels(clearText, actionId) {
  * @returns {Array<{id:string, table:string, v:string, e:string, bodies:string[]}>}
  */
 export function scanMailActions(clearText) {
-  const scope = mailTemplateScope(clearText);
-  if (scope === null) return [];
+  const bounds = mailTemplateBounds(clearText);
+  if (bounds === null) return [];
+  const scope = clearText.slice(bounds.start, bounds.end);
 
   const ranges = maskRanges(scope);
   const actions = [];
@@ -332,15 +392,61 @@ export function scanMailActions(clearText) {
     // Action mail luôn có ít nhất một `<body…>` — khai chỉ để tiêm field/query dùng chung
     // (thấy trên corpus thật, đứng lẫn trong `<template>`) không có gì để xem, bỏ khỏi danh sách.
     if (bodies.length === 0) continue;
+    // Toạ độ TUYỆT ĐỐI trong clearText: `mailLocationAt` cần chúng để nói con trỏ XML đang đứng ở
+    // action/body nào — đó là thứ quyết định designer có phải đổi mẫu đang vẽ hay không.
+    const contentStartAbs = bounds.start + contentStart;
+    const contentEndAbs = bounds.start + contentEnd;
     actions.push({
       id: attrs.id,
       table: attrs.table ?? '',
       v: decodeXmlBuiltins(attrs.v ?? ''),
       e: decodeXmlBuiltins(attrs.e ?? ''),
       bodies,
+      start: bounds.start + m.index,
+      end: contentEndAbs + '</action>'.length,
+      bodyRanges: bodies.map((body) => {
+        const el = findElement(clearText, body, contentStartAbs, contentEndAbs);
+        return el
+          ? { body, start: el.openStart, end: el.blockEnd }
+          : { body, start: contentStartAbs, end: contentStartAbs };
+      }),
     });
   }
   return actions;
+}
+
+/**
+ * Vị trí trong clearText → mẫu mail đang đứng ở đó. Con trỏ ở BẤT CỨ đâu trong `<action>` đều tính
+ * (kể cả `<fields>` hay thuộc tính của thẻ mở); ngoài vùng body thì lấy biến thể đầu.
+ *
+ * @returns {{actionId:string, body:string}|null}
+ */
+export function mailLocationAt(clearText, clearOffset) {
+  for (const a of scanMailActions(clearText)) {
+    if (clearOffset < a.start || clearOffset > a.end) continue;
+    const hit = a.bodyRanges.find((b) => clearOffset >= b.start && clearOffset < b.end);
+    return { actionId: a.id, body: hit ? hit.body : a.bodies[0] };
+  }
+  return null;
+}
+
+/** Đường dẫn so được giữa editor và bản đồ đoạn — xem `mail-html.mjs#mailElementAtSource`. */
+const locPathKey = (p) => String(p ?? '').replace(/\\/g, '/').toLowerCase();
+
+/**
+ * Con trỏ trong FILE NGUỒN → mẫu mail chứa nó. Action tiêm từ file Include cũng tính: bản đồ đoạn quy
+ * vị trí nguồn về clearText trước, rồi mới hỏi `mailLocationAt`.
+ *
+ * @returns {{actionId:string, body:string}|null}
+ */
+export function mailLocationAtSource(clearText, segments, file, offset) {
+  const key = locPathKey(file);
+  for (const s of segments) {
+    if (locPathKey(s.file) !== key || offset < s.sourceStart || offset > s.sourceEnd) continue;
+    const hit = mailLocationAt(clearText, s.start + (offset - s.sourceStart));
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /** Nội dung chữ thật của `<header>|<detail>|<footer><text><![CDATA[ … ]]></text></…>` — bỏ mọi

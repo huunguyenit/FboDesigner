@@ -68,6 +68,11 @@ dò sẵn; nối không được thì `Ctrl+Alt+C` vẫn chạy và hỏi tay.
 | **Mở Email Designer**                  | —            | Mở `Options/Message.xml` bằng editor trực quan: chọn phần tử trên mẫu mail, sửa chữ và style inline — ghi thẳng XML, Ctrl+Z hoàn tác (xem `docs/EMAIL-DESIGNER.md`) |
 
 
+![Mail Designer](docs/images/MailDesigner.png)
+
+*Email Designer — chọn phần tử trên mẫu mail, sửa chữ/style inline, kéo thả component, và nạp
+dữ liệu mẫu THẬT theo `stt_rec` + `contactID` (xem `docs/EMAIL-DESIGNER.md`).*
+
 ![Commands](docs/images/Command.png)
 
 *Menu chuột phải trên file* `.xml` */* `.f`*: mở designer, khai báo lọc, sinh script thêm cột.*

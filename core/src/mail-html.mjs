@@ -18,7 +18,7 @@
 // ngầm). Chỗ nào không chắc thì ghi lý do vào `caps` và designer TỪ CHỐI, không đoán.
 
 import { locateMailText } from './mail-template.mjs';
-import { tokenPatches } from './mail-variables.mjs';
+import { tokenPatches, scanMailTokens } from './mail-variables.mjs';
 import { segmentAt } from './entities.mjs';
 import { decodeXmlText } from './render.mjs';
 import {
@@ -512,8 +512,62 @@ function dangerousUrl(value) {
  * `mode` (`mail-variables.mjs#tokenPatches`): nhãn / chip / dữ liệu mẫu. Nguồn không bị đụng — mọi
  * thay đổi ở đây chỉ sống trong chuỗi trả về.
  */
-export function renderMailDesign(view, index, {
-  labels = new Map(), vi = true, mode = 'label', sample = null,
+export function renderMailDesign(view, index, options = {}) {
+  return applyPatches(view.html, designPatches(view, index, options), 0, view.html.length);
+}
+
+/**
+ * Bản xem trước ĐẦY ĐỦ, chỉ đọc (Phase 8): không dấu phần tử, dòng mẫu `<detail>` nhân theo từng dòng
+ * của `sample.detail` — việc designer không làm được, vì nhân dòng là nhân id phần tử và khung chọn
+ * không còn biết trỏ vào bản nào. Không có dòng dữ liệu mẫu nào thì giữ một dòng như bản vẽ.
+ */
+export function renderMailFullPreview(view, index, {
+  labels = new Map(), vi = true, sample = null, mode = 'sample',
+} = {}) {
+  const rows = sample && Array.isArray(sample.detail) && sample.detail.length > 0 ? sample.detail.length : 1;
+  const base = {
+    labels, vi, sample, mode, markers: false,
+  };
+  const shared = designPatches(view, index, base);
+  let out = '';
+  for (const part of view.parts) {
+    if (part.part !== 'detail') {
+      out += applyPatches(view.html, shared, part.htmlStart, part.htmlEnd);
+      continue;
+    }
+    for (let r = 0; r < rows; r++) {
+      out += applyPatches(view.html, designPatches(view, index, { ...base, detailRow: r }), part.htmlStart, part.htmlEnd);
+    }
+  }
+  return out;
+}
+
+/**
+ * Áp patch trong dải `[from, to)` và trả về chuỗi của RIÊNG dải đó. Patch xoá vắt qua biên (phần tử bị
+ * gỡ mở ở part này, đóng ở part khác) được cắt theo biên; patch mang chữ luôn nằm trọn trong một thẻ hay
+ * một token nên không vắt qua biên part. Điểm chèn đúng ở biên chỉ thuộc về dải BẮT ĐẦU tại đó.
+ */
+function applyPatches(html, patches, from, to) {
+  const local = [];
+  for (const p of patches) {
+    if (p.start === p.end) {
+      if (p.start >= from && p.start < to) local.push(p);
+    } else if (p.start >= from && p.end <= to) {
+      local.push(p);
+    } else if (p.text === '' && p.end > from && p.start < to) {
+      local.push({ start: Math.max(p.start, from), end: Math.min(p.end, to), text: '' });
+    }
+  }
+  // Áp từ CUỐI lên đầu; cùng điểm bắt đầu thì phép CHÈN (rỗng) đi trước phép xoá kết thúc tại đó.
+  local.sort((a, b) => (b.start - a.start) || ((a.end - a.start) - (b.end - b.start)));
+  let out = html.slice(from, to);
+  for (const p of local) out = out.slice(0, p.start - from) + p.text + out.slice(p.end - from);
+  return out;
+}
+
+/** Mọi patch của bản vẽ — làm sạch, đánh dấu phần tử (`markers`), token — CHƯA áp. */
+function designPatches(view, index, {
+  labels = new Map(), vi = true, mode = 'label', sample = null, markers = true, detailRow = 0,
 } = {}) {
   const { html } = view;
   const patches = [];
@@ -541,7 +595,7 @@ export function renderMailDesign(view, index, {
         patches.push({ start: a.valueStart, end: a.valueEnd, text: '#' });
       }
     }
-    patches.push({ start: el.insertAt, end: el.insertAt, text: ` ${DESIGN_ATTR}="${el.id}"` });
+    if (markers) patches.push({ start: el.insertAt, end: el.insertAt, text: ` ${DESIGN_ATTR}="${el.id}"` });
   }
 
   const inside = (p) => dropped.some(([s, e]) => p.start >= s && p.end <= e && !(p.start === s && p.end === e));
@@ -551,18 +605,14 @@ export function renderMailDesign(view, index, {
   // — patch chồng lên nhau là cắt nát chuỗi.
   const blocked = live.filter((p) => p.end > p.start);
   for (const t of tokenPatches(view, index, {
-    labels, vi, mode, sample,
+    labels, vi, mode, sample, detailRow, markers,
   })) {
     if (dropped.some(([s, e]) => t.start >= s && t.end <= e)) continue;
     if (blocked.some((b) => t.start >= b.start && t.end <= b.end)) continue;
     live.push(t);
   }
 
-  // Áp từ CUỐI lên đầu; cùng điểm bắt đầu thì phép CHÈN (rỗng) đi trước phép xoá kết thúc tại đó.
-  live.sort((a, b) => (b.start - a.start) || ((a.end - a.start) - (b.end - b.start)));
-  let out = html;
-  for (const p of live) out = out.slice(0, p.start) + p.text + out.slice(p.end);
-  return out;
+  return live;
 }
 
 /** Phần tử theo hình dạng `MailElementWire` — không một mốc toạ độ nào đi sang webview. */
@@ -634,15 +684,30 @@ export function mapMailEdits(segments, edits) {
 
 /** Dải clearText của THẺ MỞ một phần tử — cho «đi tới XML». Mảnh `text` thì lấy trọn mảnh. */
 export function mailElementClearRange(view, el) {
+  return htmlRangeToClear(view, el.openStart, el.openEnd);
+}
+
+/** Dải của dòng HTML → dải trong clearText. Mảnh `text` (chữ do entity sinh ra) không soi được vào
+ * trong, nên quy về hai đầu mảnh — xem `buildMailView`. */
+function htmlRangeToClear(view, htmlStart, htmlEnd) {
   const at = (h, left) => {
     const p = view.pieces.find((x) => (left ? h > x.htmlStart && h <= x.htmlEnd : h >= x.htmlStart && h < x.htmlEnd));
     if (!p) return null;
     if (p.kind === 'cdata') return p.clearStart + (h - p.htmlStart);
     return left ? p.clearEnd : p.clearStart;
   };
-  const start = at(el.openStart, false);
-  const end = at(el.openEnd, true);
+  const start = at(htmlStart, false);
+  const end = at(htmlEnd, true);
   return start === null || end === null ? null : { start, end: Math.max(start, end) };
+}
+
+/**
+ * Dải nguồn của token thứ `tokenIndex` (thứ tự của `scanMailTokens` — đúng số bản vẽ gắn vào
+ * `data-fbo-tok`). Dùng cho «Bám XML» khi người dùng bấm trúng một `{!biến}`.
+ */
+export function mailTokenClearRange(view, index, tokenIndex) {
+  const t = scanMailTokens(view, index)[tokenIndex];
+  return t ? htmlRangeToClear(view, t.start, t.end) : null;
 }
 
 /** Đường dẫn so được giữa editor (gạch ngược, hoa thường tuỳ ổ đĩa) và bản đồ đoạn. Core không có `samePath`. */

@@ -842,8 +842,9 @@ const PROBE_PERIOD = /^\w{1,20}$/;
 /**
  * BƯỚC 2: khoá đã dò được → mẩu SQL thay cho `@@whereClause`.
  *
- * Ghép `a.` bằng CÙNG alias gốc mà `@@fieldExternal` đã dùng (`pickColumns` lấy `'a'` làm mặc
- * định). Nếu `a` sai thì danh sách cột đã sai từ trước, chứ không phải mệnh đề này mới làm sai.
+ * Tên cột khoá TRẦN, KHÔNG ghép alias bảng (`a.`): đó là dạng `@@whereClause` chạy đúng trên
+ * program thật — đã kiểm bằng `where stt_rec = 'ZZZ'`. Bản trước ghép `a.` theo alias gốc của
+ * `@@fieldExternal`; đừng đưa lại khi chưa kiểm trên chính program đó.
  *
  * Không có khoá thì `1 = 1` — hành vi cũ — và nói ra ở `notes`. Đổi `where` chứ không bỏ nó: câu
  * của file viết sẵn chữ `where`, bỏ giá trị đi là ra `where order by`.
@@ -856,7 +857,7 @@ function detailKeyClause(root, probeKey, { notes }) {
     return '1 = 1';
   }
   notes.push(msg('sample.note_detail_key', { column, key }));
-  return `a.${column} = ${quote(key)}`;
+  return `${column} = ${quote(key)}`;
 }
 
 /**

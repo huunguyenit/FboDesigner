@@ -731,7 +731,7 @@ function drawBlueprint() {
    * mousemove là nguồn giật chính so với WinForms.
    */
   if (light && blueprint.childNodes.length > 0) {
-    for (const node of [...blueprint.querySelectorAll('.bp-drag, .bp-move, .bp-move-bad, .bp-move-swap, .bp-bar, .bp-focus, .bp-grip, .bp-span, .bp-row-add, .bp-col-add, .bp-slot-add, .bp-col-ghost, .bp-col-insert')]) {
+    for (const node of [...blueprint.querySelectorAll('.bp-drag, .bp-move, .bp-move-bad, .bp-move-swap, .bp-bar, .bp-focus, .bp-grip, .bp-span, .bp-row-add, .bp-col-add, .bp-col-add-region, .bp-slot-add, .bp-col-ghost, .bp-col-insert')]) {
       node.remove();
     }
     const frag = document.createDocumentFragment();
@@ -1349,9 +1349,35 @@ function drawWidthStrip(frag, { ticks, top, isGrid, clip, region, colOffset = 0 
      * thật cho cùng một câu hỏi, và chúng lệch nhau là đúng lúc lỗi tái phát mà không ai để ý.
      */
     if (region !== null) {
-      tick.addEventListener('mousedown', (e) => e.stopPropagation());
+      /*
+       * Mép phải tick = kéo đổi bề rộng — cùng cử chỉ với thân bảng (`wireRegionColumnResize`),
+       * chỉ khác nơi bắt: tick là dải px THẬT SỰ nằm dưới mắt người dùng, nên phải bắt được kéo
+       * ngay tại đó, không bắt buộc phải rê xuống một ô nội dung mới tìm được đúng biên.
+       *
+       * Bàn tay cầm vẫn là `<th>` của ruler (`regionColTh`), KHÔNG phải chính tick: `<th>` mới là
+       * thứ `table-layout:fixed` thật sự đọc; tick chỉ là nơi CHUỘT chạm tới được.
+       */
+      tick.addEventListener('mousemove', (e) => {
+        if (regionColDrag || drag || moveDrag || colDrag || colMoveDrag || metaDrag) return;
+        if (edgeOf(tick, e.clientX)) formLayer.classList.add('fbo-resizing');
+      });
+      tick.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        if (regionColDrag || drag || moveDrag || colDrag || colMoveDrag || metaDrag) return;
+        if (!edgeOf(tick, e.clientX)) return;
+        const th = regionColTh(region, absCol);
+        const table = th?.closest('table[data-fbo-col-widths]');
+        if (!th || !table) return;
+
+        e.preventDefault();
+        startRegionColDrag(th, table, region, absCol, e.clientX);
+        tickResizeArmed = true;
+      });
       tick.addEventListener('click', (e) => {
         e.stopPropagation();
+        // Cú click nổ ra sau `mouseup` của một lần KÉO CẠNH thật sự (chuẩn DOM) — đọc cờ một lần
+        // rồi tắt, đừng đổi `colPick` vì thao tác vừa rồi không phải là bấm chọn.
+        if (tickResizeArmed) { tickResizeArmed = false; return; }
         // Bấm lại đúng cột đang chọn thì bỏ chọn — không có nút "đóng" nào trên thanh lệnh, và
         // thêm một nút nữa chỉ để tắt thanh là thừa.
         // Chọn cột là nhắm vào danh sách biên của cả vùng, nên phải ẩn luôn thao tác đang chọn
@@ -1377,6 +1403,10 @@ function drawWidthStrip(frag, { ticks, top, isGrid, clip, region, colOffset = 0 
       drawColumnEdgeBar(frag, {
         left, width: zero ? 0 : width, top, region, col: absCol, count: fullCount, pxWidth: label,
       });
+      // Dấu + Ở PHÍA TRÊN, ngang hàng với dải px — KHÔNG chung thanh lệnh với Gộp: đây là thao
+      // tác "cấu trúc" (thêm hẳn một cột), nên đứng riêng, ngay cạnh phải cột vừa chọn, giống vị
+      // trí dấu + của lưới (`drawColAddButtons`).
+      drawRegionColAddButton(frag, { left, width: zero ? 0 : width, top, region, col: absCol, pxWidth: label });
     }
   });
 }
@@ -1430,14 +1460,10 @@ function drawColumnEdgeBar(frag, { left, width, top, region, col, count, pxWidth
     bar.appendChild(b);
   };
 
-  // Tách đã bỏ — "+ Thêm" thay thế: chèn cột MỚI ngay sau cột đang chọn, bề rộng mặc định
-  // (`DEFAULT_NEW_COL_WIDTH`); cột đang chọn giữ NGUYÊN bề rộng của nó (`pxWidth`). Đi bằng
-  // CHỌN-RỒI-BẤM giống hệt Gộp — không còn hover: hover quá dễ mất khi rê chuột từ cột sang nút,
-  // và luôn phải chọn trước nên không thể bấm nhầm cột.
+  // Tách đã bỏ; thêm cột giờ là dấu + riêng cạnh cột (`drawRegionColAddButton`) — không còn
+  // chung thanh với Gộp, vì đó là thao tác "cấu trúc" (thêm hẳn một cột), không phải một lựa
+  // chọn trái/phải như Gộp.
   const all = 'mọi hàng dùng chung danh sách biên cột này (kể cả ở tab khác) sẽ dồn theo';
-  make('+ Thêm', `Thêm cột sau cột ${col + 1} — ${all}`, false,
-    () => postEdit({ op: 'colSplit', region, col, left: pxWidth, right: DEFAULT_NEW_COL_WIDTH }));
-  bar.appendChild(el('span', 'bp-act-sep', {}));
   make('< Gộp', col === 0 ? 'Cột đầu — bên trái không còn cột nào' : `Gộp cột ${col} với cột ${col + 1} — ${all}`,
     col === 0, () => postEdit({ op: 'colMerge', region, col: col - 1 }));
   make('Gộp >', col + 1 >= count ? 'Cột cuối — bên phải không còn cột nào' : `Gộp cột ${col + 1} với cột ${col + 2} — ${all}`,
@@ -1448,6 +1474,32 @@ function drawColumnEdgeBar(frag, { left, width, top, region, col, count, pxWidth
   bar.appendChild(note);
 
   frag.appendChild(bar);
+}
+
+/**
+ * Dấu + cạnh phải cột đang chọn (`colPick`) — thêm một cột MỚI ngay sau nó, bề rộng mặc định
+ * (`DEFAULT_NEW_COL_WIDTH`); cột đang chọn giữ NGUYÊN bề rộng của nó (`pxWidth`). Cùng op
+ * `colSplit` mà Gộp/Tách trước đây dùng (list px dùng chung, mọi hàng đọc nó phải dồn theo) —
+ * chỉ khác không còn hỏi px hai nửa, xem `handleRegionColumns` phía host.
+ *
+ * Toạ độ `left`/`width`/`top` đến THẲNG từ `drawWidthStrip` — CÙNG hệ layout-space đã dùng để đặt
+ * chính cái tick, không đo lại qua DOM/zoom: tick và dấu + phải luôn ngang hàng nhau vì chúng
+ * dùng chung một phép tính vị trí.
+ */
+function drawRegionColAddButton(frag, { left, width, top, region, col, pxWidth }) {
+  const btn = el('button', 'bp-col-add-region', {
+    left: px(left + width + 10),
+    top: px(top + 7),
+  });
+  btn.type = 'button';
+  btn.textContent = '+';
+  btn.title = `Thêm cột sau cột ${col + 1}`;
+  btn.addEventListener('mousedown', (e) => e.stopPropagation());
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    postEdit({ op: 'colSplit', region, col, left: pxWidth, right: DEFAULT_NEW_COL_WIDTH });
+  });
+  frag.appendChild(btn);
 }
 
 /**
@@ -2988,6 +3040,59 @@ function wireColMove() {
  */
 let regionColDrag = null;
 
+/** Cờ một lần: `click` của tick vừa dùng để kéo cạnh sẽ đọc rồi tự tắt, không đổi `colPick`. */
+let tickResizeArmed = false;
+
+/**
+ * Bề rộng KHAI (px layout, không nhân zoom) của một phần tử đã được server ghi thẳng
+ * `style="width:Npx"` — đọc từ `style.width` trước, KHÔNG từ `getBoundingClientRect()`: rect trả
+ * về toạ độ ĐÃ NHÂN khi có zoom (nút Tỉ lệ), còn `style.width` luôn là con số layout gốc. Chỉ rơi
+ * về rect khi phần tử không có `style.width` (trường hợp không nên xảy ra với `<th>` server render).
+ */
+function styleWidthOf(el) {
+  const n = Number(String(el.style.width || '').replace('px', ''));
+  return Number.isFinite(n) ? n : Math.round(el.getBoundingClientRect().width);
+}
+
+/**
+ * Hình học của bảng NGOÀI khi vùng có split — `null` nếu không split. `renderRegionTable` dựng
+ * `<div class="FormSplit"><table class="FormParentTable"><tr><th w=leftTotal><th w=rightTotal>`
+ * — CÙNG kỹ thuật ruler-row `table-layout:fixed` như bên trong, chỉ khác nó chia đúng HAI NỬA
+ * thay vì từng cột. Kéo giãn một cột ở nửa nào phải cộng dồn delta vào đúng `<th>` của nửa đó,
+ * nếu không nửa kia (nằm trong `<td>` bên cạnh) sẽ đứng yên — nhìn như "kéo mà chẳng ai nhúc nhích".
+ */
+function splitGeometryOf(table) {
+  const side = table.dataset.fboSplitSide; // 'left' | 'right' | undefined (không split)
+  if (!side) return null;
+  const wrap = table.closest('div[data-fbo-region-root]');
+  const outerTable = wrap?.querySelector(':scope > table.FormParentTable') ?? null;
+  const row = outerTable?.rows?.[0];
+  const outerTh = row ? (side === 'left' ? row.cells[0] : row.cells[1]) : null;
+  if (!wrap || !outerTable || !outerTh) return null;
+  return { wrap, outerTable, outerTh };
+}
+
+/**
+ * Bắt đầu kéo cạnh một cột — dùng chung cho cả hai nơi bắt chuột (thân bảng và tick của dải px,
+ * xem `wireRegionColumnResize`/`drawWidthStrip`). Gom sẵn hình học split (nếu có) ngay lúc bắt
+ * đầu, không tính lại mỗi mousemove — cùng lý do `wireGridColumns` gom `gridColumnCells` một lần.
+ */
+function startRegionColDrag(th, table, region, col, clientX) {
+  const from = styleWidthOf(th);
+  const split = splitGeometryOf(table);
+  regionColDrag = {
+    th, table, region, col, from, width: from, startX: clientX,
+    tableFrom: styleWidthOf(table),
+    outerTh: split?.outerTh ?? null,
+    outerFrom: split ? styleWidthOf(split.outerTh) : 0,
+    wrap: split?.wrap ?? null,
+    wrapFrom: split ? styleWidthOf(split.wrap) : 0,
+    outerTable: split?.outerTable ?? null,
+    outerTableFrom: split ? styleWidthOf(split.outerTable) : 0,
+  };
+  document.body.classList.add('fbo-dragging');
+}
+
 function wireRegionColumnResize() {
   formLayer.addEventListener('mousemove', (e) => {
     if (regionColDrag || drag || moveDrag || colDrag || colMoveDrag || metaDrag) return;
@@ -3010,17 +3115,32 @@ function wireRegionColumnResize() {
 
     e.preventDefault();
     e.stopPropagation();
-    const from = Math.round(th.getBoundingClientRect().width);
-    regionColDrag = { th, table, region, col, from, width: from, startX: e.clientX };
-    document.body.classList.add('fbo-dragging');
+    startRegionColDrag(th, table, region, col, e.clientX);
   });
 
+  /*
+   * Gom mỗi cụm mousemove về ĐÚNG MỘT khung hình (`requestAnimationFrame`) trước khi ghi DOM.
+   *
+   * Chuột bắn nhiều `mousemove` hơn tốc độ trình duyệt vẽ lại một khung — nếu ghi width ngay mỗi
+   * sự kiện (như bản trước), có lúc `th` NGOÀI (`outerTh`/`wrap`/`outerTable`, xem `splitGeometryOf`)
+   * đã đổi mà `drawBlueprint()` (đo `getBoundingClientRect()` của rất nhiều ô — `drawSlots`,
+   * `drawSpanBadges`...) chạy XEN giữa hai lần ghi, đọc phải một trạng thái NỬA VỜI: bảng đã dồn
+   * theo bề rộng mới nhưng slot/handle vẽ theo khung hình cũ chưa kịp bắt kịp — coi như control
+   * "chéo" chỗ trong chớp mắt rồi lại đúng ngay khung sau. Gom về một khung là chỉ còn ĐÚNG MỘT
+   * trạng thái nhất quán mỗi lần mắt nhìn thấy.
+   */
+  let dragFrame = null;
   window.addEventListener('mousemove', (e) => {
     if (!regionColDrag) return;
     regionColDrag.width = Math.max(0, Math.round(regionColDrag.from + (e.clientX - regionColDrag.startX)));
-    applyRegionColumnWidth(regionColDrag);
-    regionColDrag.th.title = `cột ${regionColDrag.col + 1} · ${regionColDrag.width}px`;
-    drawBlueprint();
+    if (dragFrame !== null) return;
+    dragFrame = requestAnimationFrame(() => {
+      dragFrame = null;
+      if (!regionColDrag) return;
+      applyRegionColumnWidth(regionColDrag);
+      regionColDrag.th.title = `cột ${regionColDrag.col + 1} · ${regionColDrag.width}px`;
+      drawBlueprint();
+    });
   });
 
   window.addEventListener('mouseup', () => {
@@ -3042,9 +3162,25 @@ function wireRegionColumnResize() {
  * phần tử KHÁC (`div.FormSplit` bọc ngoài) mang list px TUYỆT ĐỐI của cả vùng — `drawWidthStrip`
  * đọc list này qua `regionWidthsOf` để tính `fullCount` của thanh Gộp. Cả hai phải cập nhật để
  * không có chỗ nào còn hiện số cũ trong lúc kéo.
+ *
+ * `table.style.width` (= tổng px lúc render) PHẢI đổi cùng delta cột: `table-layout:fixed` với
+ * width bảng đứng yên sẽ dồn chỗ thừa vào các cột → mép trái cột đang kéo dịch vào trong, ô
+ * nhìn như co hai bên. Cùng luật với outer split bên dưới.
+ *
+ * `outerTh`/`wrap` (từ `splitGeometryOf`, khi vùng có split): tổng bề rộng của NỬA đang kéo đổi
+ * đúng bằng delta của cột — cộng dồn delta ấy vào cả hai để nửa KIA dịch chỗ theo, và cả khối
+ * split không bị khoá cứng ở bề rộng cũ.
  */
-function applyRegionColumnWidth({ th, table, col, width }) {
+function applyRegionColumnWidth({
+  th, table, col, width, from, tableFrom, outerTh, outerFrom, wrap, wrapFrom, outerTable, outerTableFrom,
+}) {
   th.style.width = `${width}px`;
+
+  const delta = width - from;
+  table.style.width = `${(Number.isFinite(tableFrom) ? tableFrom : styleWidthOf(table) - delta) + delta}px`;
+  if (outerTh) outerTh.style.width = `${outerFrom + delta}px`;
+  if (wrap) wrap.style.width = `${wrapFrom + delta}px`;
+  if (outerTable) outerTable.style.width = `${outerTableFrom + delta}px`;
 
   const local = col - tableColOffset(table);
   const list = (table.dataset.fboColWidths || '').split(',');

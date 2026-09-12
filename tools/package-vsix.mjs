@@ -62,6 +62,7 @@ const CONTENT = [
   ['extension/src/mail-preview-host.js', 'extension/src/mail-preview-host.js'],
   ['extension/src/mail-apply.js', 'extension/src/mail-apply.js'],
   ['extension/src/mail-designer-editor.js', 'extension/src/mail-designer-editor.js'],
+  ['extension/src/mail-sample-host.js', 'extension/src/mail-sample-host.js'],
   ['extension/media/mail-designer.css', 'extension/media/mail-designer.css'],
   ['extension/media/mail-designer.js', 'extension/media/mail-designer.js'],
   ['extension/media/mail-shell.html', 'extension/media/mail-shell.html'],
@@ -115,6 +116,8 @@ const CONTENT = [
   ['core/src/mail-components.mjs', 'extension/core/mail-components.mjs'],
   ['core/src/mail-structure.mjs', 'extension/core/mail-structure.mjs'],
   ['core/src/mail-variables.mjs', 'extension/core/mail-variables.mjs'],
+  ['core/src/mail-lint.mjs', 'extension/core/mail-lint.mjs'],
+  ['core/src/mail-sample.mjs', 'extension/core/mail-sample.mjs'],
 ];
 
 // Danh sách khai tay ở trên là chỗ dễ quên nhất khi thêm file mới: gói vẫn dựng xong, vẫn cài

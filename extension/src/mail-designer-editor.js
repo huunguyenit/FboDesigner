@@ -18,12 +18,14 @@ const {
   cachedReadFile, samePath, nonce, assetUri, config,
 } = require('./render-host');
 const { applySplice } = require('./edit-host');
-const { dialogs } = require('./dialog/dialog-service');
+const { dialogs, runWithDialogs } = require('./dialog/dialog-service');
+const { OverlayDialogs } = require('./dialog/dialog-overlay');
 const { history } = require('./edit-history');
 const { trackDesignerWebview } = require('./designer-webview');
 const { toSourcePlan, revealSpan } = require('./mail-apply');
 const { ensureLicense, lockedWebviewHtml } = require('./license');
 const { t, toast } = require('./locale');
+const { loadMailSample } = require('./mail-sample-host');
 
 const VIEW_TYPE = 'fboDesigner.mail';
 
@@ -32,6 +34,9 @@ const RENDER_DEBOUNCE_MS = 40;
 
 /** Gộp nhịp đổi vùng chọn XML (gõ phím, kéo chuột) trước khi đồng bộ sang designer. */
 const SELECTION_DEBOUNCE_MS = 80;
+
+/** Một lượt vẽ lâu hơn ngưỡng này thì ghi ra Output — đủ để thấy mẫu nào nặng mà không làm rối log thường. */
+const SLOW_RENDER_MS = 300;
 
 const NOT_MAIL = 'Email Designer chỉ mở file khai <message xmlns="urn:schemas-fast-com:data-message">'
   + ' — thường là App_Data\\Controllers\\Options\\Message.xml.';
@@ -54,6 +59,9 @@ const lastFollow = new Map();
  * theo workspace, không vào repo, và TUYỆT ĐỐI không vào Message.xml — dữ liệu mẫu chỉ để xem.
  */
 const memorySamples = new Map();
+
+/** `stt_rec` / `contactID` gần nhất THEO FILE × ACTION — nhớ để lần sau khỏi gõ lại. */
+const memorySampleKeys = new Map();
 
 /**
  * Shell riêng: KHÔNG nạp CSS form FBO (base pack, CSS program) như `render-host.js#shellHtml` — mẫu
@@ -94,6 +102,12 @@ function liveReadFile(core) {
 
 const warn = (reason) => vscode.window.showWarningMessage(`FBO Designer: ${reason}`);
 
+/** Dải clearText của thẻ mở một phần tử trên bản vẽ gần nhất. */
+const elementRange = (core, built, elementId) => {
+  const el = built.index.byId.get(elementId);
+  return el ? core.mailElementClearRange(built.view, el) : null;
+};
+
 class MailDesignSession {
   constructor(core, output, document, panel, store = null) {
     this.core = core;
@@ -119,6 +133,10 @@ class MailDesignSession {
     this.selectionTimer = null;
     this.watchers = [];          // watcher trên đĩa cho file Include (xem `watchSources`)
     this.watchKey = '';
+    this.fullPreview = false;    // bản xem trước đầy đủ, chỉ đọc (Phase 8)
+    this.expandCache = null;     // { text, stamp, expanded } — xem `expandCached`
+    // Hộp thoại vẽ trong CHÍNH webview này — không mở tab DialogPanel riêng.
+    this.dialogs = new OverlayDialogs(panel.webview);
 
     this.disposables = [
       vscode.workspace.onDidChangeTextDocument((e) => {
@@ -128,7 +146,10 @@ class MailDesignSession {
       vscode.window.onDidChangeTextEditorSelection((e) => this.onEditorSelectionSoon(e)),
     ];
     panel.onDidDispose(() => this.dispose());
-    panel.webview.onDidReceiveMessage((msg) => this.onMessage(msg));
+    panel.webview.onDidReceiveMessage((msg) => {
+      if (this.dialogs.handleMessage(msg)) return undefined;
+      return this.onMessage(msg);
+    });
   }
 
   /** Dựng lại mọi thứ từ VĂN BẢN HIỆN TẠI — vẽ và sửa cùng đi qua đây, không giữ model cũ. */
@@ -136,7 +157,7 @@ class MailDesignSession {
     const text = this.document.getText();
     if (!this.core.isMailTemplateDoc(text)) return { ok: false, idle: NOT_MAIL };
 
-    const expanded = this.core.expandEntities(text, { filePath: this.document.uri.fsPath, readFile: liveReadFile(this.core) });
+    const expanded = this.expandCached(text);
     const actions = this.core.scanMailActions(expanded.clearText);
     if (actions.length === 0) return { ok: false, idle: 'Không có mẫu mail nào trong <mail><template> của file này.' };
 
@@ -153,7 +174,52 @@ class MailDesignSession {
     };
   }
 
+  /**
+   * Bung entity có NHỚ. Phần lớn lượt vẽ không đổi văn bản nào — đổi chế độ hiện biến, đổi biến thể, bật
+   * xem trước, chọn lại sau phép sửa bị từ chối — mà bung lại Message.xml (hàng trăm KB) cùng cây Include
+   * mỗi lần là phí thật. Khoá = văn bản Message.xml + dấu của mọi file Include lần bung trước đã đọc
+   * (đang mở: version; trên đĩa: mtime + size) — đổi bất cứ file nào góp nội dung là bung lại.
+   */
+  expandCached(text) {
+    if (this.expandCache && this.expandCache.text === text && this.expandCache.stamp === this.sourceStamp(this.expandCache.expanded)) {
+      return this.expandCache.expanded;
+    }
+    const expanded = this.core.expandEntities(text, { filePath: this.document.uri.fsPath, readFile: liveReadFile(this.core) });
+    this.expandCache = { text, expanded, stamp: this.sourceStamp(expanded) };
+    return expanded;
+  }
+
+  sourceStamp(expanded) {
+    const files = [...new Set(expanded.segments.map((s) => s.file))].filter((f) => !samePath(f, this.document.uri.fsPath));
+    return files.map((file) => {
+      const open = vscode.workspace.textDocuments.find((d) => d.uri.scheme === 'file' && samePath(d.uri.fsPath, file));
+      if (open) return `${file}#v${open.version}`;
+      try {
+        const st = fs.statSync(file);
+        return `${file}#${st.mtimeMs}:${st.size}`;
+      } catch {
+        return `${file}#missing`;
+      }
+    }).join('|');
+  }
+
+  /**
+   * Vẽ, không bao giờ ném: lượt vẽ còn chạy từ bộ hẹn giờ (`renderSoon`) và từ watcher — lỗi ở đó không có
+   * ai bắt, và một lỗi lọt ra là designer đứng hình không một lời giải thích. Lỗi → khung báo lỗi + Output.
+   */
   render() {
+    const started = Date.now();
+    try {
+      this.renderUnsafe();
+    } catch (err) {
+      this.output.appendLine(`email designer: vẽ lỗi — ${err.stack || err.message}`);
+      this.post({ type: 'error', message: `Không vẽ được mẫu: ${err.message}` });
+    }
+    const ms = Date.now() - started;
+    if (ms > SLOW_RENDER_MS) this.output.appendLine(`email designer: vẽ chậm ${ms}ms — ${this.document.uri.fsPath}`);
+  }
+
+  renderUnsafe() {
     if (this.renderTimer) { clearTimeout(this.renderTimer); this.renderTimer = null; }
     if (this.disposed) return;
     let built;
@@ -178,7 +244,7 @@ class MailDesignSession {
     this.rev += 1;
     this.rendered = { rev: this.rev, fingerprints: new Map(index.elements.map((e) => [e.id, e.fingerprint])) };
     this.lastBuilt = {
-      view, index, segments: expanded.segments, version: this.document.version,
+      view, index, segments: expanded.segments, clearText: expanded.clearText, version: this.document.version,
     };
     for (const w of index.warnings) this.output.appendLine(`email designer: ${w}`);
 
@@ -195,13 +261,16 @@ class MailDesignSession {
       file: path.basename(this.document.uri.fsPath),
       template: { ...this.selection },
       actions: actions.map((a) => ({ id: a.id, label: a.v || a.e || a.id, bodies: a.bodies })),
-      html: this.core.renderMailDesign(view, index, {
+      html: (this.fullPreview ? this.core.renderMailFullPreview : this.core.renderMailDesign)(view, index, {
         labels,
         vi: this.selection.lang !== 'en',
         mode: this.previewMode,
         sample: parsedSample.ok ? parsedSample.data : null,
       }),
-      elements: this.core.wireMailElements(view, index).map((w) => ({ ...w, table: tables[w.id] ?? null })),
+      // Xem trước là CHỈ ĐỌC: không gửi phần tử nào — webview không có gì để chọn, kéo hay sửa.
+      elements: this.fullPreview ? [] : this.core.wireMailElements(view, index).map((w) => ({ ...w, table: tables[w.id] ?? null })),
+      fullPreview: this.fullPreview,
+      issues: this.core.lintMailHtml(view, index),
       // Danh sách thuộc tính cho sửa đi KÈM bản vẽ — webview không chép lại whitelist của hợp đồng.
       styleProperties: this.core.STYLE_PROPERTIES,
       componentPanels: this.core.COMPONENT_PANELS,
@@ -209,7 +278,11 @@ class MailDesignSession {
       components: this.core.INSERTABLE_COMPONENTS,
       preview: { mode: this.previewMode },
       variables,
-      sample: { text: sampleText, skeleton: JSON.stringify(this.core.sampleSkeleton(variables), null, 2) },
+      sample: {
+        text: sampleText,
+        skeleton: JSON.stringify(this.core.sampleSkeleton(variables), null, 2),
+        keys: this.readSampleKeys(view.actionId),
+      },
       follow: this.follow,
       selectId,
       warnings: index.warnings,
@@ -225,6 +298,10 @@ class MailDesignSession {
     return `fboDesigner.mailSample:${this.key}:${actionId}`;
   }
 
+  sampleKeysKey(actionId) {
+    return `fboDesigner.mailSampleKeys:${this.key}:${actionId}`;
+  }
+
   readSampleText(actionId) {
     const key = this.sampleKey(actionId);
     const value = this.store ? this.store.get(key) : memorySamples.get(key);
@@ -236,6 +313,26 @@ class MailDesignSession {
     if (this.store) await this.store.update(key, text === '' ? undefined : text);
     else if (text === '') memorySamples.delete(key);
     else memorySamples.set(key, text);
+  }
+
+  readSampleKeys(actionId) {
+    const key = this.sampleKeysKey(actionId);
+    const value = this.store ? this.store.get(key) : memorySampleKeys.get(key);
+    if (!value || typeof value !== 'object') return { stt_rec: '', contactID: '' };
+    return {
+      stt_rec: typeof value.stt_rec === 'string' ? value.stt_rec : '',
+      contactID: typeof value.contactID === 'string' ? value.contactID : '',
+    };
+  }
+
+  async writeSampleKeys(actionId, keys) {
+    const key = this.sampleKeysKey(actionId);
+    const next = {
+      stt_rec: String(keys?.stt_rec ?? ''),
+      contactID: String(keys?.contactID ?? ''),
+    };
+    if (this.store) await this.store.update(key, next);
+    else memorySampleKeys.set(key, next);
   }
 
   /**
@@ -255,9 +352,42 @@ class MailDesignSession {
     if (normalized !== '') {
       this.previewMode = 'sample';
       lastPreview.set(this.key, 'sample');
+      this.fullPreview = true;
+      this.selectedId = null;
     }
     this.render();
     return true;
+  }
+
+  /**
+   * Lấy dữ liệu mẫu THẬT từ DB theo `stt_rec` + `contactID` — hỏi xác nhận, chạy SQL, đổ vào
+   * cùng kho JSON mẫu rồi bật xem trước.
+   */
+  async loadSampleFromDb(msg) {
+    const { actionId } = this.selection;
+    if (!actionId) {
+      this.post({ type: 'sampleError', reason: 'chưa chọn mẫu mail (action)' });
+      return false;
+    }
+    await this.writeSampleKeys(actionId, { stt_rec: msg.stt_rec, contactID: msg.contactID });
+
+    const built = this.build();
+    if (!built.ok) {
+      this.post({ type: 'sampleError', reason: built.error || built.idle || 'không đọc được mẫu mail' });
+      return false;
+    }
+
+    const result = await loadMailSample(this.core, this.output, this.document, {
+      actionId,
+      stt_rec: msg.stt_rec,
+      contactID: msg.contactID,
+      clearText: built.expanded.clearText,
+    });
+    if (!result.ok) {
+      if (!result.cancelled) this.post({ type: 'sampleError', reason: result.reason });
+      return false;
+    }
+    return this.applySample(JSON.stringify(result.data, null, 2));
   }
 
   /** Gộp các nhịp đổi văn bản dồn dập — xem `PreviewPanel.renderSoon`. */
@@ -294,26 +424,50 @@ class MailDesignSession {
       return undefined;
     }
     const msg = checked.message;
+    try {
+      // Mọi dialogs() trong chuỗi này (xoá phần tử, lấy dữ liệu mẫu…) dùng overlay của panel này.
+      return await runWithDialogs(this.dialogs, () => this.dispatch(msg));
+    } catch (err) {
+      // Một thao tác hỏng không được làm designer im lặng: ghi đủ ra Output, báo người dùng chỗ xem.
+      this.output.appendLine(`email designer: xử lý "${msg.type}${msg.op ? `/${msg.op}` : ''}" lỗi — ${err.stack || err.message}`);
+      warn('thao tác không thực hiện được do lỗi nội bộ — chi tiết ở Output «FBO Designer».');
+      return undefined;
+    }
+  }
+
+  async dispatch(msg) {
     switch (msg.type) {
       case 'ready':
         return this.render();
       case 'log':
         return this.output.appendLine(`email designer (webview): ${msg.text}`);
-      case 'selection':
+      case 'selection': {
+        const before = this.selection.actionId;
         this.selection = { actionId: msg.actionId, body: msg.body, lang: msg.lang };
         lastSelection.set(this.key, this.selection);
-        return this.render();
+        if (before !== msg.actionId) this.selectedId = null;
+        this.render();
+        // Đổi MẪU trên designer thì XML đang mở nhảy tới đúng `<action id>` ấy — cùng cử chỉ «Bám XML»
+        // như chọn phần tử: không mở tab, không giành focus.
+        if (before !== msg.actionId) await this.followActionInEditor(msg.actionId);
+        return undefined;
+      }
       case 'gotoSource':
         return this.revealSection(msg.section);
       case 'setPreview':
         this.previewMode = msg.mode;
         lastPreview.set(this.key, msg.mode);
+        // "Dữ liệu mẫu" = xem mẫu như thư thật: nhân dòng detail, bỏ dấu phần tử, chỉ đọc.
+        this.fullPreview = msg.mode === 'sample';
+        if (this.fullPreview) this.selectedId = null;
         return this.render();
       case 'setSampleData':
         return this.applySample(msg.text);
+      case 'loadMailSample':
+        return this.loadSampleFromDb(msg);
       case 'select':
         this.selectedId = msg.elementId;
-        return msg.reveal ? this.revealElement(msg) : this.followInEditor(msg);
+        return msg.reveal ? await this.revealElement(msg) : await this.followInEditor(msg);
       case 'setFollow':
         this.follow = msg.on;
         lastFollow.set(this.key, msg.on);
@@ -330,6 +484,11 @@ class MailDesignSession {
   }
 
   async applyEdit(msg) {
+    // Bản xem trước không mang phần tử — một phép sửa lọt tới đây là trỏ vào id của bản vẽ trước đó.
+    if (this.fullPreview) {
+      warn('đang xem trước theo dữ liệu mẫu (chỉ đọc) — chọn «Biến: nhãn» hoặc «Biến: {!tên}» để sửa.');
+      return false;
+    }
     if (!this.rendered || msg.rev !== this.rendered.rev) {
       warn('bản vẽ đã cũ so với file — đã vẽ lại, thao tác lại giúp.');
       this.renderPending = true;
@@ -442,7 +601,26 @@ class MailDesignSession {
     if (isHost && doc.version !== built.version) return;
     const selection = e.selections && e.selections[0];
     if (!selection) return;
-    const id = this.core.mailElementAtSource(built.view, built.index, built.segments, file, doc.offsetAt(selection.active));
+    const offset = doc.offsetAt(selection.active);
+
+    // Con trỏ nhảy sang mẫu/biến thể KHÁC: đổi mẫu đang vẽ theo XML rồi mới chọn phần tử trên bản vẽ
+    // mới. Bản vẽ cũ không có phần tử nào ứng với vị trí ấy, nên không đổi mẫu là không đồng bộ được.
+    const loc = this.core.mailLocationAtSource(built.clearText, built.segments, file, offset);
+    if (loc && (loc.actionId !== this.selection.actionId || loc.body !== this.selection.body)) {
+      this.selection = { ...this.selection, actionId: loc.actionId, body: loc.body };
+      lastSelection.set(this.key, this.selection);
+      this.selectedId = null;
+      this.render();
+      const now = this.lastBuilt;
+      const moved = now && this.core.mailElementAtSource(now.view, now.index, now.segments, file, offset);
+      if (moved) {
+        this.selectedId = moved;
+        this.post({ type: 'reveal', rev: this.rendered.rev, elementId: moved });
+      }
+      return;
+    }
+
+    const id = this.core.mailElementAtSource(built.view, built.index, built.segments, file, offset);
     if (!id || id === this.selectedId) return;
     this.selectedId = id;
     this.post({ type: 'reveal', rev: this.rendered.rev, elementId: id });
@@ -456,9 +634,17 @@ class MailDesignSession {
   async followInEditor(msg) {
     const built = this.lastBuilt;
     if (!this.follow || !built || !this.rendered || msg.rev !== this.rendered.rev) return;
-    const el = built.index.byId.get(msg.elementId);
-    const range = el && this.core.mailElementClearRange(built.view, el);
+    // Bấm trúng một `{!biến}` trên bản vẽ: con trỏ XML vào ĐÚNG token đó, không phải thẻ chứa nó —
+    // chữ "Số phiếu" người dùng thấy là {!h_so_ct}, chỗ họ muốn sửa cũng là nó.
+    const range = msg.tokenIndex !== null && msg.tokenIndex !== undefined
+      ? this.core.mailTokenClearRange(built.view, built.index, msg.tokenIndex)
+      : elementRange(this.core, built, msg.elementId);
     const src = range && this.core.sourceRange(built.segments, range.start, range.end);
+    this.moveEditorTo(src);
+  }
+
+  /** Đặt vùng chọn của XML ĐANG MỞ, nhìn thấy được — không mở tab, không lấy focus khỏi designer. */
+  moveEditorTo(src) {
     if (!src) return;
     const editor = vscode.window.visibleTextEditors.find((ed) => ed.document.uri.scheme === 'file' && samePath(ed.document.uri.fsPath, src.file));
     if (!editor) return;
@@ -470,6 +656,17 @@ class MailDesignSession {
     } finally {
       setTimeout(() => { this.syncingEditor = false; }, SELECTION_DEBOUNCE_MS * 2);
     }
+  }
+
+  /** Thẻ mở `<action id="…">` của mẫu vừa chọn trên designer. */
+  async followActionInEditor(actionId) {
+    const built = this.lastBuilt;
+    if (!this.follow || !built) return;
+    const action = this.core.scanMailActions(built.clearText).find((a) => a.id === actionId);
+    if (!action) return;
+    const openEnd = built.clearText.indexOf('>', action.start);
+    const end = openEnd === -1 ? action.start : openEnd + 1;
+    this.moveEditorTo(this.core.sourceRange(built.segments, action.start, end));
   }
 
   /**
@@ -502,7 +699,9 @@ class MailDesignSession {
     if (!built.ok) return;
     const r = this.core.resolveMailElement(built.index, msg.elementId, this.rendered.fingerprints.get(msg.elementId));
     if (!r.ok) { warn(r.reason); return; }
-    const range = this.core.mailElementClearRange(built.view, r.element);
+    const range = msg.tokenIndex !== null && msg.tokenIndex !== undefined
+      ? this.core.mailTokenClearRange(built.view, built.index, msg.tokenIndex)
+      : this.core.mailElementClearRange(built.view, r.element);
     const src = range && this.core.sourceRange(built.expanded.segments, range.start, range.end);
     if (!src) return;
     await this.reveal(src);
@@ -529,6 +728,7 @@ class MailDesignSession {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    if (this.dialogs) this.dialogs.dispose();
     if (this.renderTimer) { clearTimeout(this.renderTimer); this.renderTimer = null; }
     if (this.selectionTimer) { clearTimeout(this.selectionTimer); this.selectionTimer = null; }
     for (const d of this.disposables) d.dispose();
@@ -592,6 +792,7 @@ function resetForTests() {
   lastPreview.clear();
   lastFollow.clear();
   memorySamples.clear();
+  memorySampleKeys.clear();
 }
 
 module.exports = {

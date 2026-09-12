@@ -153,6 +153,24 @@ ok('resizeColumn width 9 bị chặn', !validateMailMessage({ type: 'edit', op: 
 ok('addRow ở detail bị chặn', !validateMailMessage({ type: 'edit', op: 'addRow', rev: 2, part: 'detail', rowIndex: 0 }).ok);
 ok('addRow ở footer', validateMailMessage({ type: 'edit', op: 'addRow', rev: 2, part: 'footer', rowIndex: 0 }).ok);
 
+section('mail contract — xem trước đầy đủ và chọn token');
+
+ok('setFullPreview đã bỏ — xem trước đi theo chế độ hiện biến "sample"', !validateMailMessage({ type: 'setFullPreview', on: true }).ok);
+eq('select mang tokenIndex khi bấm trúng {!biến}', validateMailMessage({
+  type: 'select', rev: 3, elementId: 'e7', tokenIndex: 4,
+}), {
+  ok: true, message: {
+    type: 'select', rev: 3, elementId: 'e7', reveal: false, tokenIndex: 4,
+  },
+});
+eq('select không có token → tokenIndex null', validateMailMessage({ type: 'select', rev: 3, elementId: 'e7' }).message.tokenIndex, null);
+eq('tokenIndex rác bị bỏ, phần chọn vẫn nhận', validateMailMessage({
+  type: 'select', rev: 3, elementId: 'e7', tokenIndex: -2,
+}).message.tokenIndex, null);
+eq('tokenIndex không nguyên bị bỏ', validateMailMessage({
+  type: 'select', rev: 3, elementId: 'e7', tokenIndex: 1.5,
+}).message.tokenIndex, null);
+
 section('mail contract — bám XML (Phase 7)');
 
 eq('setFollow: chỉ giữ on', validateMailMessage({ type: 'setFollow', on: false, x: 1 }), { ok: true, message: { type: 'setFollow', on: false } });
@@ -166,6 +184,16 @@ ok('setPreview: mode lạ bị chặn', !validateMailMessage({ type: 'setPreview
 eq('setSampleData: chỉ giữ text', validateMailMessage({ type: 'setSampleData', text: '{}', file: 'C:/x' }).message, { type: 'setSampleData', text: '{}' });
 ok('setSampleData: không phải chuỗi bị chặn', !validateMailMessage({ type: 'setSampleData', text: { so_ct: 1 } }).ok);
 ok('setSampleData: quá dài bị chặn', !validateMailMessage({ type: 'setSampleData', text: 'x'.repeat(MAX_SAMPLE_LENGTH + 1) }).ok);
+eq('loadMailSample: giữ stt_rec + contactID số', validateMailMessage({
+  type: 'loadMailSample', stt_rec: ' A000000716DXA ', contactID: 7, junk: true,
+}).message, { type: 'loadMailSample', stt_rec: 'A000000716DXA', contactID: '7' });
+eq('loadMailSample: contactID trống → 0', validateMailMessage({
+  type: 'loadMailSample', stt_rec: 'X', contactID: '  ',
+}).message.contactID, '0');
+ok('loadMailSample: stt_rec rỗng bị chặn', !validateMailMessage({ type: 'loadMailSample', stt_rec: '  ', contactID: '1' }).ok);
+ok('loadMailSample: contactID không phải số bị chặn', !validateMailMessage({
+  type: 'loadMailSample', stt_rec: 'X', contactID: "7 or 1=1",
+}).ok);
 
 section('mail contract — thuộc tính kiểm theo kiểu (Phase 4)');
 

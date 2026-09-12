@@ -672,9 +672,13 @@ Commit: **`0f8a00b`** trên `feat/email-designer` (kiểm trong worktree tạm: 
 - **Dữ liệu mẫu**: JSON `{ "so_ct": "PN0001", "t_tien": 12500000, "detail": [ { "ma_vt": "VT01" } ] }`.
   «Tạo khung từ biến» ghép mọi biến dữ liệu còn thiếu, giữ giá trị đã gõ; «Áp dụng & xem» lưu và
   chuyển sang chế độ dữ liệu mẫu; JSON sai → lý do hiện ngay dưới ô, bản vẽ mới không đè lên chữ đang gõ.
+- **Lấy từ chứng từ**: ô `stt_rec` + `contactID` → hỏi xác nhận → ghi tạm `dmxn` → dò bảng → chạy
+  `master` rồi `footer`/`detail` (có `@@language` từ `d_language`) → áp mặt nạ từ bảng format
+  cuối của detail/footer → nếu mẫu có `{!in_words}` thì `ReadCurrency` → đổ JSON mẫu
+  (xem `mail-sample.mjs` / `mail-sample-host.js`). Lỗi SQL hiện dialog overlay.
 - `core/src/mail-variables.mjs` — `scanMailTokens`, `mailVariables`, `parseMailSample`, `formatSampleScalar`,
   `sampleValueOf`, `sampleSkeleton`, `tokenPatches`. Hợp đồng: `PREVIEW_MODES`, `setPreview`,
-  `setSampleData`, `sampleError`.
+  `setSampleData`, `loadMailSample`, `sampleError`.
 
 ### Quyết định
 
@@ -714,9 +718,11 @@ Commit: **`0f8a00b`** trên `feat/email-designer` (kiểm trong worktree tạm: 
 
 ### Giới hạn
 
-- Không xem nhiều dòng `<detail>` cùng lúc.
-- Không lấy dữ liệu thật từ query của action — dữ liệu mẫu nhập tay.
-- Chưa chạy trong VS Code thật.
+- Không xem nhiều dòng `<detail>` cùng lúc trên bản vẽ thiết kế (bản «Xem trước: dữ liệu mẫu» thì nhân
+  dòng theo `detail[]`).
+- Lấy dữ liệu thật cần program có connection string + `sqlcmd`, action có `<query id="report">`, và
+  người dùng xác nhận ghi tạm `dmxn`.
+- Chưa chạy trong VS Code thật trên mọi corpus.
 
 Commit: **`1c28e7b`** trên `feat/email-designer` (kiểm trong worktree tạm: core 2425/2425, extension 378/378).
 
@@ -787,3 +793,166 @@ những đường VS Code không tự lo, và nối nốt các phép bảng còn
   thẻ bên trong một `&CssClass;`.
 - Con trỏ XML ở mẫu/biến thể KHÁC cái đang vẽ không tự đổi mẫu trên designer.
 - Chưa chạy trong VS Code thật: sự kiện vùng chọn và watcher thật.
+
+Commit: **`2598d60`** trên `feat/email-designer` (kiểm trong worktree tạm: core 2445/2445, extension 405/405).
+
+---
+
+## Phase 8 — Hoàn thiện
+
+### Đã làm
+
+| Việc | Chỗ | Ghi chú |
+| --- | --- | --- |
+| **Xem trước đầy đủ** | `mail-html.mjs#renderMailFullPreview`, công tắc «Xem trước» | dòng mẫu `<detail>` nhân theo `sample.detail` (không có dữ liệu mẫu → một dòng); header/footer một lần; không dấu `data-fbo-el`, không phần tử → chỉ đọc; host từ chối mọi `edit` khi đang bật |
+| **Kiểm tra mẫu** | `mail-lint.mjs#lintMailHtml`, mục «Kiểm tra mẫu» + huy hiệu trên thanh công cụ | lỗi HTML, thẻ bị chặn, `on*`, ảnh thiếu `src`/`alt`/`width`, liên kết rỗng/`#`, CSS mail client không đỡ (`flex`/`grid`, `position`, `float`, `url(`), vượt ngưỡng cắt thư của Gmail (102KB); bấm một vấn đề → chọn phần tử |
+| **Bề rộng khung xem** | chọn «vừa cửa sổ / 600px / 375px» | nhớ bằng `vscode.setState` của webview, không qua host |
+| **Phím tắt** | `Alt+↑/↓` lên/xuống · `Ctrl+Shift+↑/↓` chọn cha/con · `F2` sửa chữ | Alt+↑/↓ đọc `moveTargets` như nút ▲/▼; không bắt khi đang gõ |
+| **Nhớ kết quả bung entity** | `MailDesignSession#expandCached` | khoá = văn bản Message.xml + dấu mọi Include lần trước đọc (đang mở: `version`; trên đĩa: `mtime`+`size`) |
+| **Chịu lỗi** | `render` / `onMessage` | lỗi lúc vẽ → khung báo lỗi + Output; lỗi khi xử lý thông điệp → cảnh báo trỏ tới Output, không ném; lỗi JS của webview (`error`, `unhandledrejection`) → `log`; lượt vẽ > 300ms → ghi «vẽ chậm» ra Output |
+
+- Hợp đồng: `setFullPreview { on }`; `render.fullPreview`, `render.issues`.
+- `designPatches` tách khỏi `applyPatches` để bản xem trước dùng lại đúng patch của bản vẽ (nhãn,
+  chip, dữ liệu mẫu, khử độc) theo từng khoảng part — không có đường vẽ thứ hai.
+
+### Quyết định
+
+1. **Xem trước là một chế độ của CÙNG bản vẽ, không phải panel mới** — cùng iframe sandbox không script,
+   cùng patch khử độc; chỉ bỏ dấu phần tử và nhân khoảng `<detail>`.
+2. **Chỉ đọc ở cả hai phía**: webview không nhận phần tử nào để chọn; host vẫn chặn `edit` (một thông điệp
+   bắn trước khi bản vẽ mới tới vẫn mang id của bản vẽ cũ).
+3. **Luật kiểm tra ở core, chỉ báo** — không tự sửa mẫu. Mức: `error` (không an toàn / hỏng),
+   `warning` (mail client hiển thị sai), `info` (nên có). Không kiểm theo từng client cụ thể.
+4. **Nhớ theo nội dung chứ không theo thời gian** — không có TTL, không có nút xoá; mọi đường đổi nội
+   dung (sửa, hoàn tác, Include trên đĩa) đổi khoá.
+5. Bề rộng khung là tuỳ chọn XEM của từng webview → `setState`, không vào `workspaceState`, không vào mẫu.
+
+### Kiểm chứng
+
+- `node core/test/run.mjs` **2474/2474** · `node extension/test/run.mjs` **421/421**.
+- `core/test/test-mail-polish.mjs`: từng luật trên fixture và biến thể (script, `onclick`, ảnh thiếu
+  `alt`/`width`/`src`, bốn luật CSS, `href="#"`, thẻ đóng lạc, chú thích > 102KB); xem trước 3 dòng
+  VT01–VT03, header/footer một lần, khử độc, chip theo từng dòng, không dữ liệu mẫu → một dòng, bản vẽ
+  thiết kế vẫn một dòng; `sampleValueOf` dòng 2 / dòng ngoài mảng.
+- Host: `issues` trong render; bật xem trước → không phần tử, không dấu, `<detail>` nhân 2; `edit` khi xem
+  trước bị từ chối kèm lý do; tắt → phần tử trở lại. Bung entity: đổi chế độ / biến thể / xem trước không
+  bung lại; đổi Message.xml bung lại; Include đổi trên đĩa bung lại và thấy nội dung mới. Lỗi lúc vẽ → khung
+  báo lỗi + Output; lỗi khi xử lý `select` không ném, báo người dùng.
+- Corpus FBISP24 (39 biến thể, 238KB): bung entity 15ms; dựng + vẽ tối đa 10ms, trung bình 5ms; xem trước
+  tối đa 1ms, 39/39 đúng số dòng detail, 0 dấu `data-fbo-el` lọt; kiểm tra mẫu: **5** `mail.html-structure`
+  (cảnh báo HTML có sẵn từ Phase 3), không luật mail client nào khác bắn.
+- Webview trong trình duyệt: huy hiệu «⚠ 4» đỏ khi có lỗi, bốn vấn đề theo thứ tự lỗi → cảnh báo → gợi ý,
+  bấm vấn đề ảnh → chọn `<img>` và gửi đúng một `select`; khung 600px / 375px đúng bề rộng, 600px nằm giữa,
+  «vừa cửa sổ» trả về bề rộng cũ, `setState` nhớ lựa chọn; bật «Xem trước» gửi `setFullPreview`, bản vẽ
+  không dấu, 3 dòng detail, bảng thuộc tính ẩn kèm lời nhắc chỉ đọc, bấm canvas / Delete không gửi gì;
+  tắt → dấu phần tử và lời nhắc cũ trở lại; `Alt+↓` gửi `moveElement down`, không bắt khi đang gõ trong ô
+  Chữ; `Ctrl+Shift+↑` → `<body>`, `Ctrl+Shift+↓` → con đầu; `F2` nhận phím khi phần tử có chữ; lỗi JS → `log`.
+
+### Giới hạn
+
+- Luật kiểm tra là tập tối thiểu, tĩnh — không mô phỏng từng mail client, không đo ảnh, không kiểm link sống.
+- Chưa có nút **gửi thử** — gửi thư ra ngoài là việc của runtime FBO, designer không giữ thông tin SMTP.
+- Tắt «Xem trước» thì bỏ chọn (bản xem trước không mang phần tử); `Ctrl+Shift+↓` luôn chọn con ĐẦU.
+- Trình duyệt thử chạy ở pane ẩn nên không đo được việc `F2` thực sự đặt focus — chỉ khẳng định phím được
+  nhận; chưa chạy trong VS Code thật.
+
+### Rút gọn giao diện (theo yêu cầu)
+
+Sau Phase 8, theo yêu cầu người dùng, bốn phần bị bỏ khỏi webview:
+
+| Bỏ | Còn lối nào |
+| --- | --- |
+| Palette bên trái (`Thêm` / `Nội dung` / `Bố cục`) | **Không còn** — chèn component mất lối vào giao diện |
+| Nút «Hoàn tác», «Làm lại» | `Ctrl+Z` / `Ctrl+Y` |
+| Ô «Đi tới XML…» | `Ctrl+click` hoặc bấm đúp lên phần tử |
+| Mục «Cấu trúc» (▲ Lên, ▼ Xuống, Xoá, Chèn, Bọc liên kết) | `Alt+↑/↓` và kéo thả để di chuyển; `Del` để xoá. **Chèn** và **bọc liên kết** không còn lối vào |
+| Mục «Biến trong mẫu» | Ba chế độ hiện biến trên thanh công cụ vẫn còn; **bấm để chèn `{!tên}`** không còn |
+| Mục «Bảng» (bề rộng cột, + Cột, + Dòng) | **Không còn** — phép cột/dòng chỉ còn ở panel «Xem mail» |
+| Mục «Chữ» (ô soạn + «Ghi chữ», `F2`) | **Không còn** — sửa nội dung chữ phải làm trong XML |
+| Hai mục «Thuộc tính HTML» + «Style inline» | Gộp thành **một** mục «Định dạng» — không mất ô nào |
+
+Chỉ cắt ở webview. Core và host giữ nguyên mọi phép (`insertComponent`, `wrapLink`, `moveElement`), nên
+`components` và `variables` vẫn đi trong payload `render` — mở lại giao diện cho chúng là việc thêm HTML,
+không phải viết lại luật.
+
+---
+
+## Phase 9 — Bám XML theo mẫu, chế độ xem trước, và hai luật sai
+
+### Luật biến CÓ VÙNG (sửa lỗi)
+
+`<fields>` chỉ áp cho `<header>`/`<footer>`. Trong `<detail>`, cùng một tên là GIÁ TRỊ của dòng, không
+phải nhãn cột. Mẫu thật dùng đúng cặp đó: `{!so_luong}` ở header là tiêu đề cột "Số lượng", ở detail là
+số lượng của từng dòng. Trước Phase 9 designer thay nhãn ở cả hai chỗ, nên dòng dữ liệu hiện ra một dãy
+tiêu đề cột. Corpus FBISP24 có **22 chỗ** như vậy (PurchaseRequisition, PQApproval, BIOAApproval…).
+
+- `mail-variables.mjs#mailTokenKind(name, part, labels)` — một chỗ duy nhất quyết định vai.
+- `mailVariables` vì thế trả HAI mục cho một tên có mặt ở cả hai vùng (nhãn ở header, dữ liệu ở detail),
+  và khung dữ liệu mẫu xin cột cho dòng detail.
+- DWF không có phần render mail (đã tìm: không có file C# nào chạm `data-message`), nên luật này lấy từ
+  chính Message.xml của corpus — ghi lại ngay trong `mail-variables.mjs`.
+
+### Bấm trúng `{!biến}` thì con trỏ XML vào ĐÚNG token (sửa lỗi)
+
+Trước đây bấm vào chữ "Số phiếu" trên bản vẽ thì XML nhảy tới thẻ `<td>` chứa nó. Nay bản vẽ bọc mỗi
+biến trong `<span data-fbo-var data-fbo-tok="i">` — kể cả khi token ĐÃ được thay bằng nhãn hay giá trị
+mẫu — nên webview gửi kèm `tokenIndex`, host quy về dải nguồn bằng `mail-html.mjs#mailTokenClearRange`.
+Bản xem trước đầy đủ không mang dấu ấy (nó là bản mail thật).
+
+### Bám XML theo MẪU (hai chiều)
+
+| Chiều | Cư xử |
+| --- | --- |
+| XML → Designer | Con trỏ nhảy sang `<action>` (hoặc biến thể) khác thì designer ĐỔI MẪU theo rồi chọn phần tử dưới con trỏ. Trước Phase 9 nó im lặng bỏ qua — giới hạn đã ghi ở Phase 7 |
+| Designer → XML | Chọn mẫu khác trên thanh công cụ thì XML đang mở nhảy tới thẻ mở `<action id="…">` ấy. Chỉ khi ĐỔI MẪU — đổi ngôn ngữ hay biến thể không kéo XML đi |
+
+- `mail-template.mjs#mailLocationAt` / `#mailLocationAtSource` — vị trí → (action, body); action tiêm từ
+  file Include cũng ra đúng.
+- `scanMailActions` nay trả thêm toạ độ tuyệt đối (`start`, `end`, `bodyRanges`).
+
+### Chế độ xem trước gộp vào ô chọn biến
+
+Bỏ tick «Xem trước». Ô chế độ còn ba lựa chọn, trong đó **«Xem trước: dữ liệu mẫu»** chính là bản xem
+trước đầy đủ — nhân dòng detail, bỏ dấu phần tử, chỉ đọc. Gõ dữ liệu mẫu rồi «Áp dụng & xem» cũng vào
+thẳng chế độ ấy. Thông điệp `setFullPreview` đã bỏ khỏi hợp đồng.
+
+### Combobox mẫu mail có nút sổ
+
+Thêm nút `▾`: sổ TOÀN BỘ danh sách bất kể ô đang gõ gì (bấm lần nữa để đóng), vẫn gõ để tìm theo tên
+hoặc id như cũ.
+
+### Kiểm chứng
+
+- `node core/test/run.mjs` **2500/2500** · `node extension/test/run.mjs` **435/435**.
+- Core: luật vùng (hai mục cho một tên, nhãn không lọt xuống dòng mẫu, khung dữ liệu mẫu xin cột detail);
+  con trỏ nguồn → mẫu (trong body, trong `<fields>`, trên thẻ mở, file Include, ngoài `<template>`, file lạ);
+  dải nguồn của token (chữ, dòng mẫu, trong `href`, số thứ tự không có).
+- Host: con trỏ XML sang mẫu khác → đổi mẫu + chọn đúng phần tử; sang biến thể khác của mẫu khác → đổi cả
+  hai; đổi mẫu trên designer → XML nhảy tới `<action id="Alert" …>`; đổi ngôn ngữ thì không; `tokenIndex`
+  → XML đúng `{!h_so_ct}`, không có thì vẫn là thẻ `<td>`, số thứ tự rác không ném; ba chế độ hiện biến
+  (sample = chỉ đọc, label/token = sửa được).
+- Corpus FBISP24 (39 biến thể): **22** token trong `<detail>` đổi vai từ nhãn sang dữ liệu; khứ hồi token →
+  nguồn **1750/1750**; vị trí token → đúng (action, body) **1750/1750**; vẽ tối đa 1ms.
+- Trình duyệt: nút `▾` sổ cả danh sách rồi đóng lại, gõ tên/id vẫn lọc đúng một mục, không khớp thì ẩn;
+  bấm vào chữ của biến gửi `tokenIndex` đúng, bấm chỗ khác gửi `null`; chọn «Xem trước: dữ liệu mẫu» →
+  chỉ đọc, ba dòng detail, không còn dấu token; về «Biến: nhãn» → sửa lại được. Không lỗi JS.
+
+### Giới hạn
+
+- Đổi mẫu theo con trỏ XML LÀM MẤT lựa chọn phần tử cũ (bản vẽ mới, id khác).
+- `<footer>` dùng chung luật nhãn với `<header>`; nếu có mẫu nào đặt dữ liệu dòng ở footer thì luật này
+  hiện nhãn — chưa gặp trên corpus.
+
+---
+
+**«Thuộc tính HTML» và «Style inline» KHÔNG trùng nhau** — đó là lý do gộp chứ không bỏ. Chỉ 6 tên chồng
+nhau (`width`, `height`, `border`, `align`↔`text-align`, `valign`↔`vertical-align`, `bgcolor`↔`background-color`);
+`href`/`src`/`alt`/`target`/`cellpadding` chỉ có ở thuộc tính, còn font/màu chữ/padding/margin/bo góc chỉ có ở
+style. Trong mail hai cách viết cũng không thay nhau được — chính `mail.img-width` cảnh báo ảnh thiếu THUỘC
+TÍNH `width` vì Outlook không đọc CSS ở chỗ đó.
+
+Bảng thuộc tính sau khi rút gọn: **Định dạng · Kiểm tra mẫu · Dữ liệu mẫu**.
+
+Kiểm (lúc rút gọn): core 2474/2474, extension 421/421; trong trình duyệt không còn id nào của phần đã bỏ, phím tắt
+(`Ctrl+Z`, `Ctrl+Shift+↑/↓`, `Alt+↓`, `Del`) vẫn gửi đúng thông điệp, chọn và kéo trên canvas vẫn chạy,
+không lỗi JS.

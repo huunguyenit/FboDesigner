@@ -5,34 +5,28 @@
   <span class="md-file" id="md-file">—</span>
   <div class="md-combo" id="md-combo">
     <input id="md-action" type="text" autocomplete="off" spellcheck="false" placeholder="Mẫu mail — gõ để tìm theo tên hoặc id…" title="Mẫu mail">
+    <button type="button" id="md-action-drop" title="Sổ toàn bộ danh sách mẫu mail" aria-label="Sổ danh sách">▾</button>
     <div id="md-action-list" class="md-combo-list" hidden></div>
   </div>
   <select id="md-body" title="Biến thể thân thư"></select>
   <button type="button" id="md-lang" title="Nhãn field theo ngôn ngữ">Nhãn: VI</button>
-  <select id="md-preview" title="Cách hiện {!biến} trên bản vẽ — chỉ đổi bản vẽ, không đổi mẫu">
+  <select id="md-preview" title="Cách hiện {!biến} trên bản vẽ — chỉ đổi bản vẽ, không đổi mẫu. «Dữ liệu mẫu» là bản xem trước: nhân dòng detail, chỉ đọc.">
     <option value="label">Biến: nhãn</option>
     <option value="token">Biến: {!tên}</option>
-    <option value="sample">Biến: dữ liệu mẫu</option>
+    <option value="sample">Xem trước: dữ liệu mẫu</option>
   </select>
+  <select id="md-width" title="Bề rộng khung xem — kiểm mẫu ở bề rộng màn hình mail thật">
+    <option value="">Khung: vừa cửa sổ</option>
+    <option value="600">Khung: 600px (mail máy tính)</option>
+    <option value="375">Khung: 375px (điện thoại)</option>
+  </select>
+  <button type="button" id="md-issues-badge" title="Vấn đề theo luật mail client (Outlook, Gmail…)">✓ 0</button>
   <span class="md-spacer"></span>
-  <button type="button" id="md-undo" title="Hoàn tác (Ctrl+Z)">Hoàn tác</button>
-  <button type="button" id="md-redo" title="Làm lại (Ctrl+Y)">Làm lại</button>
-  <select id="md-goto" title="Mở XML của part">
-    <option value="">Đi tới XML…</option>
-    <option value="header">header</option>
-    <option value="detail">detail</option>
-    <option value="footer">footer</option>
-  </select>
   <label class="md-follow" title="Chọn trên designer thì con trỏ XML đi theo; đặt con trỏ trong XML thì designer chọn theo">
     <input type="checkbox" id="md-follow" checked> Bám XML
   </label>
 </header>
 <main class="md-main">
-  <aside class="md-palette" aria-label="Component">
-    <h3>Thêm</h3>
-    <div id="md-palette-items"></div>
-    <p class="md-note">Kéo vào mẫu mail, hoặc bấm để chèn cạnh phần tử đang chọn.</p>
-  </aside>
   <section class="md-canvas">
     <div class="md-frame-wrap" id="md-frame-wrap">
       <iframe id="md-frame" sandbox="allow-same-origin" title="Mẫu mail"></iframe>
@@ -49,68 +43,28 @@
     <div id="md-props-body" hidden>
       <nav class="md-crumbs" id="md-crumbs"></nav>
       <div class="md-el-head"><code id="md-el-tag"></code> <span id="md-el-meta"></span></div>
-      <section class="md-group">
-        <h3>Cấu trúc</h3>
-        <div class="md-row md-struct-buttons">
-          <button type="button" id="md-move-up">▲ Lên</button>
-          <button type="button" id="md-move-down">▼ Xuống</button>
-          <button type="button" id="md-remove" title="Xoá phần tử (Del)">Xoá</button>
-        </div>
-        <div class="md-row" id="md-wrap-row" hidden>
-          <input type="text" id="md-wrap-href" placeholder="https://… hoặc {!link}" spellcheck="false">
-          <button type="button" id="md-wrap-apply">Bọc liên kết</button>
-        </div>
-        <div class="md-row md-insert-row">
-          <select id="md-insert-kind" title="Component cần chèn"></select>
-          <select id="md-insert-pos" title="Vị trí so với phần tử đang chọn">
-            <option value="after">sau</option>
-            <option value="before">trước</option>
-            <option value="append">vào cuối</option>
-          </select>
-          <button type="button" id="md-insert-apply">Chèn</button>
-        </div>
-        <p class="md-reason" id="md-struct-reason" hidden></p>
-      </section>
-      <section class="md-group" id="md-table-group" hidden>
-        <h3>Bảng</h3>
-        <div class="md-row" id="md-col-row" hidden>
-          <span id="md-col-label">Cột</span>
-          <input type="number" id="md-col-width" min="10" max="2000" step="1">
-          <span>px</span>
-          <button type="button" id="md-col-add" title="Nhân bản cột này (tiêu đề + dòng mẫu), chèn ngay sau">+ Cột</button>
-        </div>
-        <div class="md-row" id="md-row-row" hidden>
-          <span id="md-row-label">Dòng</span>
-          <button type="button" id="md-row-add" title="Nhân bản dòng này, chèn ngay sau">+ Dòng</button>
-        </div>
-      </section>
-      <section class="md-group">
-        <h3>Chữ</h3>
-        <textarea id="md-text" rows="4" spellcheck="false" data-accepts-token="1"></textarea>
-        <div class="md-row">
-          <button type="button" id="md-text-apply">Ghi chữ</button>
-          <span class="md-note">Ctrl+Enter · <code>{!token}</code> giữ nguyên</span>
-        </div>
-        <p class="md-reason" id="md-text-reason" hidden></p>
-      </section>
-      <section class="md-group" id="md-attr-group">
-        <h3>Thuộc tính HTML</h3>
+      <section class="md-group" id="md-format-group">
+        <h3>Định dạng</h3>
         <p class="md-reason" id="md-attr-reason" hidden></p>
+        <p class="md-note md-caption" id="md-attr-caption" hidden>thuộc tính HTML</p>
         <div id="md-attr-fields"></div>
-      </section>
-      <section class="md-group">
-        <h3>Style inline</h3>
         <p class="md-reason" id="md-style-reason" hidden></p>
+        <p class="md-note md-caption" id="md-style-caption" hidden>style inline</p>
         <div id="md-style-fields"></div>
       </section>
     </div>
-    <section class="md-group">
-      <h3>Biến trong mẫu <span id="md-vars-count"></span></h3>
-      <p class="md-note">Đặt con trỏ vào ô Chữ (hoặc href/src/alt/title) rồi bấm một biến để chèn <code>{!tên}</code>.</p>
-      <div id="md-vars" class="md-vars"></div>
+    <section class="md-group" id="md-issues-group">
+      <h3>Kiểm tra mẫu <span id="md-issues-count"></span></h3>
+      <div id="md-issues" class="md-issues"></div>
     </section>
     <details class="md-group" id="md-sample-group">
       <summary>Dữ liệu mẫu — chỉ để xem, không ghi vào mẫu</summary>
+      <div class="md-sample-keys">
+        <label>stt_rec <input id="md-sample-stt-rec" type="text" spellcheck="false" placeholder="vd: A000000716DXA" autocomplete="off"></label>
+        <label>contactID <input id="md-sample-contact-id" type="text" spellcheck="false" placeholder="vd: 7" inputmode="numeric" autocomplete="off"></label>
+        <button type="button" id="md-sample-load" title="Chạy query report của mẫu với stt_rec/contactID thật — hỏi trước khi ghi dòng tạm vào dmxn">Lấy từ chứng từ</button>
+      </div>
+      <p class="md-hint">Hoặc gõ JSON tay bên dưới. «Lấy từ chứng từ» ghi một dòng tạm vào <code>dmxn</code> (có hỏi xác nhận).</p>
       <textarea id="md-sample" rows="8" spellcheck="false" placeholder='{ "so_ct": "PN0001", "detail": [ { "ma_vt": "VT01" } ] }'></textarea>
       <div class="md-row">
         <button type="button" id="md-sample-apply">Áp dụng &amp; xem</button>
@@ -120,4 +74,4 @@
     </details>
   </aside>
 </main>
-<footer class="md-status" id="md-status"><b>Click</b> = chọn · <b>Ctrl+click</b> / <b>bấm đúp</b> = mở XML · <b>Esc</b> = bỏ chọn · <b>Del</b> = xoá · kéo phần tử đang chọn = di chuyển · <b>Ctrl+Z</b> / <b>Ctrl+Y</b> = hoàn tác / làm lại · lăn chuột = cuộn mẫu</footer>
+<footer class="md-status" id="md-status"><b>Click</b> = chọn · <b>Ctrl+click</b> / <b>bấm đúp</b> = mở XML · <b>Esc</b> = bỏ chọn · <b>Del</b> = xoá · kéo phần tử đang chọn = di chuyển · <b>Alt+↑/↓</b> = lên/xuống · <b>Ctrl+Shift+↑/↓</b> = chọn cha/con · <b>Ctrl+Z</b> / <b>Ctrl+Y</b> = hoàn tác / làm lại · lăn chuột = cuộn mẫu</footer>

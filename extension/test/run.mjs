@@ -33,6 +33,7 @@ await import('./test-diagnostic-host.mjs');
 await import('./test-sample-store.mjs');
 await import('./test-sample-render.mjs');
 await import('./test-sample-host.mjs');
+await import('./test-mail-sample-host.mjs');
 await import('./test-language-host.mjs');
 await import('./test-insight-host.mjs');
 await import('./test-mail-preview-host.mjs');

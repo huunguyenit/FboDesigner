@@ -5,6 +5,11 @@
 // DỮ LIỆU — runtime thay bằng cột của câu query lúc gửi. Tên chỉ gồm chữ/số/gạch dưới, không có
 // đường dẫn `a.b` — dữ liệu mẫu vì thế là object PHẲNG, cộng `detail: [...]` cho dòng lặp.
 //
+// NHƯNG luật nhãn CÓ VÙNG: chỉ `<header>`/`<footer>` mới đọc `<fields>`; trong `<detail>` thì cùng một
+// tên là GIÁ TRỊ của dòng. Mẫu thật dùng đúng cặp đó — `{!so_luong}` ở header là tiêu đề cột "Số lượng",
+// ở detail là số lượng của từng dòng (corpus FBISP24: 22 chỗ, vd PurchaseRequisition/body `{!so_luong}`,
+// `{!sl_duyet}`). Không phân vùng thì bản vẽ hiện tiêu đề cột nằm giữa dòng dữ liệu.
+//
 // Mọi thứ ở đây chỉ đổi BẢN VẼ. Nguồn giữ nguyên `{!tên}`; dữ liệu mẫu sống ở workspace state của
 // VS Code (tầng vỏ), không bao giờ vào Message.xml.
 
@@ -55,19 +60,29 @@ export function scanMailTokens(view, index) {
 }
 
 /**
- * Biến của (action, body) đang vẽ, theo thứ tự xuất hiện đầu tiên.
- * `kind: 'label'` khi tên khai trong `<fields>` (runtime thay bằng nhãn), `'data'` khi không.
+ * Vai của MỘT lần xuất hiện: nhãn khai trong `<fields>` chỉ có tác dụng ngoài `<detail>` (xem luật ở
+ * đầu file).
+ */
+export function mailTokenKind(name, part, labels) {
+  return part !== 'detail' && labels.has(name) ? 'label' : 'data';
+}
+
+/**
+ * Biến của (action, body) đang vẽ, theo thứ tự xuất hiện đầu tiên. `kind: 'label'` khi tên khai trong
+ * `<fields>` VÀ đứng ngoài `<detail>`, `'data'` khi không — nên một tên có mặt ở cả hai vùng cho HAI
+ * mục: nhãn ở header, dữ liệu ở detail.
  */
 export function mailVariables(view, index, labels = new Map()) {
   const byName = new Map();
   for (const t of scanMailTokens(view, index)) {
-    let v = byName.get(t.name);
+    const kind = mailTokenKind(t.name, t.part, labels);
+    const key = `${t.name}|${kind}`;
+    let v = byName.get(key);
     if (!v) {
-      const label = labels.get(t.name) ?? null;
       v = {
-        name: t.name, kind: label ? 'label' : 'data', label, count: 0, contexts: [], parts: [],
+        name: t.name, kind, label: kind === 'label' ? (labels.get(t.name) ?? null) : null, count: 0, contexts: [], parts: [],
       };
-      byName.set(t.name, v);
+      byName.set(key, v);
     }
     v.count++;
     if (!v.contexts.includes(t.context)) v.contexts.push(t.context);
@@ -135,10 +150,12 @@ export function formatSampleScalar(value) {
  *
  * @returns {string|null} `null` khi dữ liệu mẫu không có biến này
  */
-export function sampleValueOf(sample, name, part) {
+export function sampleValueOf(sample, name, part, row = 0) {
   if (!isPlainObject(sample)) return null;
-  if (part === 'detail' && Array.isArray(sample.detail) && isPlainObject(sample.detail[0]) && Object.hasOwn(sample.detail[0], name)) {
-    return formatSampleScalar(sample.detail[0][name]);
+  // `row` > 0 chỉ bản xem trước đầy đủ dùng (`renderMailFullPreview` nhân dòng mẫu theo từng dòng).
+  const detail = Array.isArray(sample.detail) ? sample.detail[row] : undefined;
+  if (part === 'detail' && isPlainObject(detail) && Object.hasOwn(detail, name)) {
+    return formatSampleScalar(detail[name]);
   }
   if (name !== 'detail' && Object.hasOwn(sample, name)) return formatSampleScalar(sample[name]);
   return null;
@@ -171,25 +188,29 @@ const CHIP_STYLE = 'display:inline-block;padding:0 4px;margin:0 1px;border:1px s
  * Chữ thay thế theo thứ tự runtime: nhãn khai trong `<fields>` trước, giá trị mẫu sau (chế độ `sample`).
  */
 export function tokenPatches(view, index, {
-  labels = new Map(), vi = true, mode = 'label', sample = null,
+  labels = new Map(), vi = true, mode = 'label', sample = null, detailRow = 0, markers = true,
 } = {}) {
   const m = PREVIEW_MODES.includes(mode) ? mode : 'label';
   const patches = [];
-  for (const t of scanMailTokens(view, index)) {
-    const label = labels.get(t.name);
+  for (const [i, t] of scanMailTokens(view, index).entries()) {
+    const kind = mailTokenKind(t.name, t.part, labels);
+    const label = kind === 'label' ? labels.get(t.name) : null;
     const labelText = label ? ((vi ? (label.v || label.e) : (label.e || label.v)) || null) : null;
-    const value = m === 'sample' ? sampleValueOf(sample, t.name, t.part) : null;
+    const value = m === 'sample' ? sampleValueOf(sample, t.name, t.part, detailRow) : null;
     const resolved = m === 'token' ? null : (labelText ?? value);
+    // Dấu token: bấm vào CHỮ ĐÃ THAY trên bản vẽ vẫn phải trỏ về đúng `{!tên}` trong XML chứ không phải
+    // thẻ chứa nó. Bản xem trước đầy đủ không mang dấu — nó là bản mail thật, không phải bản vẽ.
+    const head = markers ? `<span data-fbo-var="${t.name}" data-fbo-tok="${i}"` : `<span data-fbo-var="${t.name}"`;
 
     if (t.context === 'text') {
       if (resolved !== null) {
-        patches.push({ start: t.start, end: t.end, text: escText(resolved) });
+        patches.push({ start: t.start, end: t.end, text: markers ? `${head}>${escText(resolved)}</span>` : escText(resolved) });
       } else {
         const note = labelText ? ` — ${labelText}` : (m === 'sample' ? ' — chưa có trong dữ liệu mẫu' : ' — dữ liệu lúc gửi');
         patches.push({
           start: t.start,
           end: t.end,
-          text: `<span data-fbo-var="${t.name}" title="${escAttr(`{!${t.name}}${note}`)}" style="${CHIP_STYLE}">{!${t.name}}</span>`,
+          text: `${head} title="${escAttr(`{!${t.name}}${note}`)}" style="${CHIP_STYLE}">{!${t.name}}</span>`,
         });
       }
     } else if (resolved !== null) {
