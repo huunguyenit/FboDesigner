@@ -93,6 +93,7 @@ const CONTENT = [
   ['core/src/edit-attr.mjs', 'extension/core/edit-attr.mjs'],
   ['core/src/edit-move.mjs', 'extension/core/edit-move.mjs'],
   ['core/src/edit-entity.mjs', 'extension/core/edit-entity.mjs'],
+  ['core/src/form-edit-contract.mjs', 'extension/core/form-edit-contract.mjs'],
   ['core/src/field-template.mjs', 'extension/core/field-template.mjs'],
   ['core/src/msg.mjs', 'extension/core/msg.mjs'],
   ['core/src/warn.mjs', 'extension/core/warn.mjs'],

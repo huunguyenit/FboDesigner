@@ -353,6 +353,19 @@ async function askNewControl(core, { width = false, categoryIndex = null } = {})
  * XML, và lúc đó mọi offset cũ đã lệch. Ghi theo offset lệch là cắt trúng giữa một thẻ khác.
  */
 async function handleEdit(msg, core, hostDocument, rebuild, output, depth = 0) {
+  /*
+   * Cổng vào — xem `core/src/form-edit-contract.mjs`. Trước đây `op` lạ (gõ nhầm, client cũ
+   * gửi tên đã gỡ) rơi qua HOÀN TOÀN im lặng ở `else { return false; }` cuối hàm này; giờ có lý
+   * do rõ ràng ngay từ đầu, cùng nguyên lý với `validateMailMessage` của Email Designer. Cổng
+   * này KHÔNG lặp lại luật nội dung (biên độ width, cột/vùng có tồn tại…) — những luật đó vẫn ở
+   * đúng chỗ cũ trong `core/src/edit*.mjs`.
+   */
+  const gate = core.validateFormEditMessage(msg);
+  if (!gate.ok) {
+    warnReason(gate.reason);
+    return false;
+  }
+
   // Cột của LƯỚI đi đường riêng: chúng nằm ở file Detail khác, và lưới khai layout bằng thứ tự
   // chứ không bằng pattern — không dùng chung phép nào với hàng của form.
   if (msg.op === 'colWidth' || msg.op === 'colRemove' || msg.op === 'colInsert' || msg.op === 'colMove') {

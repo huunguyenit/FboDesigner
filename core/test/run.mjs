@@ -15,6 +15,7 @@ import './test-entities.mjs';
 import './test-render.mjs';
 import './test-grid.mjs';
 import './test-edit.mjs';
+import './test-form-edit-contract.mjs';
 import './test-move-free.mjs';
 import './test-swap-split.mjs';
 import './test-columns.mjs';

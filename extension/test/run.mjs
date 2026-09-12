@@ -40,6 +40,7 @@ await import('./test-mail-preview-host.mjs');
 await import('./test-mail-designer-editor.mjs');
 await import('./test-designer-editor.mjs');
 await import('./test-preview-panel.mjs');
+await import('./test-edit-host-gate.mjs');
 const { summary } = await import('../../core/test/harness.mjs');
 
 summary();

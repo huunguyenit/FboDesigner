@@ -35,6 +35,7 @@ export {
   isBlankAnchorName,
 } from './item-value.mjs';
 export { canEditRow, planRowEdit, planMoveControl, planMoveRowBlock, planSwapControl, planSwapBlock, moveControlFiles, rowEditTargetFile, planAddRow, planAddField, blankAnchorName, blankAnchorField, blankAnchorToken, blankAnchorIn, planRemoveField, planRemoveControl, planInlineEntity, planColumnWidth, planRemoveColumn, planInsertColumn, planMoveColumn, planViewHeight, planFieldRows, planRegionMetadata, planRegionColumns, regionColumnFiles, planRegionColumnWidth } from './edit.mjs';
+export { FORM_EDIT_OPS, isSupportedFormEditOp, validateFormEditMessage } from './form-edit-contract.mjs';
 export {
   FIELD_KINDS,
   FIELD_TYPES,
