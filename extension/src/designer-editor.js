@@ -25,6 +25,7 @@ const { history } = require('./edit-history');
 const { OverlayDialogs } = require('./dialog/dialog-overlay');
 const { runWithDialogs } = require('./dialog/dialog-service');
 const { trackDesignerWebview } = require('./designer-webview');
+const { dispatchDesignerMessage } = require('./designer-session');
 const sampleStore = require('./sample-store');
 const { autoLoadSample } = require('./sample-host');
 const { ensureLicense, lockedWebviewHtml } = require('./license');
@@ -175,105 +176,32 @@ class FboDesignerProvider {
     const overlay = new OverlayDialogs(panel.webview);
     panel.onDidDispose(() => overlay.dispose());
 
-    panel.webview.onDidReceiveMessage(async (msg) => {
+    panel.webview.onDidReceiveMessage((msg) => {
       // Trả lời hộp thoại đi trước mọi thứ: nó là cái đang có một `await` chờ ở đầu kia.
-      if (overlay.handleMessage(msg)) return;
-      if (msg.type === 'ready') {
-        if (typeof msg.vi === 'boolean') vi = msg.vi;
-        return render();
-      }
-      if (msg.type === 'setLang') {
-        vi = msg.vi !== false;
-        return render();
-      }
-      if (msg.type === 'select') return revealSource(msg, document, this.output);
+      if (overlay.handleMessage(msg)) return undefined;
 
-      // Ctrl+Z / Ctrl+Y bấm trong webview — undo của VS Code không với tới đây. Xem
-      // `edit-history.js`; chồng hoàn tác dùng chung với panel, nên hai lối mở không đá nhau.
-      //
-      // Cùng chốt `editing` với phép sửa: hoàn tác cũng là `applyEdit` + `save()`, và nó còn
-      // chạm nhiều file hơn vì nó lùi cả cụm splice một lượt.
-      if (msg.type === 'undo' || msg.type === 'redo') {
-        editing = true;
-        try {
-          await runWithDialogs(overlay, () => (msg.type === 'undo'
-            ? history(this.output).undo()
-            : history(this.output).redo()));
-        } catch (err) {
-          this.output.appendLine(`${msg.type} lỗi: ${err.stack || err.message}`);
-        } finally {
-          finishEdit();
-        }
-        return;
-      }
-
-      /*
-       * SỬA — nhánh này trước đây KHÔNG có, nên designer gắn cứng vào file chỉ xem được, không
-       * kéo thả được: webview vẫn gửi `edit`, còn ở đây không ai nghe.
-       *
-       * Dựng lại model từ VĂN BẢN HIỆN TẠI mỗi lần, không dùng lại model của lần render trước —
-       * người dùng có thể vừa gõ tay vào XML và offset cũ đã lệch. Cùng giao kèo với
-       * `PreviewPanel.onMessage`; `handleEdit` là chỗ duy nhất biết luật sửa, hai lối mở chỉ
-       * khác nhau ở câu hỏi "document nào".
-       *
-       * Phép sửa một hàng (resize/move/swap/…) vá cục bộ qua `patchRow` giống panel — giữ
-       * scroll/tab; `addRow` và các op đụng nhiều hàng vẫn vẽ lại toàn bộ.
-       */
-      if (msg.type === 'edit') {
-        // rebuild cho plan chỉ cần model — không dựng HTML (~renderHtmlMs trong log perf).
-        const rebuild = () => buildPayload(this.core, document, {
+      // Phần dùng chung với `PreviewPanel.onMessage` (ready/setLang/select/undo/redo/edit/
+      // reloadAssets/assets/log) sống ở `designer-session.js` — xem đó để biết luật đầy đủ.
+      return dispatchDesignerMessage(msg, {
+        document,
+        core: this.core,
+        output: this.output,
+        overlay,
+        handleEdit,
+        history,
+        runWithDialogs,
+        revealSource,
+        setVi: (v) => { vi = v; },
+        render,
+        setEditing: (v) => { editing = v; },
+        setPendingLocalEdit: (v) => { pendingLocalEdit = v; },
+        finishEdit,
+        buildRebuild: () => () => buildPayload(this.core, document, {
           cfg, paths, output: this.output, webview: panel.webview, skipHtml: true, vi,
-        });
-        /*
-         * Vá cục bộ giống PreviewPanel: resize/move/swap/insert/remove cùng hàng không cần
-         * thay cả formLayer.innerHTML — giữ scroll/tab và giảm giật sau thả.
-         */
-        const PATCHABLE = new Set(['resize', 'move', 'swap', 'insert', 'remove']);
-        const sameRowMove = msg.op === 'move' || msg.op === 'swap'
-          ? !Number.isFinite(Number(msg.toItem)) || Number(msg.toItem) === Number(msg.item)
-          : true;
-        const patchable = PATCHABLE.has(msg.op)
-          && !(msg.op === 'remove' && msg.withField === true)
-          && sameRowMove;
-        let localEdit = patchable
-          ? {
-            item: msg.item,
-            cell: msg.op === 'swap' ? msg.other : msg.cell,
-            col: msg.op === 'move' ? msg.col : undefined,
-          }
-          : null;
-
-        editing = true;
-        try {
-          const applied = await runWithDialogs(overlay, () => handleEdit(msg, this.core, document, rebuild, this.output));
-          if (!applied) localEdit = null;
-          // Gắn localEdit vào render sắp tới qua closure trên renderSoon path:
-          if (localEdit) pendingLocalEdit = localEdit;
-        } catch (err) {
-          localEdit = null;
-          pendingLocalEdit = null;
-          this.output.appendLine(`sửa lỗi: ${err.stack || err.message}`);
-        } finally {
-          // Hộp thoại bị Esc, phép sửa bị từ chối, hay handler ném — cả ba đều phải thả chốt.
-          // Kẹt `editing` ở `true` là preview đứng hình vĩnh viễn.
-          finishEdit();
-        }
-        return;
-      }
-
-      if (msg.type === 'reloadAssets') {
-        bust += 1;
-        this.output.appendLine(`nạp lại tài nguyên (bust=${bust})`);
-        return buildShell(); // shell mới chạy lại script → script tự gửi `ready` → render()
-      }
-
-      if (msg.type === 'assets') {
-        this.output.appendLine(`[P0 câu hỏi 2] CSS khai ${msg.declared}, webview nạp được ${msg.loaded}, hỏng ${msg.failed}`);
-        for (const href of msg.failedHrefs || []) this.output.appendLine(`  không nạp được: ${href}`);
-        return;
-      }
-
-      if (msg.type === 'log') this.output.appendLine(String(msg.text));
+        }),
+        bumpBust: () => { bust += 1; return bust; },
+        rebuildShell: () => buildShell(), // shell mới chạy lại script → script tự gửi `ready` → render()
+      });
     });
   }
 }

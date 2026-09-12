@@ -754,7 +754,7 @@ section('email designer — file không phải mẫu mail');
   eq('không vẽ mẫu nào', t.renders().length, 0);
 }
 
-section('email designer — đăng ký provider và lệnh mở');
+section('email designer — đăng ký provider và nhánh mở từ Message.xml');
 {
   reset();
   MailDesignerProvider.register(context, core, output);

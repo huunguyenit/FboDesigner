@@ -100,6 +100,11 @@ export const Uri = {
     const rest = String(s).slice(i + 1);
     return new FakeUri(scheme, rest.startsWith('/') ? rest : `/${rest}`);
   },
+  /** Ghép thêm đoạn vào `path` của một Uri có sẵn — dùng cho `localResourceRoots` (media, …). */
+  joinPath(base, ...segments) {
+    const parts = [base.path.replace(/\/+$/, ''), ...segments];
+    return new FakeUri(base.scheme, parts.join('/').replace(/\/+/g, '/'));
+  },
 };
 
 /**

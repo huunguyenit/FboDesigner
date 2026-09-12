@@ -4,6 +4,13 @@
 
 ## [Chưa phát hành]
 
+### Thay đổi — Một lệnh mở designer theo file
+
+- `fboDesigner.open` (`Ctrl+Alt+O` / menu FBO Designer): đang mở `Message.xml` → Email Designer;
+  file controller khác → panel giao diện giả lập FBO.
+- Gỡ lệnh `fboDesigner.viewMail` («Xem mail») và `fboDesigner.openMailDesigner` («Mở Email Designer»).
+  Vẫn mở được Email Designer qua *Open With… → FBO Email Designer*.
+
 ### Sửa — Email Designer: format số mẫu, lỗi SQL, `{!in_words}`
 
 - Khi SQL mẫu lỗi: hiện dialog error overlay (không chỉ toast).

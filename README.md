@@ -59,13 +59,11 @@ dò sẵn; nối không được thì `Ctrl+Alt+C` vẫn chạy và hỏi tay.
 
 | Lệnh                                   | Phím tắt     | Việc làm                                                                                          |
 | -------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------- |
-| **Mở giao diện giả lập FBO**           | `Ctrl+Alt+O` | Mở panel designer bám theo file controller đang active                                            |
+| **Mở giao diện giả lập FBO**           | `Ctrl+Alt+O` | File controller → panel form/lưới; `Message.xml` → Email Designer (xem `docs/EMAIL-DESIGNER.md`) |
 | **Khai báo lọc nhanh cho lưới này**    | `Ctrl+Alt+F` | Bật `allowFilter` / `<query>` trên XML lưới (nếu thiếu), sinh SQL xoá–nạp lại `sysfilterdeclares` |
 | **Sinh script thêm cột cho field mới** | `Ctrl+Alt+C` | So field trên form với schema, sinh SQL thêm cột cho field chưa có trên bảng                      |
 | **Xem dữ liệu thật trên lưới**         | `Ctrl+Alt+D` | Lấy vài dòng thật đổ vào lưới để đo bề rộng cột; bấm lại để bỏ đi (xem §4)                       |
 | **Chế độ soi entity**                  | *(mặc định bật)* | Không có phím tắt — tắt/bật qua `fboDesigner.showInsight`, xem §6                            |
-| **Xem mail**                           | —            | Mở `Options/Message.xml`: xem mọi mẫu mail × biến thể × ngôn ngữ, so sánh biến thể, sửa cột/dòng bảng |
-| **Mở Email Designer**                  | —            | Mở `Options/Message.xml` bằng editor trực quan: chọn phần tử trên mẫu mail, sửa chữ và style inline — ghi thẳng XML, Ctrl+Z hoàn tác (xem `docs/EMAIL-DESIGNER.md`) |
 
 
 ![Mail Designer](docs/images/MailDesigner.png)

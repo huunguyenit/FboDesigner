@@ -72,6 +72,7 @@ function mailShellHtml(context, webview) {
   const n = nonce();
   const media = path.join(context.extensionUri.fsPath, 'media');
   const css = assetUri(webview, path.join(media, 'mail-designer.css'));
+  const dialogKitJs = assetUri(webview, path.join(media, 'dialog-kit.js'));
   const js = assetUri(webview, path.join(media, 'mail-designer.js'));
   const body = fs.readFileSync(path.join(media, 'mail-shell.html'), 'utf8');
   return `<!doctype html>
@@ -83,6 +84,7 @@ function mailShellHtml(context, webview) {
 </head>
 <body>
 ${body}
+<script nonce="${n}" src="${dialogKitJs}"></script>
 <script nonce="${n}" src="${js}"></script>
 </body>
 </html>`;
@@ -772,7 +774,10 @@ class MailDesignerProvider {
   }
 }
 
-/** Lệnh «Mở Email Designer» — mở file đang active bằng editor này, bên cạnh XML. */
+/**
+ * Nhánh mail của `fboDesigner.open` (và *Open With…*): mở file đang active bằng editor này,
+ * bên cạnh XML. Caller đã nhận diện `Message.xml`; hàm này còn kiểm schema trước khi mở.
+ */
 async function openMailDesigner(core) {
   const document = vscode.window.activeTextEditor?.document;
   if (!document) {

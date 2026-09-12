@@ -308,9 +308,9 @@ Không dùng chữ "Entity" cho phần tử: trong repo này entity là `<!ENTIT
 - Nghe `onDidChangeTextDocument` của chính document **và** mọi file trong `segments` (Include cung
   cấp action), qua chốt `editing`/`renderSoon`/`finishEdit`.
 - `keybindings` Delete: thêm `|| activeCustomEditorId == 'fboDesigner.mail'` vào `when`.
-- `fboDesigner.viewMail`: Phase 3 chưa đổi. Khi editor đủ các chức năng của panel (so sánh biến
-  thể, cột/dòng), lệnh chuyển sang `vscode.openWith(uri, 'fboDesigner.mail')` và panel cũ gỡ —
-  mốc quyết định ghi ở Phase 7.
+- `fboDesigner.viewMail`: Phase 3 chưa đổi. **Sau này gộp vào `fboDesigner.open`** (nhận diện
+  `Message.xml` → Email Designer) và gỡ lệnh riêng «Xem mail» / «Mở Email Designer»; panel
+  `mail-preview-host` còn trong repo cho test/nền.
 
 ### Hộp thoại
 
@@ -451,7 +451,7 @@ Chốt `editing` gộp mọi nhịp của một phép sửa thành một lượt
 
 | Việc | Ở đâu |
 | --- | --- |
-| Mở Email Designer | *Open With… → FBO Email Designer* (`customEditors` `fboDesigner.mail`, `**/Options/Message.xml`, `priority: option`), lệnh `fboDesigner.openMailDesigner` (menu FBO Designer + Command Palette) |
+| Mở Email Designer | Lệnh `fboDesigner.open` khi đang mở `Message.xml` (`Ctrl+Alt+O` / menu FBO Designer); hoặc *Open With… → FBO Email Designer* (`customEditors` `fboDesigner.mail`, `**/Options/Message.xml`, `priority: option`) |
 | Đọc + dựng dòng HTML | `core/src/mail-html.mjs#buildMailView` (mảnh cdata/text, cắt ở ranh giới đoạn nguồn) |
 | Tokenizer + chỉ mục + `caps` | `indexMailElements` |
 | Vẽ | `renderMailDesign` (làm sạch + `data-fbo-el` + nhãn `{!h_…}`) → `iframe.srcdoc` sandbox không script |

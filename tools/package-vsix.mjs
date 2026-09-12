@@ -39,6 +39,7 @@ const CONTENT = [
   ['extension/src/extension.js', 'extension/src/extension.js'],
   ['extension/src/designer-editor.js', 'extension/src/designer-editor.js'],
   ['extension/src/designer-webview.js', 'extension/src/designer-webview.js'],
+  ['extension/src/designer-session.js', 'extension/src/designer-session.js'],
   ['extension/src/preview-panel.js', 'extension/src/preview-panel.js'],
   ['extension/src/render-host.js', 'extension/src/render-host.js'],
   ['extension/src/diagnostic-host.js', 'extension/src/diagnostic-host.js'],
@@ -54,6 +55,7 @@ const CONTENT = [
   ['extension/src/dialog/dialog-panel.js', 'extension/src/dialog/dialog-panel.js'],
   ['extension/src/dialog/dialog-types.js', 'extension/src/dialog/dialog-types.js'],
   ['extension/media/designer.css', 'extension/media/designer.css'],
+  ['extension/media/dialog-kit.js', 'extension/media/dialog-kit.js'],
   ['extension/media/designer.js', 'extension/media/designer.js'],
   ['extension/media/shell.html', 'extension/media/shell.html'],
   ['extension/src/filter-host.js', 'extension/src/filter-host.js'],
@@ -140,7 +142,7 @@ function scanForUndeclared(dir) {
     else if (/\.(js|mjs)$/.test(e.name) && !declared.has(rel)) missing.push(rel);
   }
 }
-for (const dir of ['extension/src', 'core/src']) scanForUndeclared(dir);
+for (const dir of ['extension/src', 'extension/media', 'core/src']) scanForUndeclared(dir);
 if (missing.length) {
   process.stderr.write(`CONTENT thiếu file (thêm vào tools/package-vsix.mjs):\n  ${missing.join('\n  ')}\n`);
   process.exit(2);

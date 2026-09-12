@@ -53,20 +53,6 @@
         {
           "command": "fboDesigner.previewData",
           "group": "navigation@40"
-        },
-        {
-          "command": "fboDesigner.viewMail",
-          "group": "navigation@50"
-        },
-        {
-          "command": "fboDesigner.openMailDesigner",
-          "group": "navigation@55"
-        }
-      ],
-      "commandPalette": [
-        {
-          "command": "fboDesigner.showDialogDemo",
-          "when": "false"
         }
       ]
     },
@@ -87,11 +73,6 @@
         "title": "%fboDesigner.addColumns.title%"
       },
       {
-        "command": "fboDesigner.showDialogDemo",
-        "category": "FBO Designer",
-        "title": "%fboDesigner.showDialogDemo.title%"
-      },
-      {
         "command": "fboDesigner.deleteSelection",
         "category": "FBO Designer",
         "title": "%fboDesigner.deleteSelection.title%"
@@ -100,16 +81,6 @@
         "command": "fboDesigner.previewData",
         "category": "FBO Designer",
         "title": "%fboDesigner.previewData.title%"
-      },
-      {
-        "command": "fboDesigner.viewMail",
-        "category": "FBO Designer",
-        "title": "%fboDesigner.viewMail.title%"
-      },
-      {
-        "command": "fboDesigner.openMailDesigner",
-        "category": "FBO Designer",
-        "title": "%fboDesigner.openMailDesigner.title%"
       }
     ],
     "keybindings": [

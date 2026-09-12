@@ -57,26 +57,6 @@ class DialogService {
   async ask(options = {}) {
     return buttonIdOf(await this.show(options));
   }
-
-  demo() {
-    return this.show({
-      type: 'warning',
-      title: t('dialog.confirm.title'),
-      subtitle: t('dialog.confirm.subtitle'),
-      size: 'small',
-      body: [
-        { type: 'text', content: 'Bạn sắp thực hiện một thao tác nguy hiểm. Kiểm tra kỹ trước khi tiếp tục.' },
-        { type: 'details', rows: [
-          { key: 'Error Code', value: 'E_XML_1001' },
-          { key: 'Node', value: '<field name="ma_vt">' },
-        ] },
-      ],
-      buttons: [
-        { id: 'cancel', label: t('dialog.btn.dismiss'), variant: 'secondary', action: 'cancel' },
-        { id: 'confirm', label: t('dialog.btn.continue'), variant: 'primary', action: 'confirm' },
-      ],
-    });
-  }
 }
 
 /*

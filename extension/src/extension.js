@@ -15,7 +15,6 @@ const { isControllerDocument, config, panelColumn } = require('./render-host');
 const { declareFilter } = require('./filter-host');
 const { addColumns } = require('./add-column-host');
 const { previewData } = require('./sample-host');
-const { viewMail } = require('./mail-preview-host');
 const { MailDesignerProvider, openMailDesigner } = require('./mail-designer-editor');
 const { initDialogs } = require('./dialog/dialog-service');
 const { postToActiveDesigner } = require('./designer-webview');
@@ -41,6 +40,11 @@ async function loadCore() {
   return import(pathToFileURL(entry).href);
 }
 
+/** `Options/Message.xml` (và mọi file tên Message.xml) → Email Designer; còn lại → panel form/lưới. */
+function isMessageXmlDocument(document) {
+  return !!document && path.basename(document.uri.fsPath).toLowerCase() === 'message.xml';
+}
+
 async function activate(context) {
   // License/Machine ID ghi Settings sớm — không phụ thuộc core/preview.
   await initLicenseSettings(context);
@@ -58,7 +62,7 @@ async function activate(context) {
 
   // Phải đứng TRƯỚC mọi registerCommand: `edit-host.js` và `filter-host.js` lấy hộp thoại qua
   // `dialogs()`, và chúng chạy được ngay khi người dùng bấm lệnh đầu tiên.
-  const dialogService = initDialogs(context);
+  initDialogs(context);
 
   context.subscriptions.push(FboDesignerProvider.register(context, core, output));
   // Email Designer cho Options/Message.xml — cùng khuôn custom text editor, license kiểm bên trong.
@@ -87,9 +91,11 @@ async function activate(context) {
   registerInsight(context, core, output);
 
   // Mọi lệnh nghiệp vụ đều qua withLicense — Settings (machineId / dán key) vẫn dùng được.
+  // Một lệnh mở: Message.xml → Email Designer; Dir/Filter/Grid → panel giao diện giả lập.
   context.subscriptions.push(
     vscode.commands.registerCommand('fboDesigner.open', withLicense(context, () => {
       const doc = vscode.window.activeTextEditor?.document;
+      if (isMessageXmlDocument(doc)) return openMailDesigner(core);
       if (doc && !isControllerDocument(doc)) {
         vscode.window.showWarningMessage(toast('extension.only_controllers'));
       }
@@ -139,30 +145,6 @@ async function activate(context) {
     vscode.commands.registerCommand(
       'fboDesigner.previewData',
       withLicense(context, () => previewData(core, output)),
-    ),
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      'fboDesigner.viewMail',
-      withLicense(context, () => viewMail(core, output)),
-    ),
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      'fboDesigner.openMailDesigner',
-      withLicense(context, () => openMailDesigner(core)),
-    ),
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      'fboDesigner.showDialogDemo',
-      withLicense(context, async () => {
-        const result = await dialogService.demo();
-        output.appendLine(`Dialog demo result: ${JSON.stringify(result)}`);
-      }),
     ),
   );
 
