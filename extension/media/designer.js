@@ -731,7 +731,7 @@ function drawBlueprint() {
    * mousemove là nguồn giật chính so với WinForms.
    */
   if (light && blueprint.childNodes.length > 0) {
-    for (const node of [...blueprint.querySelectorAll('.bp-drag, .bp-move, .bp-move-bad, .bp-move-swap, .bp-bar, .bp-focus, .bp-grip, .bp-span, .bp-row-add, .bp-col-add, .bp-slot-add, .bp-col-ghost, .bp-col-insert')]) {
+    for (const node of [...blueprint.querySelectorAll('.bp-drag, .bp-move, .bp-move-bad, .bp-move-swap, .bp-bar, .bp-focus, .bp-grip, .bp-span, .bp-row-add, .bp-col-add, .bp-col-add-region, .bp-slot-add, .bp-col-ghost, .bp-col-insert')]) {
       node.remove();
     }
     const frag = document.createDocumentFragment();
@@ -1349,9 +1349,35 @@ function drawWidthStrip(frag, { ticks, top, isGrid, clip, region, colOffset = 0 
      * thật cho cùng một câu hỏi, và chúng lệch nhau là đúng lúc lỗi tái phát mà không ai để ý.
      */
     if (region !== null) {
-      tick.addEventListener('mousedown', (e) => e.stopPropagation());
+      /*
+       * Mép phải tick = kéo đổi bề rộng — cùng cử chỉ với thân bảng (`wireRegionColumnResize`),
+       * chỉ khác nơi bắt: tick là dải px THẬT SỰ nằm dưới mắt người dùng, nên phải bắt được kéo
+       * ngay tại đó, không bắt buộc phải rê xuống một ô nội dung mới tìm được đúng biên.
+       *
+       * Bàn tay cầm vẫn là `<th>` của ruler (`regionColTh`), KHÔNG phải chính tick: `<th>` mới là
+       * thứ `table-layout:fixed` thật sự đọc; tick chỉ là nơi CHUỘT chạm tới được.
+       */
+      tick.addEventListener('mousemove', (e) => {
+        if (regionColDrag || drag || moveDrag || colDrag || colMoveDrag || metaDrag) return;
+        if (edgeOf(tick, e.clientX)) formLayer.classList.add('fbo-resizing');
+      });
+      tick.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        if (regionColDrag || drag || moveDrag || colDrag || colMoveDrag || metaDrag) return;
+        if (!edgeOf(tick, e.clientX)) return;
+        const th = regionColTh(region, absCol);
+        const table = th?.closest('table[data-fbo-col-widths]');
+        if (!th || !table) return;
+
+        e.preventDefault();
+        startRegionColDrag(th, table, region, absCol, e.clientX);
+        tickResizeArmed = true;
+      });
       tick.addEventListener('click', (e) => {
         e.stopPropagation();
+        // Cú click nổ ra sau `mouseup` của một lần KÉO CẠNH thật sự (chuẩn DOM) — đọc cờ một lần
+        // rồi tắt, đừng đổi `colPick` vì thao tác vừa rồi không phải là bấm chọn.
+        if (tickResizeArmed) { tickResizeArmed = false; return; }
         // Bấm lại đúng cột đang chọn thì bỏ chọn — không có nút "đóng" nào trên thanh lệnh, và
         // thêm một nút nữa chỉ để tắt thanh là thừa.
         // Chọn cột là nhắm vào danh sách biên của cả vùng, nên phải ẩn luôn thao tác đang chọn
@@ -1377,6 +1403,10 @@ function drawWidthStrip(frag, { ticks, top, isGrid, clip, region, colOffset = 0 
       drawColumnEdgeBar(frag, {
         left, width: zero ? 0 : width, top, region, col: absCol, count: fullCount, pxWidth: label,
       });
+      // Dấu + Ở PHÍA TRÊN, ngang hàng với dải px — KHÔNG chung thanh lệnh với Gộp: đây là thao
+      // tác "cấu trúc" (thêm hẳn một cột), nên đứng riêng, ngay cạnh phải cột vừa chọn, giống vị
+      // trí dấu + của lưới (`drawColAddButtons`).
+      drawRegionColAddButton(frag, { left, width: zero ? 0 : width, top, region, col: absCol, pxWidth: label });
     }
   });
 }
@@ -1430,14 +1460,10 @@ function drawColumnEdgeBar(frag, { left, width, top, region, col, count, pxWidth
     bar.appendChild(b);
   };
 
-  // Tách đã bỏ — "+ Thêm" thay thế: chèn cột MỚI ngay sau cột đang chọn, bề rộng mặc định
-  // (`DEFAULT_NEW_COL_WIDTH`); cột đang chọn giữ NGUYÊN bề rộng của nó (`pxWidth`). Đi bằng
-  // CHỌN-RỒI-BẤM giống hệt Gộp — không còn hover: hover quá dễ mất khi rê chuột từ cột sang nút,
-  // và luôn phải chọn trước nên không thể bấm nhầm cột.
+  // Tách đã bỏ; thêm cột giờ là dấu + riêng cạnh cột (`drawRegionColAddButton`) — không còn
+  // chung thanh với Gộp, vì đó là thao tác "cấu trúc" (thêm hẳn một cột), không phải một lựa
+  // chọn trái/phải như Gộp.
   const all = 'mọi hàng dùng chung danh sách biên cột này (kể cả ở tab khác) sẽ dồn theo';
-  make('+ Thêm', `Thêm cột sau cột ${col + 1} — ${all}`, false,
-    () => postEdit({ op: 'colSplit', region, col, left: pxWidth, right: DEFAULT_NEW_COL_WIDTH }));
-  bar.appendChild(el('span', 'bp-act-sep', {}));
   make('< Gộp', col === 0 ? 'Cột đầu — bên trái không còn cột nào' : `Gộp cột ${col} với cột ${col + 1} — ${all}`,
     col === 0, () => postEdit({ op: 'colMerge', region, col: col - 1 }));
   make('Gộp >', col + 1 >= count ? 'Cột cuối — bên phải không còn cột nào' : `Gộp cột ${col + 1} với cột ${col + 2} — ${all}`,
@@ -1448,6 +1474,32 @@ function drawColumnEdgeBar(frag, { left, width, top, region, col, count, pxWidth
   bar.appendChild(note);
 
   frag.appendChild(bar);
+}
+
+/**
+ * Dấu + cạnh phải cột đang chọn (`colPick`) — thêm một cột MỚI ngay sau nó, bề rộng mặc định
+ * (`DEFAULT_NEW_COL_WIDTH`); cột đang chọn giữ NGUYÊN bề rộng của nó (`pxWidth`). Cùng op
+ * `colSplit` mà Gộp/Tách trước đây dùng (list px dùng chung, mọi hàng đọc nó phải dồn theo) —
+ * chỉ khác không còn hỏi px hai nửa, xem `handleRegionColumns` phía host.
+ *
+ * Toạ độ `left`/`width`/`top` đến THẲNG từ `drawWidthStrip` — CÙNG hệ layout-space đã dùng để đặt
+ * chính cái tick, không đo lại qua DOM/zoom: tick và dấu + phải luôn ngang hàng nhau vì chúng
+ * dùng chung một phép tính vị trí.
+ */
+function drawRegionColAddButton(frag, { left, width, top, region, col, pxWidth }) {
+  const btn = el('button', 'bp-col-add-region', {
+    left: px(left + width + 10),
+    top: px(top + 7),
+  });
+  btn.type = 'button';
+  btn.textContent = '+';
+  btn.title = `Thêm cột sau cột ${col + 1}`;
+  btn.addEventListener('mousedown', (e) => e.stopPropagation());
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    postEdit({ op: 'colSplit', region, col, left: pxWidth, right: DEFAULT_NEW_COL_WIDTH });
+  });
+  frag.appendChild(btn);
 }
 
 /**
@@ -2988,6 +3040,59 @@ function wireColMove() {
  */
 let regionColDrag = null;
 
+/** Cờ một lần: `click` của tick vừa dùng để kéo cạnh sẽ đọc rồi tự tắt, không đổi `colPick`. */
+let tickResizeArmed = false;
+
+/**
+ * Bề rộng KHAI (px layout, không nhân zoom) của một phần tử đã được server ghi thẳng
+ * `style="width:Npx"` — đọc từ `style.width` trước, KHÔNG từ `getBoundingClientRect()`: rect trả
+ * về toạ độ ĐÃ NHÂN khi có zoom (nút Tỉ lệ), còn `style.width` luôn là con số layout gốc. Chỉ rơi
+ * về rect khi phần tử không có `style.width` (trường hợp không nên xảy ra với `<th>` server render).
+ */
+function styleWidthOf(el) {
+  const n = Number(String(el.style.width || '').replace('px', ''));
+  return Number.isFinite(n) ? n : Math.round(el.getBoundingClientRect().width);
+}
+
+/**
+ * Hình học của bảng NGOÀI khi vùng có split — `null` nếu không split. `renderRegionTable` dựng
+ * `<div class="FormSplit"><table class="FormParentTable"><tr><th w=leftTotal><th w=rightTotal>`
+ * — CÙNG kỹ thuật ruler-row `table-layout:fixed` như bên trong, chỉ khác nó chia đúng HAI NỬA
+ * thay vì từng cột. Kéo giãn một cột ở nửa nào phải cộng dồn delta vào đúng `<th>` của nửa đó,
+ * nếu không nửa kia (nằm trong `<td>` bên cạnh) sẽ đứng yên — nhìn như "kéo mà chẳng ai nhúc nhích".
+ */
+function splitGeometryOf(table) {
+  const side = table.dataset.fboSplitSide; // 'left' | 'right' | undefined (không split)
+  if (!side) return null;
+  const wrap = table.closest('div[data-fbo-region-root]');
+  const outerTable = wrap?.querySelector(':scope > table.FormParentTable') ?? null;
+  const row = outerTable?.rows?.[0];
+  const outerTh = row ? (side === 'left' ? row.cells[0] : row.cells[1]) : null;
+  if (!wrap || !outerTable || !outerTh) return null;
+  return { wrap, outerTable, outerTh };
+}
+
+/**
+ * Bắt đầu kéo cạnh một cột — dùng chung cho cả hai nơi bắt chuột (thân bảng và tick của dải px,
+ * xem `wireRegionColumnResize`/`drawWidthStrip`). Gom sẵn hình học split (nếu có) ngay lúc bắt
+ * đầu, không tính lại mỗi mousemove — cùng lý do `wireGridColumns` gom `gridColumnCells` một lần.
+ */
+function startRegionColDrag(th, table, region, col, clientX) {
+  const from = styleWidthOf(th);
+  const split = splitGeometryOf(table);
+  regionColDrag = {
+    th, table, region, col, from, width: from, startX: clientX,
+    tableFrom: styleWidthOf(table),
+    outerTh: split?.outerTh ?? null,
+    outerFrom: split ? styleWidthOf(split.outerTh) : 0,
+    wrap: split?.wrap ?? null,
+    wrapFrom: split ? styleWidthOf(split.wrap) : 0,
+    outerTable: split?.outerTable ?? null,
+    outerTableFrom: split ? styleWidthOf(split.outerTable) : 0,
+  };
+  document.body.classList.add('fbo-dragging');
+}
+
 function wireRegionColumnResize() {
   formLayer.addEventListener('mousemove', (e) => {
     if (regionColDrag || drag || moveDrag || colDrag || colMoveDrag || metaDrag) return;
@@ -3010,17 +3115,32 @@ function wireRegionColumnResize() {
 
     e.preventDefault();
     e.stopPropagation();
-    const from = Math.round(th.getBoundingClientRect().width);
-    regionColDrag = { th, table, region, col, from, width: from, startX: e.clientX };
-    document.body.classList.add('fbo-dragging');
+    startRegionColDrag(th, table, region, col, e.clientX);
   });
 
+  /*
+   * Gom mỗi cụm mousemove về ĐÚNG MỘT khung hình (`requestAnimationFrame`) trước khi ghi DOM.
+   *
+   * Chuột bắn nhiều `mousemove` hơn tốc độ trình duyệt vẽ lại một khung — nếu ghi width ngay mỗi
+   * sự kiện (như bản trước), có lúc `th` NGOÀI (`outerTh`/`wrap`/`outerTable`, xem `splitGeometryOf`)
+   * đã đổi mà `drawBlueprint()` (đo `getBoundingClientRect()` của rất nhiều ô — `drawSlots`,
+   * `drawSpanBadges`...) chạy XEN giữa hai lần ghi, đọc phải một trạng thái NỬA VỜI: bảng đã dồn
+   * theo bề rộng mới nhưng slot/handle vẽ theo khung hình cũ chưa kịp bắt kịp — coi như control
+   * "chéo" chỗ trong chớp mắt rồi lại đúng ngay khung sau. Gom về một khung là chỉ còn ĐÚNG MỘT
+   * trạng thái nhất quán mỗi lần mắt nhìn thấy.
+   */
+  let dragFrame = null;
   window.addEventListener('mousemove', (e) => {
     if (!regionColDrag) return;
     regionColDrag.width = Math.max(0, Math.round(regionColDrag.from + (e.clientX - regionColDrag.startX)));
-    applyRegionColumnWidth(regionColDrag);
-    regionColDrag.th.title = `cột ${regionColDrag.col + 1} · ${regionColDrag.width}px`;
-    drawBlueprint();
+    if (dragFrame !== null) return;
+    dragFrame = requestAnimationFrame(() => {
+      dragFrame = null;
+      if (!regionColDrag) return;
+      applyRegionColumnWidth(regionColDrag);
+      regionColDrag.th.title = `cột ${regionColDrag.col + 1} · ${regionColDrag.width}px`;
+      drawBlueprint();
+    });
   });
 
   window.addEventListener('mouseup', () => {
@@ -3042,9 +3162,25 @@ function wireRegionColumnResize() {
  * phần tử KHÁC (`div.FormSplit` bọc ngoài) mang list px TUYỆT ĐỐI của cả vùng — `drawWidthStrip`
  * đọc list này qua `regionWidthsOf` để tính `fullCount` của thanh Gộp. Cả hai phải cập nhật để
  * không có chỗ nào còn hiện số cũ trong lúc kéo.
+ *
+ * `table.style.width` (= tổng px lúc render) PHẢI đổi cùng delta cột: `table-layout:fixed` với
+ * width bảng đứng yên sẽ dồn chỗ thừa vào các cột → mép trái cột đang kéo dịch vào trong, ô
+ * nhìn như co hai bên. Cùng luật với outer split bên dưới.
+ *
+ * `outerTh`/`wrap` (từ `splitGeometryOf`, khi vùng có split): tổng bề rộng của NỬA đang kéo đổi
+ * đúng bằng delta của cột — cộng dồn delta ấy vào cả hai để nửa KIA dịch chỗ theo, và cả khối
+ * split không bị khoá cứng ở bề rộng cũ.
  */
-function applyRegionColumnWidth({ th, table, col, width }) {
+function applyRegionColumnWidth({
+  th, table, col, width, from, tableFrom, outerTh, outerFrom, wrap, wrapFrom, outerTable, outerTableFrom,
+}) {
   th.style.width = `${width}px`;
+
+  const delta = width - from;
+  table.style.width = `${(Number.isFinite(tableFrom) ? tableFrom : styleWidthOf(table) - delta) + delta}px`;
+  if (outerTh) outerTh.style.width = `${outerFrom + delta}px`;
+  if (wrap) wrap.style.width = `${wrapFrom + delta}px`;
+  if (outerTable) outerTable.style.width = `${outerTableFrom + delta}px`;
 
   const local = col - tableColOffset(table);
   const list = (table.dataset.fboColWidths || '').split(',');
@@ -3273,30 +3409,26 @@ function applyControllerCss(css) {
  * ở phía host trước khi qua cầu — xem `extension/src/dialog/dialog-overlay.js`.
  */
 
-const DIALOG_GLYPH = { info: 'i', success: '✓', warning: '!', error: '×' };
+/*
+ * Hộp thoại: `dialogEl`/`dialogBlock` base ('text'/'highlight')/`closeDialog`/`showDialog` sống
+ * ở `media/dialog-kit.js` — dùng chung với `media/mail-designer.js`. Phần CHỈ designer form cần
+ * (field/property panel, mode-toggle, Enter/Tab-trap) ở lại đây, nối vào kit qua hook.
+ */
+const dialogKit = window.FboDialogKit.createDialogKit({
+  post: (msg) => vscode.postMessage(msg),
+  extraBlock: dialogExtraBlock,
+  canConfirm: dialogCanConfirm,
+  readValues: readDialogValues,
+  onModeToggle: applyDialogMode,
+  extraHotkeys: dialogExtraHotkeys,
+});
+const {
+  dialogEl, dialogBlock, closeDialog, showDialog,
+} = dialogKit;
 
-let dialogOpen = null; // { id, root, lastFocus }
-
-function dialogEl(tag, className, text) {
-  const el = document.createElement(tag);
-  if (className) el.className = className;
-  if (text !== undefined) el.textContent = String(text);
-  return el;
-}
-
-/** Một khối thân hộp thoại → DOM. Kiểu lạ thì trả null, không dựng thẻ rỗng. */
-function dialogBlock(item) {
+/** Khối thân hộp thoại CHỈ designer form dùng — 'text'/'highlight' đã ở `dialog-kit.js`. */
+function dialogExtraBlock(item) {
   if (!item || typeof item !== 'object') return null;
-
-  if (item.type === 'text') {
-    const box = dialogEl('div', 'fbo-dlg-block fbo-dlg-text');
-    // Xuống dòng trong nội dung là có ý — tách thành <br> chứ không để nó co lại thành dấu cách.
-    String(item.content ?? '').split('\n').forEach((line, i) => {
-      if (i) box.appendChild(document.createElement('br'));
-      box.appendChild(document.createTextNode(line));
-    });
-    return box;
-  }
 
   if (item.type === 'list') {
     const box = dialogEl('div', 'fbo-dlg-block fbo-dlg-list');
@@ -3314,12 +3446,6 @@ function dialogBlock(item) {
       line.appendChild(dialogEl('div', 'fbo-dlg-val', row.value ?? ''));
       box.appendChild(line);
     }
-    return box;
-  }
-
-  if (item.type === 'highlight') {
-    const box = dialogEl('div', 'fbo-dlg-block');
-    box.appendChild(dialogEl('span', `fbo-dlg-tag ${item.kind || 'info'}`, item.content ?? ''));
     return box;
   }
 
@@ -3520,116 +3646,11 @@ function applyDialogMode(root, mode) {
   }
 }
 
-function closeDialog(action, buttonId, values) {
-  if (!dialogOpen) return;
-  const { id, root, lastFocus } = dialogOpen;
-  dialogOpen = null;
-  root.remove();
-  // Trả tiêu điểm về chỗ cũ: người dùng vừa bấm Del trên một ô, trả lời xong phải còn đứng ở
-  // đúng ô đó — không thì mỗi câu hỏi lại làm mất chỗ đang làm việc.
-  if (lastFocus && document.contains(lastFocus)) {
-    try { lastFocus.focus(); } catch (e) { /* ô đã biến mất cùng control vừa xoá */ }
-  }
-  vscode.postMessage({
-    type: 'dialog-result',
-    id,
-    action,
-    buttonId,
-    values: values && typeof values === 'object' ? values : null,
-  });
-}
-
-function showDialog(id, options) {
-  // Câu hỏi cũ chưa trả lời mà câu mới tới: đóng cái cũ bằng 'close' để host khỏi treo `await`.
-  if (dialogOpen) closeDialog('close', null);
-
-  const opt = options || {};
-  const root = dialogEl('div', 'fbo-dlg-backdrop');
-  root.dataset.type = opt.type || 'info';
-
-  const card = dialogEl('div', `fbo-dlg fbo-dlg-${opt.size || 'medium'}`);
-  card.setAttribute('role', 'dialog');
-  card.setAttribute('aria-modal', 'true');
-
-  const head = dialogEl('header', 'fbo-dlg-head');
-  head.appendChild(dialogEl('span', 'fbo-dlg-icon', DIALOG_GLYPH[opt.type] || 'i'));
-  const titles = dialogEl('div', 'fbo-dlg-titles');
-  titles.appendChild(dialogEl('div', 'fbo-dlg-title', opt.title || ''));
-  if (opt.subtitle) titles.appendChild(dialogEl('div', 'fbo-dlg-sub', opt.subtitle));
-  head.appendChild(titles);
-  if (opt.showCloseButton !== false) {
-    const x = dialogEl('button', 'fbo-dlg-x', '×');
-    x.type = 'button';
-    x.title = 'Đóng';
-    x.setAttribute('aria-label', 'Đóng');
-    x.addEventListener('click', () => closeDialog('close', null));
-    head.appendChild(x);
-  }
-  card.appendChild(head);
-
-  const body = dialogEl('div', 'fbo-dlg-body');
-  for (const item of opt.body || []) {
-    const block = dialogBlock(item);
-    if (block) body.appendChild(block);
-  }
-  if (body.childNodes.length) card.appendChild(body);
-
-  const foot = dialogEl('footer', 'fbo-dlg-foot');
-  let primary = null;
-  for (const button of opt.buttons || []) {
-    const el = dialogEl('button', `fbo-dlg-btn ${button.variant || 'secondary'}`, button.label || 'OK');
-    el.type = 'button';
-    el.disabled = Boolean(button.disabled);
-    el.addEventListener('click', () => {
-      const action = button.action || 'confirm';
-      const confirming = action !== 'cancel' && action !== 'close';
-      if (confirming && !dialogCanConfirm(root)) return;
-      closeDialog(action, button.id, confirming ? readDialogValues(root) : null);
-    });
-    if (!primary && (button.variant === 'primary' || button.variant === 'danger')) primary = el;
-    foot.appendChild(el);
-  }
-  card.appendChild(foot);
-
-  root.appendChild(card);
-  document.body.appendChild(root);
-  dialogOpen = { id, root, lastFocus: document.activeElement, primary };
-
-  for (const btn of root.querySelectorAll('.fbo-dlg-mode-btn')) {
-    btn.addEventListener('click', () => applyDialogMode(root, btn.dataset.dlgMode || 'basic'));
-  }
-  if (root.querySelector('.fbo-dlg-mode-toggle')) {
-    applyDialogMode(root, root.querySelector('.fbo-dlg-mode-toggle').dataset.modeValue || 'basic');
-  }
-
-  // Bấm ra ngoài thẻ = đóng, nhưng CHỈ khi cú bấm bắt đầu trên nền: bôi đen chữ trong hộp rồi
-  // nhả chuột ngoài nền cũng bắn `click` lên nền, mà lúc ấy người dùng đang đọc chứ không huỷ.
-  root.addEventListener('mousedown', (e) => { if (e.target === root) root.dataset.armed = '1'; });
-  root.addEventListener('click', (e) => {
-    if (e.target === root && root.dataset.armed === '1' && opt.canClose !== false) closeDialog('close', null);
-    delete root.dataset.armed;
-  });
-
-  // Form hỏi: focus ô nhập đầu tiên (nhóm đang hiện). Confirm-only: focus nút chính như trước.
-  const firstField = root.querySelector('.fbo-dlg-group:not([hidden]) .fbo-dlg-input, .fbo-dlg-body > .fbo-dlg-field .fbo-dlg-input, .fbo-dlg-input');
-  (firstField || primary || foot.querySelector('.fbo-dlg-btn') || card).focus();
-}
-
 /*
- * Phím tắt của hộp thoại phải chạy TRƯỚC phím tắt của form.
- *
- * Designer nghe `keydown` trên document cho Del / Ctrl+Z / mũi tên. Hộp thoại đang mở mà bấm
- * Del thì không được xoá thêm một control nữa — nên bắt ở pha CAPTURE và chặn hẳn đường lan.
+ * Phím tắt CHỈ designer form cần, ngoài Escape (đã ở `dialog-kit.js`): Enter trong ô chữ = bấm
+ * nút chính, và Tab bị giam trong hộp thoại — mail designer không có field nên không cần.
  */
-document.addEventListener('keydown', (event) => {
-  if (!dialogOpen) return;
-
-  if (event.key === 'Escape') {
-    event.preventDefault();
-    event.stopPropagation();
-    return closeDialog('close', null);
-  }
-
+function dialogExtraHotkeys(event, open) {
   if (event.key === 'Enter' && event.target && event.target.classList
     && event.target.classList.contains('fbo-dlg-input')
     && event.target.tagName !== 'TEXTAREA'
@@ -3637,29 +3658,29 @@ document.addEventListener('keydown', (event) => {
     // Enter trong ô chữ = bấm nút chính — đỡ phải Tab xuống chân hộp thoại.
     event.preventDefault();
     event.stopPropagation();
-    if (dialogOpen.primary) dialogOpen.primary.click();
-    return;
+    if (open.primary) open.primary.click();
+    return true;
   }
 
   if (event.key === 'Tab') {
     // Giam tiêu điểm trong hộp: Tab ra ngoài là vào cái form đang bị hỏi về, và bấm được cả nút
     // của nó — tức trả lời một câu hỏi bằng cách gây thêm một thao tác nữa.
-    const focusable = [...dialogOpen.root.querySelectorAll(
+    const focusable = [...open.root.querySelectorAll(
       'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
     )];
-    if (focusable.length === 0) return;
+    if (focusable.length === 0) return true;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
     const at = document.activeElement;
-    if (event.shiftKey && (at === first || !dialogOpen.root.contains(at))) {
+    if (event.shiftKey && (at === first || !open.root.contains(at))) {
       event.preventDefault();
       last.focus();
     } else if (!event.shiftKey && at === last) {
       event.preventDefault();
       first.focus();
     }
-    return;
+    return true;
   }
 
-  event.stopPropagation();
-}, true);
+  return false;
+}

@@ -39,6 +39,7 @@ const CONTENT = [
   ['extension/src/extension.js', 'extension/src/extension.js'],
   ['extension/src/designer-editor.js', 'extension/src/designer-editor.js'],
   ['extension/src/designer-webview.js', 'extension/src/designer-webview.js'],
+  ['extension/src/designer-session.js', 'extension/src/designer-session.js'],
   ['extension/src/preview-panel.js', 'extension/src/preview-panel.js'],
   ['extension/src/render-host.js', 'extension/src/render-host.js'],
   ['extension/src/diagnostic-host.js', 'extension/src/diagnostic-host.js'],
@@ -54,11 +55,19 @@ const CONTENT = [
   ['extension/src/dialog/dialog-panel.js', 'extension/src/dialog/dialog-panel.js'],
   ['extension/src/dialog/dialog-types.js', 'extension/src/dialog/dialog-types.js'],
   ['extension/media/designer.css', 'extension/media/designer.css'],
+  ['extension/media/dialog-kit.js', 'extension/media/dialog-kit.js'],
   ['extension/media/designer.js', 'extension/media/designer.js'],
   ['extension/media/shell.html', 'extension/media/shell.html'],
   ['extension/src/filter-host.js', 'extension/src/filter-host.js'],
   ['extension/src/add-column-host.js', 'extension/src/add-column-host.js'],
   ['extension/src/sql-host.js', 'extension/src/sql-host.js'],
+  ['extension/src/mail-preview-host.js', 'extension/src/mail-preview-host.js'],
+  ['extension/src/mail-apply.js', 'extension/src/mail-apply.js'],
+  ['extension/src/mail-designer-editor.js', 'extension/src/mail-designer-editor.js'],
+  ['extension/src/mail-sample-host.js', 'extension/src/mail-sample-host.js'],
+  ['extension/media/mail-designer.css', 'extension/media/mail-designer.css'],
+  ['extension/media/mail-designer.js', 'extension/media/mail-designer.js'],
+  ['extension/media/mail-shell.html', 'extension/media/mail-shell.html'],
   ['extension/src/locale.js', 'extension/src/locale.js'],
   ['extension/src/license/index.js', 'extension/src/license/index.js'],
   ['extension/src/license/public-key.js', 'extension/src/license/public-key.js'],
@@ -78,6 +87,13 @@ const CONTENT = [
   ['core/src/item-value.mjs', 'extension/core/item-value.mjs'],
   ['core/src/columns.mjs', 'extension/core/columns.mjs'],
   ['core/src/edit.mjs', 'extension/core/edit.mjs'],
+  ['core/src/edit-shared.mjs', 'extension/core/edit-shared.mjs'],
+  ['core/src/edit-row.mjs', 'extension/core/edit-row.mjs'],
+  ['core/src/edit-column.mjs', 'extension/core/edit-column.mjs'],
+  ['core/src/edit-attr.mjs', 'extension/core/edit-attr.mjs'],
+  ['core/src/edit-move.mjs', 'extension/core/edit-move.mjs'],
+  ['core/src/edit-entity.mjs', 'extension/core/edit-entity.mjs'],
+  ['core/src/form-edit-contract.mjs', 'extension/core/form-edit-contract.mjs'],
   ['core/src/field-template.mjs', 'extension/core/field-template.mjs'],
   ['core/src/msg.mjs', 'extension/core/msg.mjs'],
   ['core/src/warn.mjs', 'extension/core/warn.mjs'],
@@ -102,6 +118,15 @@ const CONTENT = [
   ['core/src/sql-config.mjs', 'extension/core/sql-config.mjs'],
   ['core/src/css-scope.mjs', 'extension/core/css-scope.mjs'],
   ['core/src/xml-comment.mjs', 'extension/core/xml-comment.mjs'],
+  ['core/src/mail-template.mjs', 'extension/core/mail-template.mjs'],
+  ['core/src/mail-design-contract.mjs', 'extension/core/mail-design-contract.mjs'],
+  ['core/src/mail-html.mjs', 'extension/core/mail-html.mjs'],
+  ['core/src/mail-edit.mjs', 'extension/core/mail-edit.mjs'],
+  ['core/src/mail-components.mjs', 'extension/core/mail-components.mjs'],
+  ['core/src/mail-structure.mjs', 'extension/core/mail-structure.mjs'],
+  ['core/src/mail-variables.mjs', 'extension/core/mail-variables.mjs'],
+  ['core/src/mail-lint.mjs', 'extension/core/mail-lint.mjs'],
+  ['core/src/mail-sample.mjs', 'extension/core/mail-sample.mjs'],
 ];
 
 // Danh sách khai tay ở trên là chỗ dễ quên nhất khi thêm file mới: gói vẫn dựng xong, vẫn cài
@@ -124,7 +149,7 @@ function scanForUndeclared(dir) {
     else if (/\.(js|mjs)$/.test(e.name) && !declared.has(rel)) missing.push(rel);
   }
 }
-for (const dir of ['extension/src', 'core/src']) scanForUndeclared(dir);
+for (const dir of ['extension/src', 'extension/media', 'core/src']) scanForUndeclared(dir);
 if (missing.length) {
   process.stderr.write(`CONTENT thiếu file (thêm vào tools/package-vsix.mjs):\n  ${missing.join('\n  ')}\n`);
   process.exit(2);

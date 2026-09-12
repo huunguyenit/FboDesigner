@@ -104,8 +104,11 @@ body.bp-on #fbo-stage { margin-top: 26px; margin-left: 22px; margin-right: 22px;
   border-color: rgba(11, 107, 203, 0.95);
 }
 
-/* Dấu + chèn cột lưới — mép phải tiêu đề cột khi rê chuột. */
-.bp-col-add {
+/* Dấu + chèn cột lưới — mép phải tiêu đề cột khi rê chuột.
+   `.bp-col-add-region` là bản của nó cho vùng FORM (Dir) — cùng hình dạng, mọc cạnh cột đang
+   chọn (`colPick`) thay vì cột đang focus. */
+.bp-col-add,
+.bp-col-add-region {
   position: absolute;
   pointer-events: auto;
   transform: translate(-50%, -50%);
@@ -125,7 +128,8 @@ body.bp-on #fbo-stage { margin-top: 26px; margin-left: 22px; margin-right: 22px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   z-index: 3;
 }
-.bp-col-add:hover {
+.bp-col-add:hover,
+.bp-col-add-region:hover {
   background: rgba(11, 107, 203, 0.12);
   border-color: rgba(11, 107, 203, 0.95);
 }

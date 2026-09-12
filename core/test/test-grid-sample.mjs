@@ -316,8 +316,9 @@ ok('mệnh đề join của file giữ NGUYÊN VĂN', det.sql.includes('left joi
  * bề rộng cột thì đó là dữ liệu nói dối. Nay nó lọc theo ĐÚNG khoá mà câu dò bước 1 đọc về.
  */
 ok('@@whereClause lọc theo khoá đã dò được',
-  det.sql.includes("where a.stt_rec = 'PN1000000000123'"));
-ok('không còn câu con nào trong mệnh đề where', !det.sql.includes('where a.stt_rec = (select'));
+  det.sql.includes("where stt_rec = 'PN1000000000123'"));
+ok('tên cột khoá KHÔNG mang alias bảng — đúng dạng runtime', !det.sql.includes('where a.stt_rec'));
+ok('không còn câu con nào trong mệnh đề where', !det.sql.includes('where stt_rec = (select'));
 ok('và nói ra khoá nào đang được dùng', det.notes.some((n) => n.includes('PN1000000000123')));
 
 /* Không truyền `probe` — hay câu dò về tay không — thì quay về hành vi cũ, không hỏng. */
@@ -332,7 +333,7 @@ ok('kỳ không phải định danh thì bỏ, lấy tháng hiện tại', detBa
 ok('và không mẩu nào của nó lọt vào câu lệnh', !detBadPeriod.sql.includes('drop table'));
 /* Khoá thì đi vào một CHUỖI, nên nó được nhân đôi nháy chứ không bị bỏ. */
 const detQuote = build(DETAIL, { top: 5, probe: { period: '202607', key: "a'b" } });
-ok('nháy trong khoá được nhân đôi', detQuote.sql.includes("a.stt_rec = 'a''b'"));
+ok('nháy trong khoá được nhân đôi', detQuote.sql.includes("where stt_rec = 'a''b'"));
 ok('@@orderByClause ← grid@order', det.sql.includes('order by stt_rec, line_nbr'));
 /*
  * KHÔNG chặn ở SQL. 42/92 câu Loading của lưới chi tiết là SCRIPT nhiều câu (`declare`,

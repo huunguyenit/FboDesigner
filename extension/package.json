@@ -54,12 +54,6 @@
           "command": "fboDesigner.previewData",
           "group": "navigation@40"
         }
-      ],
-      "commandPalette": [
-        {
-          "command": "fboDesigner.showDialogDemo",
-          "when": "false"
-        }
       ]
     },
     "commands": [
@@ -77,11 +71,6 @@
         "command": "fboDesigner.addColumns",
         "category": "FBO Designer",
         "title": "%fboDesigner.addColumns.title%"
-      },
-      {
-        "command": "fboDesigner.showDialogDemo",
-        "category": "FBO Designer",
-        "title": "%fboDesigner.showDialogDemo.title%"
       },
       {
         "command": "fboDesigner.deleteSelection",
@@ -113,7 +102,7 @@
       {
         "command": "fboDesigner.deleteSelection",
         "key": "delete",
-        "when": "activeWebviewPanelId == 'fboDesigner.preview' || activeCustomEditorId == 'fboDesigner.form'"
+        "when": "activeWebviewPanelId == 'fboDesigner.preview' || activeCustomEditorId == 'fboDesigner.form' || activeCustomEditorId == 'fboDesigner.mail'"
       },
       {
         "command": "fboDesigner.deleteSelection",
@@ -121,7 +110,7 @@
         "args": {
           "shift": true
         },
-        "when": "activeWebviewPanelId == 'fboDesigner.preview' || activeCustomEditorId == 'fboDesigner.form'"
+        "when": "activeWebviewPanelId == 'fboDesigner.preview' || activeCustomEditorId == 'fboDesigner.form' || activeCustomEditorId == 'fboDesigner.mail'"
       },
       {
         "command": "fboDesigner.previewData",
@@ -151,6 +140,16 @@
           },
           {
             "filenamePattern": "**/Grid/*.f"
+          }
+        ],
+        "priority": "option"
+      },
+      {
+        "viewType": "fboDesigner.mail",
+        "displayName": "%fboDesigner.mail.displayName%",
+        "selector": [
+          {
+            "filenamePattern": "**/Options/Message.xml"
           }
         ],
         "priority": "option"

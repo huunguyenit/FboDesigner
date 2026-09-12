@@ -4,6 +4,166 @@
 
 ## [Chưa phát hành]
 
+### Thay đổi — Một lệnh mở designer theo file
+
+- `fboDesigner.open` (`Ctrl+Alt+O` / menu FBO Designer): đang mở `Message.xml` → Email Designer;
+  file controller khác → panel giao diện giả lập FBO.
+- Gỡ lệnh `fboDesigner.viewMail` («Xem mail») và `fboDesigner.openMailDesigner` («Mở Email Designer»).
+  Vẫn mở được Email Designer qua *Open With… → FBO Email Designer*.
+
+### Sửa — Email Designer: format số mẫu, lỗi SQL, `{!in_words}`
+
+- Khi SQL mẫu lỗi: hiện dialog error overlay (không chỉ toast).
+- `detail`/`footer`: lấy bảng **cuối** resultset nếu là `field`/`format`, áp mặt nạ số
+  (`formatNumber`) trước khi đổ JSON.
+- Template có `{!in_words}` → gọi `dbo.FastBusiness$Function$System$ReadCurrency(ma_nt, t_tt_nt, language)`.
+
+### Thêm — Email Designer: lấy dữ liệu mẫu thật từ chứng từ (`stt_rec` + `contactID`)
+
+- Nối core `mail-sample.mjs` vào giao diện «Dữ liệu mẫu»:
+  - Ô nhập `stt_rec` / `contactID` + nút «Lấy từ chứng từ» trên panel.
+  - Hộp thoại xác nhận trước khi ghi dòng tạm vào `dmxn`.
+  - Host `extension/src/mail-sample-host.js`: stub → probe bảng → master/detail/footer qua
+    `sqlcmd`, gom thành JSON mẫu (`mailSampleFromRows`), bật xem trước.
+  - Nhớ `stt_rec`/`contactID` theo file × action trong `workspaceState`.
+- Hợp đồng webview: thông điệp `loadMailSample`.
+- Test: `core/test/test-mail-sample.mjs` (`mailSampleFromRows`), `test-mail-design-contract.mjs`,
+  `extension/test/test-mail-sample-host.mjs`.
+
+### Thêm — Email Designer: dựng SQL cho «Dữ liệu mẫu» thật (core)
+
+- `core/src/mail-sample.mjs` + `mail-template.mjs#readMailReportCommands`: từ một `stt_rec` +
+  `contactID` người dùng gõ, dựng ba câu SQL để lấy dữ liệu mẫu THẬT cho mail — thay `master`/`detail`/
+  `footer` của chính `<action><query id="report">` trong Message.xml (khác `<header>/<detail>/<footer>`
+  của `<body>`, đó là khung HTML mẫu).
+  - `buildMailTableProbe`: câu DÒ chỉ đọc, tra `dmct9` bằng `ma_ct` (ba ký tự cuối `stt_rec`) ra tên bảng
+    master/detail thật — cần vì `action@table` trong Message.xml chỉ là tiền tố chia kỳ còn thiếu số kỳ
+    (`m91$000000`), và một bản xem trước bắt đầu từ `stt_rec` bất kỳ không thể giả định "kỳ hiện tại"
+    như `grid-sample.mjs` làm cho lưới.
+  - `buildMailSampleStub`: câu GHI duy nhất ở đây — một dòng đánh dấu tạm vào `dmxn` (idempotent: xoá
+    trước, chèn sau) để câu `master` join được dù chứng từ chưa từng gửi nhắc cho `contactID` đó. Tầng vỏ
+    PHẢI hỏi xác nhận trước khi chạy, cùng luật đã áp cho nhánh lưới báo cáo.
+  - `buildMailSampleSelect`: thay `@@table`/`@@contactID`/`@@stt_rec` bằng giá trị thật (`@@table` của
+    `master`/`footer` là bảng master, của `detail` là bảng detail), dùng lại `substituteParams` của
+    `grid-sample.mjs`.
+  - `mailSampleFromRows`: gom dòng SQL thành JSON mẫu cho bản vẽ.
+  - Test: `core/test/test-mail-sample.mjs`, cộng thêm ở `core/test/test-mail-template.mjs`.
+
+### Sửa — Email Designer: biến trong <detail>, và bấm trúng biến
+
+- **`<fields>` không còn áp vào `<detail>`**: trong dòng mẫu, `{!so_luong}` là GIÁ TRỊ của dòng chứ không
+  phải tiêu đề cột "Số lượng". Trước đây designer thay nhãn ở cả hai vùng nên dòng dữ liệu hiện ra một dãy
+  tiêu đề (corpus FBISP24: 22 chỗ).
+- **Bấm vào một biến trên bản vẽ** đưa con trỏ XML tới đúng `{!tên}` đó, không còn dừng ở thẻ `<td>` chứa nó.
+
+### Thêm — Email Designer: bám XML theo mẫu, chế độ xem trước, combobox có nút sổ
+
+- **Con trỏ XML sang mẫu (hoặc biến thể) khác** → designer đổi mẫu theo rồi chọn phần tử dưới con trỏ.
+- **Chọn mẫu khác trên designer** → XML đang mở nhảy tới thẻ mở `<action id="…">` của mẫu ấy.
+- **Bỏ tick «Xem trước»**: ô chế độ hiện biến có sẵn lựa chọn «Xem trước: dữ liệu mẫu» — chính là bản xem
+  trước đầy đủ, chỉ đọc.
+- **Combobox mẫu mail thêm nút `▾`** để sổ nhanh toàn bộ danh sách; gõ để tìm vẫn như cũ.
+
+### Thêm — Email Designer: xem trước đầy đủ, kiểm tra mẫu, hoàn thiện
+
+- **«Xem trước»**: vẽ cả mẫu với dòng mẫu detail nhân theo `detail` của dữ liệu mẫu — chỉ đọc, cùng
+  iframe sandbox và cùng khử độc với bản vẽ thiết kế.
+- **«Kiểm tra mẫu»** + huy hiệu trên thanh công cụ: thẻ bị chặn, `on*`, ảnh thiếu `src`/`alt`/`width`,
+  liên kết rỗng, CSS mail client không đỡ (`flex`, `grid`, `position`, `float`, ảnh nền), mẫu vượt ngưỡng
+  Gmail cắt thư (102KB). Bấm một vấn đề để chọn phần tử (`core/src/mail-lint.mjs`).
+- **Bề rộng khung**: vừa cửa sổ / 600px / 375px, nhớ theo webview.
+- **Phím tắt**: `Alt+↑/↓` di chuyển, `Ctrl+Shift+↑/↓` chọn cha/con, `F2` sửa chữ.
+- **Rút gọn giao diện**: bỏ palette bên trái, nút «Hoàn tác»/«Làm lại», ô «Đi tới XML», mục «Cấu trúc»,
+  mục «Biến trong mẫu», mục «Bảng» và mục «Chữ»; gộp «Thuộc tính HTML» + «Style inline» thành một mục
+  «Định dạng». Sửa nội dung chữ và phép cột/dòng bảng không còn lối vào trên designer. Di chuyển dùng `Alt+↑/↓` hoặc kéo thả, xoá dùng `Del`, hoàn tác dùng `Ctrl+Z`/`Ctrl+Y`,
+  mở XML dùng `Ctrl+click`. Chèn component và bọc liên kết tạm thời không còn lối vào trên giao diện.
+- Designer nhớ kết quả bung entity khi Message.xml và các Include không đổi; lỗi lúc vẽ hay khi xử lý
+  thao tác hiện ra (kèm Output) thay vì làm designer đứng hình; lượt vẽ chậm được ghi ra Output.
+
+### Thêm — Email Designer: Code ↔ Designer, phép bảng trong designer
+
+- **«Bám XML»** (bật mặc định): chọn phần tử trên designer thì vùng chọn của XML đang mở nhảy tới thẻ
+  mở của nó; đặt con trỏ trong XML thì designer chọn phần tử sâu nhất chứa con trỏ. Không lấy focus,
+  không mở tab; hai chốt chặn vòng lặp (bỏ sự kiện do chính designer sinh ra, không gửi lại khi trúng
+  phần tử đang chọn).
+- **File Include đổi trên đĩa** (không mở trong VS Code) → designer vẽ lại, nhờ watcher theo từng file
+  góp nội dung vào mẫu.
+- **Mục «Bảng»**: đổi bề rộng cột, nhân bản cột, nhân bản dòng header/footer ngay trong designer — dùng
+  lại nguyên phép bảng của «Xem mail».
+- Core: `mailElementAtSource` (con trỏ nguồn → phần tử), `mailTableContext` (phần tử → số thứ tự cột/dòng).
+- Corpus FBISP24: khứ hồi nguồn → phần tử 1810/1810 với phần tử trong CDATA.
+
+### Thêm — Email Designer: biến `{!tên}` và dữ liệu mẫu
+
+- **Ba chế độ hiện biến** trên bản vẽ — nhãn (như runtime), `{!tên}` (chip), dữ liệu mẫu. Chỉ đổi bản
+  vẽ; Message.xml giữ nguyên `{!tên}`. Token trong thuộc tính (`href="{!alink}&n=1"`) chỉ thay bằng chữ,
+  không bao giờ thành thẻ.
+- **Biến trong mẫu**: danh sách nhãn/dữ liệu kèm số lần; bấm để chèn `{!tên}` vào ô Chữ hoặc
+  `href`/`src`/`alt`/`title` đang soạn.
+- **Dữ liệu mẫu** JSON phẳng + `detail: [...]`, lưu ở workspace state theo file × mẫu — không bao giờ ghi
+  vào mẫu. «Tạo khung từ biến», JSON sai hiện lý do ngay dưới ô.
+- `core/src/mail-variables.mjs`: quét token theo ngữ cảnh, gom biến, kiểm dữ liệu mẫu, patch bản vẽ.
+- Corpus FBISP24: 1528 biến; ba chế độ không lệch phần tử; điền đủ khung → không còn chip nào.
+
+### Thêm — Email Designer: chèn component, xoá, di chuyển, kéo thả
+
+- **Palette** bên trái: Chữ, Tiêu đề, Ảnh, Liên kết, Nút, Đường kẻ, Khoảng trống, Khung chứa, Phần,
+  Hai cột, Bảng — kéo thả vào mẫu hoặc bấm để chèn cạnh phần tử đang chọn. HTML sinh ra theo luật
+  mail: style inline, bố cục bằng bảng, nút «bulletproof» (`core/src/mail-components.mjs#componentHtml`).
+- **Cấu trúc** trong bảng thuộc tính: ▲ Lên / ▼ Xuống (đổi chỗ với anh em liền kề), **Xoá** (cả phím
+  Delete; hỏi xác nhận theo `fboDesigner.confirmDelete`), chèn trước/sau/vào cuối, **bọc liên kết** cho ảnh.
+- **Kéo phần tử đang chọn** để di chuyển — vạch chỉ chỗ thả; không vượt part (header/detail/footer),
+  không giữa hai file nguồn.
+- `core/src/mail-structure.mjs`: `planMailRemove`, `planMailMove`, `planMailInsert`, `planMailWrapLink` —
+  mỗi kế hoạch trả `selectId` để khung chọn đi theo đúng phần tử sau khi id dồn số.
+- `<table>` nằm trọn trong một part giờ là khối (xoá/di chuyển được cả bảng).
+- Phím Delete trong ô nhập của bảng thuộc tính xoá ký tự, không xoá phần tử.
+- Corpus FBISP24: khứ hồi xoá 68/68, lên 64/64, chèn chữ 68/68, chèn nút 34/34, kéo thả 31/31.
+
+### Thêm — Email Designer: bảng thuộc tính theo loại component, sửa thuộc tính HTML
+
+Bấm một phần tử là bảng thuộc tính hiện đúng nhóm ô của **loại** nó — ảnh (`src`, `alt`, `width`,
+`height`, `align`, link của `<a>` bao ngoài), nút/liên kết (`href`, `target`, màu, nền, đệm, bo góc,
+căn lề ở khối chứa), đường kẻ, khoảng trống, khung chứa (`width`, `bgcolor`, `align`, `valign`…).
+Loại được SUY RA từ thẻ + style + nội dung (`core/src/mail-components.mjs`); phép ghi vẫn theo
+whitelist theo thẻ.
+
+- Phép mới `setAttr` (`core/src/mail-edit.mjs#planMailAttr`): đặt/đổi/xoá một thuộc tính; giá trị kiểm
+  theo kiểu (`isValidAttrValue` — `width="600px"` bị chặn), ghi nguyên văn (`href="{!alink}&n=1"`
+  khứ hồi y hệt), thuộc tính không nháy ghi lại có nháy.
+- Thuộc tính do entity sinh ra bị khoá kèm lý do (`attrLocks`).
+- Corpus FBISP24: `setAttr` khứ hồi 102/102 (27 vào file Include).
+
+### Thêm — Email Designer cho `Options/Message.xml` (MVP)
+
+Mở mẫu mail bằng *Open With… → FBO Email Designer* hoặc lệnh **Mở Email Designer (Options/Message.xml)**:
+chọn mẫu/biến thể trên thanh công cụ, bấm phần tử trên bản xem để chọn, sửa **chữ** và **style
+inline** ở bảng thuộc tính. Ghi thẳng vào XML qua `applySplice`; Ctrl+Z trong designer lùi bằng
+chồng hoàn tác chung với designer form. Kiến trúc và số đo trên corpus: `docs/EMAIL-DESIGNER.md`.
+
+- `core/src/mail-design-contract.mjs` — hợp đồng webview ↔ host: vai trò phần tử, bảng op,
+  whitelist style/thuộc tính, `validateMailMessage` (bỏ mọi trường lạ — webview không gửi được toạ
+  độ nguồn), `isSafeCssValue`/`isSafeUrl`.
+- `core/src/mail-html.mjs` — dòng HTML ghép từ header/detail/footer theo MẢNH (`cdata` sửa được,
+  chữ do `&Entity;` bung ra thì chỉ đọc), tokenizer theo span, chỉ mục phần tử kèm `caps` (lý do khi
+  không sửa được), bản vẽ đã làm sạch (`script`/`on*`/URL `javascript:`/`data-fbo-*` giả) gắn
+  `data-fbo-el`, `mapMailEdits` quy edit về đúng file nguồn.
+- `core/src/mail-edit.mjs` — `planMailText` (HTML-escape, `{!token}` nguyên văn, giữ thụt lề),
+  `planMailStyle` (một khai báo trong `style="…"`, không bao giờ sửa class dùng chung).
+- `extension/src/mail-designer-editor.js` — custom text editor `fboDesigner.mail`: dựng lại từ văn
+  bản hiện tại mỗi lần sửa, so `rev` + dấu vân tay phần tử, vẽ lại một lần khi document/Include đổi.
+- `extension/src/mail-apply.js` — quy toạ độ và mở XML dùng chung với panel «Xem mail».
+- `extension/media/mail-designer.{js,css}`, `mail-shell.html` — mẫu vẽ trong iframe sandbox không
+  script; chọn/hover bắt ở lớp phủ trang cha qua `elementFromPoint`.
+- Chạy trên `FBISP24/…/Options/Message.xml`: 39 biến thể, 1874 phần tử, sửa khứ hồi chữ 68/68 và
+  style 68/68 (36 edit rơi vào file Include).
+- Chưa có: thêm/xoá/di chuyển, biến và dữ liệu mẫu.
+
+### Sửa — xem dữ liệu thật lưới chi tiết: `@@whereClause` không ghép alias bảng
+
+`where stt_rec = '…'` thay cho `where a.stt_rec = '…'` — dạng đã kiểm chạy đúng trên program thật.
+Test cập nhật theo (`core/test/test-grid-sample.mjs`, `extension/test/test-sample-host.mjs`).
+
 ### Đổi — bỏ "tính năng ẩn" (dev mode), gỡ mục lục/F12/hover, chế độ soi bật/tắt qua cấu hình
 
 Ba tính năng dời sang extension XML khác đang đảm nhận: **mục lục** (`Ctrl+Shift+O`), **F12** /

@@ -679,6 +679,7 @@ function shellHtml(context, core, webview, stylesheets, output, bust = 0) {
     .join('\n');
 
   const shellCss = asset(path.join(context.extensionUri.fsPath, 'media', 'designer.css'));
+  const dialogKitJs = asset(path.join(context.extensionUri.fsPath, 'media', 'dialog-kit.js'));
   const shellJs = asset(path.join(context.extensionUri.fsPath, 'media', 'designer.js'));
 
   // Base pack: CSS nền trích từ runtime. Nạp SAU khung, TRƯỚC CSS program — đúng thứ tự của
@@ -711,6 +712,7 @@ ${links}
 <body>
 ${body}
 <script nonce="${n}">window.__FBO_MSG__=${localeJson};</script>
+<script nonce="${n}" src="${dialogKitJs}"></script>
 <script nonce="${n}" src="${shellJs}"></script>
 </body>
 </html>`;
@@ -879,4 +881,8 @@ module.exports = {
   shellHtml,
   revealSource,
   samePath,
+  // Email Designer dựng shell riêng (không nạp CSS form FBO) nhưng phải cùng nonce + dấu phiên
+  // bản tài nguyên với shell này — xem `mail-designer-editor.js#mailShellHtml`.
+  nonce,
+  assetUri,
 };

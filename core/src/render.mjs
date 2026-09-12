@@ -75,7 +75,7 @@ const RE_ONE_ATTR = /([\w:-]+)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/g;
 const XML_REFS = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' };
 const RE_XML_REF = /&(lt|gt|quot|apos|amp|#\d+|#x[0-9a-fA-F]+);/g;
 
-function decodeXmlText(s) {
+export function decodeXmlText(s) {
   return String(s ?? '').replace(RE_XML_REF, (m, name) => {
     if (name in XML_REFS) return XML_REFS[name];
     const code = name[1] === 'x' || name[1] === 'X'

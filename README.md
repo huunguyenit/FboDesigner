@@ -50,7 +50,7 @@ Blueprint là lớp thiết kế mặc định trên form đang mở:
 
 ### 2. Lệnh và phím tắt
 
-Bốn lệnh, gọi từ chuột phải → **FBO Designer** hoặc Command Palette.
+Gọi từ chuột phải → **FBO Designer** hoặc Command Palette.
 
 `Ctrl+Alt+F` và `Ctrl+Alt+C` **sinh script SQL để bạn tự chạy** — extension không bao giờ chạy
 script thay bạn. `Ctrl+Alt+C` và `Ctrl+Alt+D` có **đọc** database khách (chỉ đọc, có hạn giờ) để
@@ -59,12 +59,17 @@ dò sẵn; nối không được thì `Ctrl+Alt+C` vẫn chạy và hỏi tay.
 
 | Lệnh                                   | Phím tắt     | Việc làm                                                                                          |
 | -------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------- |
-| **Mở giao diện giả lập FBO**           | `Ctrl+Alt+O` | Mở panel designer bám theo file controller đang active                                            |
+| **Mở giao diện giả lập FBO**           | `Ctrl+Alt+O` | File controller → panel form/lưới; `Message.xml` → Email Designer (xem `docs/EMAIL-DESIGNER.md`) |
 | **Khai báo lọc nhanh cho lưới này**    | `Ctrl+Alt+F` | Bật `allowFilter` / `<query>` trên XML lưới (nếu thiếu), sinh SQL xoá–nạp lại `sysfilterdeclares` |
 | **Sinh script thêm cột cho field mới** | `Ctrl+Alt+C` | So field trên form với schema, sinh SQL thêm cột cho field chưa có trên bảng                      |
 | **Xem dữ liệu thật trên lưới**         | `Ctrl+Alt+D` | Lấy vài dòng thật đổ vào lưới để đo bề rộng cột; bấm lại để bỏ đi (xem §4)                       |
 | **Chế độ soi entity**                  | *(mặc định bật)* | Không có phím tắt — tắt/bật qua `fboDesigner.showInsight`, xem §6                            |
 
+
+![Mail Designer](docs/images/MailDesigner.png)
+
+*Email Designer — chọn phần tử trên mẫu mail, sửa chữ/style inline, kéo thả component, và nạp
+dữ liệu mẫu THẬT theo `stt_rec` + `contactID` (xem `docs/EMAIL-DESIGNER.md`).*
 
 ![Commands](docs/images/Command.png)
 

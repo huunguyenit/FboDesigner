@@ -186,6 +186,9 @@ function formatNumber(value, mask) {
   return `${n < 0 ? '-' : ''}${grouped}${frac ? `.${frac}` : ''}`;
 }
 
+/** Mặt nạ số FBO (`# ### ##0.00`, …) → chuỗi hiện. Không định dạng được thì `null`. */
+export { formatNumber };
+
 /**
  * Một ô dữ liệu THẬT → chuỗi hiện trên lưới.
  *

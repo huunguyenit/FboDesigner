@@ -10,7 +10,7 @@ export {
 } from './spans.mjs';
 export { resolveProgramPaths } from './program.mjs';
 export { expandEntities, findInternalSubset, resolveSystemPath, segmentAt, mapToSource, sourceRange, hostRefAt, refResolvedSpan, shiftSegments, scanEntityRefs } from './entities.mjs';
-export { scanOptionVars, formatSampleValue, isNumericField, isDateField, formatDate, parseDisplayDate, resolveMask } from './format.mjs';
+export { scanOptionVars, formatSampleValue, formatNumber, isNumericField, isDateField, formatDate, parseDisplayDate, resolveMask } from './format.mjs';
 export { renderControl, renderGridControl, containerClass, isDisabled, isTextArea, resolveLocaleName, alignOf } from './control.mjs';
 export { buildGridModel, renderGridHtml, renderGrid, applyArrangement, mergeGridConfig } from './grid.mjs';
 export {
@@ -35,6 +35,7 @@ export {
   isBlankAnchorName,
 } from './item-value.mjs';
 export { canEditRow, planRowEdit, planMoveControl, planMoveRowBlock, planSwapControl, planSwapBlock, moveControlFiles, rowEditTargetFile, planAddRow, planAddField, blankAnchorName, blankAnchorField, blankAnchorToken, blankAnchorIn, planRemoveField, planRemoveControl, planInlineEntity, planColumnWidth, planRemoveColumn, planInsertColumn, planMoveColumn, planViewHeight, planFieldRows, planRegionMetadata, planRegionColumns, regionColumnFiles, planRegionColumnWidth } from './edit.mjs';
+export { FORM_EDIT_OPS, isSupportedFormEditOp, validateFormEditMessage } from './form-edit-contract.mjs';
 export {
   FIELD_KINDS,
   FIELD_TYPES,
@@ -105,3 +106,38 @@ export {
   existingColumnsSql,
   stringColumnLengthSql,
 } from './sql-config.mjs';
+export {
+  scanMailActions, renderMailPreview, isMailTemplateDoc, locateMailSection,
+  analyzeMailColumns, planResizeMailColumn, listMailRows, planAddMailRow, planAddMailColumn,
+  locateMailText, mailActionLabels, substituteFieldTokens, mailLocationAt, mailLocationAtSource,
+  readMailReportCommands,
+} from './mail-template.mjs';
+export {
+  buildMailSampleStub, buildMailTableProbe, buildMailSampleSelect, mailSampleFromRows,
+  isMailFormatTable, mailFormatMap, applyMailFieldFormats, buildMailInWordsSelect,
+} from './mail-sample.mjs';
+// Email Designer — hợp đồng (`docs/EMAIL-DESIGNER.md`), dòng HTML + chỉ mục, kế hoạch sửa.
+export {
+  DESIGN_ATTR, ELEMENT_ID_RE, formatElementId, parseElementId, elementFingerprint, MAIL_PARTS, ELEMENT_ROLES,
+  roleOfTag, MAIL_OPS, STYLE_PROPERTIES, isStyleProperty, ATTRIBUTES, isAttributeAllowed, COMPONENT_KINDS,
+  INSERT_POSITIONS, MOVE_DIRECTIONS, MAX_TEXT_LENGTH, isSafeCssValue, isSafeAttrValue, isSafeUrl, validateMailMessage,
+  ATTRIBUTE_ENUMS, isValidAttrValue, PREVIEW_MODES, MAX_SAMPLE_LENGTH,
+} from './mail-design-contract.mjs';
+export {
+  scanMailTokens, mailVariables, mailTokenKind, parseMailSample, formatSampleScalar, sampleValueOf, sampleSkeleton,
+  tokenPatches,
+} from './mail-variables.mjs';
+export {
+  COMPONENT_PANELS, componentKindOf, componentHtml, INSERTABLE_COMPONENTS,
+} from './mail-components.mjs';
+export {
+  planMailRemove, planMailMove, planMailInsert, planMailWrapLink, mailTableContext,
+} from './mail-structure.mjs';
+export {
+  buildMailView, indexMailElements, renderMailDesign, wireMailElements, mapMailEdits, mailElementClearRange,
+  parseStyleDeclarations, mailElementAtSource, renderMailFullPreview, mailTokenClearRange,
+} from './mail-html.mjs';
+export { lintMailHtml, GMAIL_CLIP_BYTES } from './mail-lint.mjs';
+export {
+  resolveMailElement, planMailText, planMailStyle, planMailAttr,
+} from './mail-edit.mjs';

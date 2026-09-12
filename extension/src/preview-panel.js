@@ -29,6 +29,7 @@ const { history } = require('./edit-history');
 const { OverlayDialogs } = require('./dialog/dialog-overlay');
 const { runWithDialogs } = require('./dialog/dialog-service');
 const { trackDesignerWebview } = require('./designer-webview');
+const { dispatchDesignerMessage } = require('./designer-session');
 
 const VIEW_TYPE = 'fboDesigner.preview';
 /** Xem `renderSoon`. Đủ để gộp cả chùm nhịp của một thao tác, dưới ngưỡng mắt thấy được. */
@@ -135,6 +136,13 @@ class PreviewPanel {
         this.panel.title = `Designer · ${path.basename(this.document.uri.fsPath)}`;
         return;
       }
+      /*
+       * Message.xml thuộc Email Designer = CustomTextEditor; panel này = WebviewPanel form/lưới.
+       * Cùng lệnh `fboDesigner.open` nhưng khác loại bề mặt VS Code. Chỉ chuyển tab sang
+       * Message.xml thì không idle/not_controller (chặn nhầm) và không đụng form đang xem —
+       * handoff sang CustomTextEditor chỉ khi bấm open (extension.js `releaseFormPreviewForMail`).
+       */
+      if (path.basename(document.uri.fsPath).toLowerCase() === 'message.xml') return;
       this.document = null;
       this.panel.title = 'FBO Designer';
       return this.post({
@@ -337,124 +345,37 @@ class PreviewPanel {
 
   onMessage(msg) {
     // Trả lời hộp thoại đi trước mọi thứ: nó là cái đang có một `await` chờ ở đầu kia.
-    if (this.dialogs.handleMessage(msg)) return;
+    if (this.dialogs.handleMessage(msg)) return undefined;
+
+    // `ready` mang thêm hàng đợi `pending` — CHỈ panel này có, vì nó có thể dựng lại shell (đổi
+    // program) trong lúc webview cũ chưa kịp báo sẵn sàng. Xử lý riêng trước khi giao phần dùng
+    // chung (`setLang`/`select`/`undo`/`redo`/`edit`/…) cho `dispatchDesignerMessage`.
     if (msg.type === 'ready') {
       this.ready = true;
       if (typeof msg.vi === 'boolean') this.vi = msg.vi;
       if (this.pending) { this.panel.webview.postMessage(this.pending); this.pending = null; }
       else this.render();
-      return;
-    }
-    if (msg.type === 'setLang') {
-      this.vi = msg.vi !== false;
-      return this.render();
-    }
-    if (msg.type === 'select') return revealSource(msg, this.document, this.output);
-
-    /*
-     * Ctrl+Z / Ctrl+Y bấm TRONG webview.
-     *
-     * Undo của VS Code bám vào editor đang active, mà lúc này editor active chính là cái webview
-     * — không phải TextEditor nào cả — nên phím tắt của workbench không có gì để bám. Designer
-     * giữ chồng hoàn tác riêng cho những phép sửa do chính nó gây ra; xem `edit-history.js`.
-     */
-    // Cùng chốt `editing` với phép sửa: hoàn tác cũng là `applyEdit` + `save()`, tức cũng đẻ ra
-    // nhiều nhịp cho một thao tác — và nó còn chạm NHIỀU FILE hơn, vì nó lùi cả cụm splice.
-    if (msg.type === 'undo' || msg.type === 'redo') {
-      this.editing = true;
-      const stack = history(this.output);
-      return runWithDialogs(this.dialogs, () => Promise.resolve(msg.type === 'undo' ? stack.undo() : stack.redo()))
-        .catch((err) => this.output.appendLine(`${msg.type} lỗi: ${err.stack || err.message}`))
-        .finally(() => this.finishEdit());
+      return undefined;
     }
 
-    // Sửa: dựng lại model từ VĂN BẢN HIỆN TẠI mỗi lần, không dùng lại model của lần render
-    // trước — người dùng có thể vừa gõ tay vào XML, và offset cũ đã lệch.
-    if (msg.type === 'edit') {
-      if (!this.document) return;
-      // Đánh dấu TRƯỚC khi sửa: `WorkspaceEdit` làm `onDidChangeTextDocument` bắn, và chính
-      // `render()` chạy từ đó mới là chỗ đọc cờ này. Đặt sau là muộn mất một nhịp.
-      // Chỉ `resize` (gộp/tách) mới được vá cục bộ — xem `render()`.
-      /*
-       * BỐN phép sửa chỉ đụng ĐÚNG MỘT hàng, nên cả bốn vá cục bộ được — không riêng `resize`.
-       *
-       * `move`, `insert`, `remove` đều chỉ ghi lại `value` của một thẻ `<item>`. Bắt chúng đi
-       * đường vẽ lại TOÀN BỘ là nguyên nhân của cái giật: `formLayer.innerHTML = …` dựng lại cả
-       * form, nên control còn nằm ở chỗ cũ suốt vòng gửi–ghi–lưu–vẽ rồi mới nhảy sang chỗ mới,
-       * kéo theo mất tab đang mở và mất vị trí cuộn.
-       *
-       * `addRow` thì KHÔNG: nó thêm hẳn một hàng mới, không có hàng cũ nào để mà vá.
-       *
-       * `col` chỉ có ở `move` — sau khi dời, control nằm ở CỘT khác, nên chọn lại theo cột mới
-       * chứ không theo chỉ số ô cũ (chỉ số ô đổi khi ô trống bị ăn mất). `swap` không cần: đổi
-       * chỗ giữ nguyên pattern nên mọi chỉ số ô đứng yên.
-       */
-      /*
-       * Shift+Delete thì KHÔNG vá cục bộ, dù `remove` vốn nằm trong danh sách.
-       *
-       * Nó kéo theo cả cụm: `[x].Label` cùng hàng, nhưng `[x].Description` và `[x].Footer`
-       * thường ở HÀNG KHÁC — có khi ở file khác. Vá một hàng khi ba hàng vừa đổi là để lại
-       * trên màn hình hai cái nhãn của một control đã không còn tồn tại, và chúng chỉ biến mất
-       * ở lần vẽ lại sau đó. Cứ vẽ lại toàn bộ: đằng nào cũng nhiều hàng đổi.
-       *
-       * (Xoá thường vẫn vá được — hàng biến mất hẳn thì `renderRowHtml` trả null và `render()`
-       * tự rơi về vẽ lại toàn bộ.)
-       */
-      const PATCHABLE = new Set(['resize', 'move', 'swap', 'insert', 'remove']);
-      const sameRowMove = msg.op === 'move' || msg.op === 'swap'
-        ? !Number.isFinite(Number(msg.toItem)) || Number(msg.toItem) === Number(msg.item)
-        : true;
-      const patchable = PATCHABLE.has(msg.op)
-        && !(msg.op === 'remove' && msg.withField === true)
-        && sameRowMove;
-      /*
-       * `swap` chọn lại ô `other`, KHÔNG phải ô `cell`.
-       *
-       * Đổi chỗ không đụng tới pattern, nên chỉ số ô của cả hàng y nguyên — chọn theo `cell` là
-       * chọn đúng cái slot cũ, và trong slot ấy giờ là control KIA. Người dùng vừa kéo control
-       * của họ sang chỗ mới; ô đang chọn phải đi theo nó, không đứng lại chờ.
-       */
-      this.localEdit = patchable
-        ? {
-          item: msg.item,
-          cell: msg.op === 'swap' ? msg.other : msg.cell,
-          col: msg.op === 'move' ? msg.col : undefined,
-        }
-        : null;
-      // Sửa bị TỪ CHỐI thì không có `onDidChangeTextDocument` nào bắn, và cờ ở lại. Lần render
-      // sau — rất có thể do người dùng gõ tay vào XML — sẽ bị gửi đi dưới dạng bản vá một hàng,
-      // tức nuốt mất mọi thay đổi khác. Dọn cờ ngay khi biết phép sửa không thành.
-      //
-      // `editing` giữ mọi nhịp vẽ lại cho tới khi phép sửa ngã ngũ — xem `renderSoon`. Một phép
-      // sửa chạm hai file là `applyEdit` bắn hai nhịp rồi `save()` bắn tiếp; không có chốt này
-      // thì ba lượt dựng lại toàn bộ HTML xếp hàng trước lượt duy nhất người dùng nhìn thấy.
-      this.editing = true;
-      return runWithDialogs(this.dialogs, () => Promise.resolve(handleEdit(msg, this.core, this.document, () => this.buildNow(), this.output)))
-        .then((applied) => { if (!applied) this.localEdit = null; })
-        .catch((err) => {
-          this.localEdit = null;
-          this.output.appendLine(`sửa lỗi: ${err.stack || err.message}`);
-        })
-        // `finally`: hộp thoại bị Esc, phép sửa bị từ chối, hay handler ném — cả ba đều phải
-        // thả chốt ra. Kẹt `editing` ở `true` là preview đứng hình vĩnh viễn, và người dùng
-        // không có cách nào nối chuyện đó với cái hộp thoại họ vừa bấm Esc.
-        .finally(() => this.finishEdit());
-    }
-
-    // Dựng lại shell với dấu phiên bản mới trên MỌI url — lối thoát khi webview còn giữ bản cũ
-    // mà mtime của file không đổi (chép bằng công cụ giữ nguyên timestamp chẳng hạn).
-    if (msg.type === 'reloadAssets') {
-      this.bust += 1;
-      this.output.appendLine(`nạp lại tài nguyên (bust=${this.bust})`);
-      return this.render(true);
-    }
-
-    if (msg.type === 'assets') {
-      this.output.appendLine(`[P0 câu hỏi 2] CSS khai ${msg.declared}, webview nạp được ${msg.loaded}, hỏng ${msg.failed}`);
-      for (const href of msg.failedHrefs || []) this.output.appendLine(`  không nạp được: ${href}`);
-      return;
-    }
-    if (msg.type === 'log') this.output.appendLine(String(msg.text));
+    return dispatchDesignerMessage(msg, {
+      document: this.document,
+      core: this.core,
+      output: this.output,
+      overlay: this.dialogs,
+      handleEdit,
+      history,
+      runWithDialogs,
+      revealSource,
+      setVi: (v) => { this.vi = v; },
+      render: () => this.render(),
+      setEditing: (v) => { this.editing = v; },
+      setPendingLocalEdit: (v) => { this.localEdit = v; },
+      finishEdit: () => this.finishEdit(),
+      buildRebuild: () => () => this.buildNow(),
+      bumpBust: () => { this.bust += 1; return this.bust; },
+      rebuildShell: () => this.render(true),
+    });
   }
 
   /**

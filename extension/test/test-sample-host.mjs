@@ -299,7 +299,7 @@ ok('câu ĐẦU là câu dò, trên bảng chứng từ',
  * trước là đọc một bảng không có dòng nào của nó.
  */
 ok('câu SAU đọc bảng theo kỳ VỪA DÒ ĐƯỢC', sqlHost.ran[1].sql.includes('from d64$202607 a'));
-ok('và lọc theo khoá VỪA DÒ ĐƯỢC', sqlHost.ran[1].sql.includes("where a.stt_rec = 'PN1000000000123'"));
+ok('và lọc theo khoá VỪA DÒ ĐƯỢC', sqlHost.ran[1].sql.includes("where stt_rec = 'PN1000000000123'"));
 ok('câu dò KHÔNG hex (khoá là mã ASCII)', sqlHost.ran[0].opts.textAsHex === false);
 ok('KHÔNG hỏi người dùng gì cả', fakeDialog.shown.length === 0);
 ok('dữ liệu vào kho', store.getSample(DETAIL) !== null);

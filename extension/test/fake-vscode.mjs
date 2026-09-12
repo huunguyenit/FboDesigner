@@ -100,6 +100,11 @@ export const Uri = {
     const rest = String(s).slice(i + 1);
     return new FakeUri(scheme, rest.startsWith('/') ? rest : `/${rest}`);
   },
+  /** Ghép thêm đoạn vào `path` của một Uri có sẵn — dùng cho `localResourceRoots` (media, …). */
+  joinPath(base, ...segments) {
+    const parts = [base.path.replace(/\/+$/, ''), ...segments];
+    return new FakeUri(base.scheme, parts.join('/').replace(/\/+/g, '/'));
+  },
 };
 
 /**
@@ -234,7 +239,38 @@ export const workspace = {
     return { get: (key) => workspace.settings[`${prefix}${key}`] };
   },
   onDidOpenTextDocument: () => ({ dispose() {} }),
-  onDidChangeTextDocument: () => ({ dispose() {} }),
+
+  /*
+   * GIỮ LẠI listener thay vì bỏ qua — Email Designer vẽ lại khi document (hoặc Include) đổi, và
+   * không có điểm quan sát này thì không kiểm được «đổi một lần → vẽ đúng một lần». Test bắn sự
+   * kiện qua `fireDidChangeTextDocument`; test nào không bắn thì listener chỉ nằm im.
+   */
+  changeListeners: [],
+  onDidChangeTextDocument(fn) {
+    workspace.changeListeners.push(fn);
+    return { dispose() { workspace.changeListeners = workspace.changeListeners.filter((f) => f !== fn); } };
+  },
+  fireDidChangeTextDocument(e) {
+    for (const fn of [...workspace.changeListeners]) fn(e);
+  },
+
+  /** File watcher giả — giữ handler theo loại sự kiện; test gọi `watcher.fire('change')`. */
+  watchers: [],
+  createFileSystemWatcher(pattern) {
+    const handlers = { change: [], create: [], delete: [] };
+    const on = (kind) => (fn) => { handlers[kind].push(fn); return { dispose() {} }; };
+    const watcher = {
+      pattern,
+      disposed: false,
+      onDidChange: on('change'),
+      onDidCreate: on('create'),
+      onDidDelete: on('delete'),
+      fire(kind, uri) { for (const fn of handlers[kind]) fn(uri); },
+      dispose() { watcher.disposed = true; },
+    };
+    workspace.watchers.push(watcher);
+    return watcher;
+  },
   onDidSaveTextDocument: () => ({ dispose() {} }),
   onDidCloseTextDocument: () => ({ dispose() {} }),
   onDidChangeConfiguration: () => ({ dispose() {} }),
@@ -327,6 +363,14 @@ export const OverviewRulerLane = {
 export const TextEditorRevealType = {
   Default: 0, InCenter: 1, InCenterIfOutsideViewport: 2, AtTop: 3,
 };
+
+/** Mẫu glob theo một thư mục gốc — đủ cho file watcher của Email Designer. */
+export class RelativePattern {
+  constructor(base, pattern) {
+    this.base = base;
+    this.pattern = pattern;
+  }
+}
 
 /** `Selection` là `Range` cộng hướng — chế độ soi chỉ cần phần `Range`. */
 export class Selection extends Range {
@@ -426,6 +470,13 @@ export const window = {
     },
   },
 
+  /** Custom editor đã đăng ký — test đọc provider + tuỳ chọn đăng ký ra để kiểm. */
+  customEditors: new Map(),
+  registerCustomEditorProvider(viewType, provider, options) {
+    window.customEditors.set(viewType, { provider, options });
+    return { dispose() { window.customEditors.delete(viewType); } };
+  },
+
   panels: [],
   createWebviewPanel(viewType, title, showOptions, options) {
     const panel = {
@@ -435,7 +486,34 @@ export const window = {
       options,
       disposed: false,
       revealed: 0,
-      webview: { html: '' },
+      /*
+       * `onDidReceiveMessage` GIỮ LẠI handler thay vì bỏ qua — điểm quan sát duy nhất cho kênh
+       * webview → host (`mail-preview-host.js` dùng nó để nhớ lựa chọn và «đi tới định nghĩa»).
+       * `postMessageFromWebview` là lối vào TEST dùng để giả một tin nhắn từ phía webview gửi
+       * lên, không phải API thật của VS Code.
+       */
+      webview: {
+        html: '',
+        options: {},
+        cspSource: 'vscode-webview://fake',
+        /** Host → webview: GIỮ LẠI mọi tin gửi đi — điểm quan sát của Email Designer (`render`, `idle`…). */
+        posted: [],
+        postMessage(msg) {
+          panel.webview.posted.push(msg);
+          return Promise.resolve(true);
+        },
+        asWebviewUri(uri) {
+          return uri;
+        },
+        messageHandler: null,
+        onDidReceiveMessage(fn) {
+          this.messageHandler = fn;
+          return { dispose() { panel.webview.messageHandler = null; } };
+        },
+        postMessageFromWebview(msg) {
+          return this.messageHandler ? this.messageHandler(msg) : undefined;
+        },
+      },
       onDidDispose(fn) {
         panel.disposeHandler = fn;
         return { dispose() {} };
@@ -476,7 +554,18 @@ export const window = {
 
   onDidChangeActiveTextEditor: () => ({ dispose() {} }),
   onDidChangeVisibleTextEditors: () => ({ dispose() {} }),
-  onDidChangeTextEditorSelection: () => ({ dispose() {} }),
+  /*
+   * GIỮ LẠI listener đổi vùng chọn — điểm quan sát của «Bám XML» (Email Designer): con trỏ XML đổi thì
+   * designer chọn theo. Test bắn sự kiện qua `fireDidChangeTextEditorSelection`.
+   */
+  selectionListeners: [],
+  onDidChangeTextEditorSelection(fn) {
+    window.selectionListeners.push(fn);
+    return { dispose() { window.selectionListeners = window.selectionListeners.filter((f) => f !== fn); } };
+  },
+  fireDidChangeTextEditorSelection(e) {
+    for (const fn of [...window.selectionListeners]) fn(e);
+  },
 
   asked: { quickPick: [], inputBox: [], warning: [], info: [] },
   answers: { quickPick: [], inputBox: [], warning: [] },
