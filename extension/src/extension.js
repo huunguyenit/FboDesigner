@@ -10,7 +10,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
 const { FboDesignerProvider } = require('./designer-editor');
-const { PreviewPanel } = require('./preview-panel');
+const { PreviewPanel, VIEW_TYPE: PREVIEW_VIEW_TYPE } = require('./preview-panel');
 const { isControllerDocument, config, panelColumn } = require('./render-host');
 const { declareFilter } = require('./filter-host');
 const { addColumns } = require('./add-column-host');
@@ -43,6 +43,35 @@ async function loadCore() {
 /** `Options/Message.xml` (và mọi file tên Message.xml) → Email Designer; còn lại → panel form/lưới. */
 function isMessageXmlDocument(document) {
   return !!document && path.basename(document.uri.fsPath).toLowerCase() === 'message.xml';
+}
+
+/**
+ * Đóng tab `WebviewPanel` form/lưới (`fboDesigner.preview`) còn sót — kể cả sau F5 khi
+ * `PreviewPanel.current` đã mất nhưng tab workbench vẫn còn.
+ *
+ * Email Designer là `CustomTextEditor` (`fboDesigner.mail`) — loại panel khác; không đóng bằng
+ * hàm này. Handoff giữa hai bề mặt nằm ở `fboDesigner.open`.
+ */
+async function closeOrphanFormPreviewTabs() {
+  const tabs = [];
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      const input = tab.input;
+      if (input && input.viewType === PREVIEW_VIEW_TYPE) tabs.push(tab);
+    }
+  }
+  if (tabs.length) await vscode.window.tabGroups.close(tabs, true);
+  return tabs.length;
+}
+
+/**
+ * Nhả bề mặt form (`WebviewPanel`) trước khi mở Email Designer (`CustomTextEditor`).
+ * Một lệnh `fboDesigner.open` phục vụ hai model nhưng hai loại panel VS Code khác nhau — để
+ * cùng lúc là `track` của PreviewPanel tranh với custom editor mail (idle / webview sai).
+ */
+async function releaseFormPreviewForMail() {
+  if (PreviewPanel.current) PreviewPanel.current.panel.dispose();
+  await closeOrphanFormPreviewTabs();
 }
 
 async function activate(context) {
@@ -93,9 +122,12 @@ async function activate(context) {
   // Mọi lệnh nghiệp vụ đều qua withLicense — Settings (machineId / dán key) vẫn dùng được.
   // Một lệnh mở: Message.xml → Email Designer; Dir/Filter/Grid → panel giao diện giả lập.
   context.subscriptions.push(
-    vscode.commands.registerCommand('fboDesigner.open', withLicense(context, () => {
+    vscode.commands.registerCommand('fboDesigner.open', withLicense(context, async () => {
       const doc = vscode.window.activeTextEditor?.document;
-      if (isMessageXmlDocument(doc)) return openMailDesigner(core);
+      if (isMessageXmlDocument(doc)) {
+        await releaseFormPreviewForMail();
+        return openMailDesigner(core);
+      }
       if (doc && !isControllerDocument(doc)) {
         vscode.window.showWarningMessage(toast('extension.only_controllers'));
       }

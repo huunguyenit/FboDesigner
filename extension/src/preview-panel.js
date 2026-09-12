@@ -136,6 +136,13 @@ class PreviewPanel {
         this.panel.title = `Designer · ${path.basename(this.document.uri.fsPath)}`;
         return;
       }
+      /*
+       * Message.xml thuộc Email Designer = CustomTextEditor; panel này = WebviewPanel form/lưới.
+       * Cùng lệnh `fboDesigner.open` nhưng khác loại bề mặt VS Code. Chỉ chuyển tab sang
+       * Message.xml thì không idle/not_controller (chặn nhầm) và không đụng form đang xem —
+       * handoff sang CustomTextEditor chỉ khi bấm open (extension.js `releaseFormPreviewForMail`).
+       */
+      if (path.basename(document.uri.fsPath).toLowerCase() === 'message.xml') return;
       this.document = null;
       this.panel.title = 'FBO Designer';
       return this.post({
